@@ -40,6 +40,63 @@ async def _resolve_session_type(session_id: str, db: AsyncSession) -> str | None
     return None
 
 
+async def persist_capture_har(
+    db: AsyncSession, capture_session_id: str, har_bytes: bytes
+) -> HarFile:
+    """Persist a HAR captured for a capture session so analysis/export can find it.
+
+    Resolves the capture session to its domain (login/workflow) session, writes the
+    HAR under ``{data_dir}/har/{session_type}/{store_id}.har``, sets
+    ``CaptureSession.har_file_path``, and upserts the ``HarFile`` row keyed by the
+    domain session id + type.
+
+    Shared by the extension-compat upload endpoint and the Tabby-mode autopilot
+    stop-capture (which receives the HAR server-side from the worker). Keeping both
+    paths on this one routine is what guarantees the exporter can locate the HAR
+    regardless of how it was captured.
+    """
+    from backend.elicitation.models import CaptureSession
+    from backend.shared.session_resolution import resolve_domain_session
+
+    resolved = await resolve_domain_session(capture_session_id, db)
+    if resolved:
+        store_id, session_type = resolved
+    else:
+        session_type = await _resolve_session_type(capture_session_id, db) or "unknown"
+        store_id = capture_session_id
+
+    har_dir = Path(settings.data_dir) / "har" / session_type
+    har_dir.mkdir(parents=True, exist_ok=True)
+    file_path = har_dir / f"{store_id}.har"
+    file_path.write_bytes(har_bytes)
+
+    # Keep CaptureSession.har_file_path in sync so the elicitation GET route finds it.
+    cs_result = await db.execute(
+        select(CaptureSession).where(CaptureSession.id == capture_session_id)
+    )
+    cs = cs_result.scalar_one_or_none()
+    if cs:
+        cs.har_file_path = str(file_path)
+
+    existing = await db.execute(
+        select(HarFile).where(
+            HarFile.session_id == store_id,
+            HarFile.session_type == session_type,
+        )
+    )
+    har_record = existing.scalar_one_or_none()
+    if har_record:
+        har_record.file_path = str(file_path)
+    else:
+        har_record = HarFile(
+            session_id=store_id, session_type=session_type, file_path=str(file_path)
+        )
+        db.add(har_record)
+    await db.commit()
+    await db.refresh(har_record)
+    return har_record
+
+
 @router.post("/sessions/{session_id}/har", response_model=HarFileOut, status_code=201)
 async def upload_har(
     session_id: str,
@@ -134,22 +191,6 @@ async def upload_har_compat(
     the HAR under the **domain** session ID so that analysis endpoints find it
     with a simple ``session_id + session_type`` query.
     """
-    from backend.elicitation.models import CaptureSession
-    from backend.shared.session_resolution import resolve_domain_session
-
-    # Resolve domain session to get the correct storage ID and type
-    resolved = await resolve_domain_session(session_id, db)
-    if resolved:
-        store_id, session_type = resolved
-    else:
-        # Direct session or unknown — fall back to type resolution
-        session_type = await _resolve_session_type(session_id, db) or "unknown"
-        store_id = session_id
-
-    har_dir = Path(settings.data_dir) / "har" / session_type
-    har_dir.mkdir(parents=True, exist_ok=True)
-    file_path = har_dir / f"{store_id}.har"
-
     content = await file.read()
     try:
         json.loads(content)
@@ -157,42 +198,13 @@ async def upload_har_compat(
         # Store even if invalid JSON — don't block the extension upload
         logger.warning("HAR upload for %s is not valid JSON — storing anyway", session_id)
 
-    file_path.write_bytes(content)
+    har_record = await persist_capture_har(db, session_id, content)
     logger.info(
         "Compat HAR upload: capture_session=%s → stored as %s/%s",
         session_id,
-        session_type,
-        store_id,
+        har_record.session_type,
+        har_record.session_id,
     )
-
-    # Also update CaptureSession.har_file_path so the elicitation GET route can find it
-    cs_result = await db.execute(select(CaptureSession).where(CaptureSession.id == session_id))
-    cs = cs_result.scalar_one_or_none()
-    if cs:
-        cs.har_file_path = str(file_path)
-
-    existing = await db.execute(
-        select(HarFile).where(
-            HarFile.session_id == store_id,
-            HarFile.session_type == session_type,
-        )
-    )
-    old = existing.scalar_one_or_none()
-    if old:
-        old.file_path = str(file_path)
-        await db.commit()
-        await db.refresh(old)
-        return {
-            "id": old.id,
-            "session_id": old.session_id,
-            "session_type": old.session_type,
-            "file_path": old.file_path,
-        }
-
-    har_record = HarFile(session_id=store_id, session_type=session_type, file_path=str(file_path))
-    db.add(har_record)
-    await db.commit()
-    await db.refresh(har_record)
     return {
         "id": har_record.id,
         "session_id": har_record.session_id,
