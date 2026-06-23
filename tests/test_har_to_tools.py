@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from compiler.mcp.har_to_tools import (
+from noui_core.compile.har_to_tools import (
     HarValidationError,
     _body_to_params,
     _id_param_name,

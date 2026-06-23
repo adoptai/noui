@@ -11,7 +11,7 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.recording.bundle_adapter import (
+from noui_core.capture.bundle import (
     click_payloads,
     count_sensitive_unredacted,
     har_log,

@@ -73,7 +73,7 @@ description: {_escape_yaml_scalar(description)}
 
     rendered = frontmatter + "\n" + body
     if existing:
-        from compiler.markdown_sections import merge_custom_sections
+        from noui_core.compile.markdown_sections import merge_custom_sections
 
         rendered = merge_custom_sections(existing, rendered)
     return rendered

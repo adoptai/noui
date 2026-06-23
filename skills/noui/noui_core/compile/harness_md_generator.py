@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import re
 
-from compiler.skill.skill_md_generator import (
+from noui_core.compile.skill_md_generator import (
     _escape_yaml_scalar,
     _synthesize_description,
 )
@@ -200,7 +200,7 @@ description: {_escape_yaml_scalar(description)}
 
     rendered = frontmatter + "\n" + body
     if existing:
-        from compiler.markdown_sections import merge_custom_sections
+        from noui_core.compile.markdown_sections import merge_custom_sections
 
         rendered = merge_custom_sections(existing, rendered)
     return rendered

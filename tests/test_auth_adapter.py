@@ -18,7 +18,7 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.runtime.auth_adapter import generate_auth_adapter
+from noui_core.activate.auth_adapter import generate_auth_adapter
 
 
 def _generated() -> str:

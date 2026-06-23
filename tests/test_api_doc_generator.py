@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from compiler.mcp.api_doc_generator import (
+from noui_core.compile.api_doc_generator import (
     _extract_base_url,
     _format_auth_detail,
     _format_auth_summary,

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from runtime.tabby_auth import _build_headers_from_data, get_auth_headers, get_auth_headers_sync
+from noui_core.auth import _build_headers_from_data, get_auth_headers, get_auth_headers_sync
 
 
 class TestBuildHeadersFromData:
@@ -96,7 +96,7 @@ class TestGetAuthHeaders:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("runtime.tabby_auth.httpx.AsyncClient", return_value=mock_client):
+        with patch("noui_core.auth.httpx.AsyncClient", return_value=mock_client):
             result = asyncio.run(get_auth_headers("my-profile"))
 
         assert result["Authorization"] == "Bearer tok"
@@ -116,7 +116,7 @@ class TestGetAuthHeaders:
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("runtime.tabby_auth.httpx.AsyncClient", return_value=mock_client),
+            patch("noui_core.auth.httpx.AsyncClient", return_value=mock_client),
             pytest.raises(httpx.HTTPStatusError),
         ):
             asyncio.run(get_auth_headers("bad-profile"))
@@ -135,7 +135,7 @@ class TestGetAuthHeadersSync:
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=None)
 
-        with patch("runtime.tabby_auth.urllib.request.urlopen", return_value=mock_response):
+        with patch("noui_core.auth.urllib.request.urlopen", return_value=mock_response):
             result = get_auth_headers_sync("my-profile")
 
         assert result["X-Api-Key"] == "key123"

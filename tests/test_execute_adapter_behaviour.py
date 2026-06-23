@@ -1,7 +1,7 @@
 """Behavioural tests for the generated noui_runtime/execute.py adapter.
 
 The adapter is emitted as a source *string* by
-``compiler.runtime.execute_adapter.generate_execute_adapter``. To test runtime
+``noui_core.activate.execute_adapter.generate_execute_adapter``. To test runtime
 behaviour we exec that string into a fresh module namespace and drive
 ``execute_fetch`` with a fake ``httpx.AsyncClient``. Coroutines are run via
 ``asyncio.run`` so the suite needs no pytest-asyncio plugin.
@@ -30,7 +30,7 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.runtime.execute_adapter import generate_execute_adapter
+from noui_core.activate.execute_adapter import generate_execute_adapter
 
 # ---------------------------------------------------------------------------
 # Fakes

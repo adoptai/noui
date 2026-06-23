@@ -339,7 +339,7 @@ def _render_cli_wrapper(name: str, description: str, params: list[dict]) -> list
 
 
 # ---------------------------------------------------------------------------
-# Private code-generation helpers (duplicated from compiler.mcp.server_generator
+# Private code-generation helpers (duplicated from noui_core.compile.server_generator
 # to avoid a cross-compiler private import; small enough to keep in sync by hand)
 # ---------------------------------------------------------------------------
 

@@ -137,3 +137,6 @@ ignore_errors = true
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The distributable bundle lives at skills/noui/; put it on the path so tests
+# (and scripts) can `import noui_core`.
+pythonpath = ["skills/noui"]

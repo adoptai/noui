@@ -27,7 +27,7 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.runtime.execute_adapter import generate_execute_adapter
+from noui_core.activate.execute_adapter import generate_execute_adapter
 
 
 def _generated() -> str:

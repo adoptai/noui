@@ -1,7 +1,7 @@
 """NoUI Skill generator.
 
 `compile_workflow_to_skill(...)` is the single public entry point. Mirrors
-`compiler.mcp.server_generator.compile_workflow` so the backend export endpoint
+`noui_core.compile.server_generator.compile_workflow` so the backend export endpoint
 can branch on --as mcp|skill|both without reshaping its inputs.
 
 Output tree:
@@ -36,18 +36,18 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-from compiler.mcp.api_doc_generator import generate_api_markdown
-from compiler.mcp.auth_plan import generate_auth_plan
-from compiler.mcp.har_to_tools import har_to_tool_defs
-from compiler.runtime.auth_adapter import generate_auth_adapter
-from compiler.runtime.execute_adapter import generate_execute_adapter
-from compiler.skill.harness_md_generator import (
+from noui_core.activate.auth_adapter import generate_auth_adapter
+from noui_core.activate.execute_adapter import generate_execute_adapter
+from noui_core.compile.api_doc_generator import generate_api_markdown
+from noui_core.compile.auth_plan import generate_auth_plan
+from noui_core.compile.har_to_tools import har_to_tool_defs
+from noui_core.compile.harness_md_generator import (
     render_harness_skill_md,
     render_operations_json,
     secret_names,
 )
-from compiler.skill.operation_generator import render_skill_operation
-from compiler.skill.skill_md_generator import render_skill_md
+from noui_core.compile.operation_generator import render_skill_operation
+from noui_core.compile.skill_md_generator import render_skill_md
 
 _VALID_EXECUTION_MODES = ("tabby", "http", "harness")
 
@@ -70,7 +70,7 @@ def compile_workflow_to_skill(
 ) -> dict:
     """Compile a recorded workflow session into an installable Claude Code skill.
 
-    See `compile_workflow` in compiler.mcp.server_generator for `execution_mode`
+    See `compile_workflow` in noui_core.compile.server_generator for `execution_mode`
     semantics — the two compilers stay in lockstep.
 
     Returns the manifest dict (same content as manifest.json).
@@ -80,7 +80,7 @@ def compile_workflow_to_skill(
             f"Invalid execution_mode {execution_mode!r}. Expected one of {_VALID_EXECUTION_MODES}."
         )
 
-    from backend.config import settings as _settings
+    from noui_core.config import settings as _settings
 
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)

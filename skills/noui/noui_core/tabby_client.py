@@ -4,7 +4,7 @@ Tabby API client for the NoUI compiler.
 Provides synchronous functions to register, validate, and promote
 Tabby Application + ServiceProfile records via urllib.request.
 
-Configuration is read from backend.config.settings:
+Configuration is read from noui_core.config.settings:
     settings.tabby_api_host   — e.g. "http://localhost:8080"
     settings.tabby_admin_token — bearer token for /admin/* endpoints
 """
@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from backend.config import settings
+from noui_core.config import settings
 
 # ---------------------------------------------------------------------------
 # Internal HTTP helper

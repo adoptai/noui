@@ -17,7 +17,7 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.mcp import auth_verifier as av
+from noui_core.activate import verify as av
 
 
 class _FakeResponse:

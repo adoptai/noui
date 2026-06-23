@@ -22,11 +22,11 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-from compiler.mcp.api_doc_generator import generate_api_markdown
-from compiler.mcp.auth_plan import generate_auth_plan
-from compiler.mcp.har_to_tools import har_to_tool_defs
-from compiler.runtime.auth_adapter import generate_auth_adapter
-from compiler.runtime.execute_adapter import generate_execute_adapter
+from noui_core.activate.auth_adapter import generate_auth_adapter
+from noui_core.activate.execute_adapter import generate_execute_adapter
+from noui_core.compile.api_doc_generator import generate_api_markdown
+from noui_core.compile.auth_plan import generate_auth_plan
+from noui_core.compile.har_to_tools import har_to_tool_defs
 
 _VALID_EXECUTION_MODES = ("tabby", "http")
 
@@ -72,7 +72,7 @@ def compile_workflow(
             f"Invalid execution_mode {execution_mode!r}. Expected one of {_VALID_EXECUTION_MODES}."
         )
 
-    from backend.config import settings as _settings
+    from noui_core.config import settings as _settings
 
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)

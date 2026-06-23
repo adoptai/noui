@@ -28,8 +28,8 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.mcp.har_to_tools import HarValidationError
-from compiler.mcp.server_generator import compile_workflow
+from noui_core.compile.har_to_tools import HarValidationError
+from noui_core.compile.server_generator import compile_workflow
 
 # ---------------------------------------------------------------------------
 # HAR builders

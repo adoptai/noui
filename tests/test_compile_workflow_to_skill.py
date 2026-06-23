@@ -18,8 +18,8 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.mcp.har_to_tools import HarValidationError
-from compiler.skill.skill_generator import compile_workflow_to_skill
+from noui_core.compile.har_to_tools import HarValidationError
+from noui_core.compile.skill_generator import compile_workflow_to_skill
 
 
 def _har(entries: list[dict]) -> dict:
@@ -274,7 +274,7 @@ class TestSharedRuntime:
         """The noui_runtime/auth.py generated for a Skill must be byte-identical to
         the one generated for the equivalent MCP server — that's the whole point
         of compiler/runtime/."""
-        from compiler.mcp.server_generator import compile_workflow
+        from noui_core.compile.server_generator import compile_workflow
 
         har = _har([_entry("https://api.example.com/v1/widgets")])
         skill_out = Path(tempfile.mkdtemp())
@@ -305,7 +305,7 @@ class TestSharedRuntime:
 
     def test_execute_py_matches_mcp_output(self) -> None:
         """noui_runtime/execute.py must be byte-identical for skill and MCP outputs."""
-        from compiler.mcp.server_generator import compile_workflow
+        from noui_core.compile.server_generator import compile_workflow
 
         har = _har([_entry("https://api.example.com/v1/widgets")])
         skill_out = Path(tempfile.mkdtemp())
