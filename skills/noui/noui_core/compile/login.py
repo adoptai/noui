@@ -63,8 +63,15 @@ def compile_login_bundle(
     name: str = "",
     login_url: str = "",
     auth_mode: str = "agent_token",
+    manual_credentials: bool | None = None,
 ) -> dict[str, Any]:
-    """Compile a login bundle into App/ServiceProfile drafts + review items."""
+    """Compile a login bundle into App/ServiceProfile drafts + review items.
+
+    manual_credentials: True → `credential_ref: "manual:"` + request_human_input
+    steps (no stored secret; the worker pod starts without a K8s secret mount and
+    a human completes login via HITL/VNC). False → stored `k8s:secret`. None →
+    legacy coupling (manual iff auth_mode is platform_jwt).
+    """
     name = name or f"recording-{session_id[:8]}"
 
     # Resolve the login URL (explicit wins, else first http(s) URL transition).
@@ -82,6 +89,7 @@ def compile_login_bundle(
         bundle.get("url_events", []),
         har=bundle.get("har"),
         auth_mode=auth_mode,
+        manual_credentials=manual_credentials,
     )
     _enrich_credential_types_from_cookies(result, bundle)
     return result

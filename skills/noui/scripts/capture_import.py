@@ -45,6 +45,14 @@ def main() -> int:
         choices=["agent_token", "platform_jwt"],
         default="agent_token",
     )
+    p.add_argument(
+        "--credential-mode",
+        dest="credential_mode",
+        choices=["manual", "stored", "auto"],
+        default="manual",
+        help="(login) manual: no stored secret — human completes login via VNC/HITL "
+        "(default); stored: k8s:secret with username/password; auto: manual iff platform_jwt",
+    )
     p.add_argument("--promote", action="store_true", help="(login) promote STAGING → ACTIVE")
     p.add_argument(
         "--as-template",
@@ -93,6 +101,7 @@ def main() -> int:
         return 0
 
     # login
+    manual_credentials = {"manual": True, "stored": False, "auto": None}[args.credential_mode]
     try:
         compiled = compile_login_bundle(
             session_id=args.session_id,
@@ -100,6 +109,7 @@ def main() -> int:
             name=args.name,
             login_url=args.url,
             auth_mode=args.auth_mode,
+            manual_credentials=manual_credentials,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Login compile failed: {exc}", file=sys.stderr)

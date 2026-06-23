@@ -459,6 +459,7 @@ def generate(
     url_events: list[dict],
     har: dict | None = None,
     auth_mode: str | None = None,
+    manual_credentials: bool | None = None,
 ) -> dict[str, Any]:
     """
     Generate an Application draft, ServiceProfile draft, and review items
@@ -485,7 +486,15 @@ def generate(
     -------
     Full bundle dict.
     """
-    manual_creds = _resolve_auth_mode(auth_mode) == "platform_jwt"
+    # Credential model is independent of the runtime token mode: `manual:` means
+    # no stored secret — the worker pod starts without a K8s secret mount and the
+    # login is completed by a human via HITL/VNC (request_human_input steps).
+    # `k8s:secret` reuses stored username/password. When manual_credentials is
+    # None, fall back to the legacy coupling (manual iff platform_jwt).
+    if manual_credentials is None:
+        manual_creds = _resolve_auth_mode(auth_mode) == "platform_jwt"
+    else:
+        manual_creds = manual_credentials
     session_id = session.get("id", "")
     app_name = session.get("app_name") or "recorded-app"
     login_url = session.get("login_url") or ""

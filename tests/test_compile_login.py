@@ -58,6 +58,23 @@ def test_enrich_does_not_override_har_derived():
     assert names == {"from_har"}  # untouched
 
 
+def test_credential_mode_manual_vs_stored():
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [{"to_url": "https://x.com/login"}],
+        "click_events": [],
+        "har": {"log": {"entries": []}},
+        "cookies": [],
+    }
+    man = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_credentials=True)
+    assert man["application_draft"]["login_config"]["credential_ref"] == "manual:"
+
+    stored = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_credentials=False)
+    assert stored["application_draft"]["login_config"]["credential_ref"].startswith("k8s:secret/")
+
+
 def test_enrich_noop_without_bundle_cookies():
     result = {"service_profile_draft": {"credential_types": {"cookies": []}}}
     _enrich_credential_types_from_cookies(result, {})  # no cookies field
