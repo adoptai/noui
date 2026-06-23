@@ -7,9 +7,9 @@ Make compiled assets usable, with Tabby `/execute` as the engine.
 
 1. `POST /apps` (application_draft) → `app_id`.
 2. `POST /admin/profiles` (service_profile_draft + app_id + version) → `profile_db_id`, state `STAGING`.
-3. `--promote` → `POST /admin/profiles/{id}/promote` twice (STAGING → CANARY → ACTIVE).
+3. `--promote` → `POST /admin/profiles/{id}/promote` once (STAGING → **CANARY**).
 
-> The runtime resolver matches **ACTIVE/CANARY only** — a STAGING-only profile 404s at the first tool call. Promote before use.
+> The runtime resolver matches **ACTIVE *and* CANARY** — a STAGING-only profile 404s at the first tool call, so promote once to CANARY before use. The further CANARY → ACTIVE step is gated by Tabby behind a canary-traffic threshold (≥5 served requests) and is a production decision, not forced at registration.
 
 ### Why this step needs an admin token (not agent client/secret)
 Register/promote is the **only** part of NoUI that an agent client/secret cannot do. Those credentials mint an `Agent`-role token, and Tabby gates these endpoints higher:

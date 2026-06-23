@@ -37,7 +37,9 @@ def register_login(
 
     Args:
         result: the dict from compile.login (application_draft, service_profile_draft, validation).
-        promote: if True, promote STAGING → CANARY → ACTIVE.
+        promote: if True, promote STAGING → CANARY (runtime-usable; the resolver
+            serves CANARY). CANARY → ACTIVE is gated by canary traffic and is not
+            forced here.
         as_template: if True, also create a tenant-wide App Template for
             per-user auto-provisioning (platform_jwt / federated users).
         token: admin token; defaults to TABBY_ADMIN_TOKEN.
@@ -64,10 +66,12 @@ def register_login(
 
     version_state = "STAGING"
     if promote:
-        # Tabby promotes one step at a time: STAGING → CANARY → ACTIVE.
+        # One promote: STAGING → CANARY. CANARY is already runtime-usable — the
+        # resolver serves ACTIVE *and* CANARY. The further CANARY → ACTIVE step is
+        # gated by Tabby behind a canary-traffic threshold (≥5 served requests),
+        # so it can't be forced at registration time; it's a production decision.
         tabby_client.promote_profile(profile_db_id, token)
-        tabby_client.promote_profile(profile_db_id, token)
-        version_state = "ACTIVE"
+        version_state = "CANARY"
 
     out = {
         "app_id": app_id,

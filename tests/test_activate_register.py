@@ -72,9 +72,9 @@ def test_register_with_promote(monkeypatch):
     fake = FakeClient()
     _patch(monkeypatch, fake)
     out = register.register_login(_compiled(), promote=True)
-    assert out["version_state"] == "ACTIVE"
-    # Promote called twice: STAGING → CANARY → ACTIVE.
-    assert [c[0] for c in fake.calls].count("promote_profile") == 2
+    # One promote: STAGING → CANARY (runtime-usable). ACTIVE is gated by canary traffic.
+    assert out["version_state"] == "CANARY"
+    assert [c[0] for c in fake.calls].count("promote_profile") == 1
 
 
 def test_register_with_template(monkeypatch):
