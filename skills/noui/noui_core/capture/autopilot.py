@@ -55,7 +55,9 @@ class AutopilotSession:
         self.capturing = False
 
     # ── low-level ────────────────────────────────────────────────────────────
-    def _exec(self, command: str, params: dict | None = None, timeout_ms: int | None = None) -> dict:
+    def _exec(
+        self, command: str, params: dict | None = None, timeout_ms: int | None = None
+    ) -> dict:
         resp = tabby_client.execute_browser(
             self.profile_slug,
             command,
@@ -155,6 +157,8 @@ def run_steps(profile_slug: str, steps: list[dict], *, token: str = "") -> dict:
         action = str(step.get("action") or "")
         fn = _STEP_DISPATCH.get(action)
         if fn is None:
-            raise ValueError(f"step {i}: unknown action {action!r}; valid: {sorted(_STEP_DISPATCH)}")
+            raise ValueError(
+                f"step {i}: unknown action {action!r}; valid: {sorted(_STEP_DISPATCH)}"
+            )
         fn(ap, step)
     return ap.finish()

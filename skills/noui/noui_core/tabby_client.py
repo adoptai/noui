@@ -354,7 +354,9 @@ def execute_browser(
     if not isinstance(resp, dict):
         raise RuntimeError(f"Unexpected response from POST /execute/browser: {type(resp)}")
     if resp.get("success") is False:
-        raise RuntimeError(f"execute/browser '{command}' failed: {resp.get('error', 'unknown error')}")
+        raise RuntimeError(
+            f"execute/browser '{command}' failed: {resp.get('error', 'unknown error')}"
+        )
     return resp
 
 
@@ -383,7 +385,9 @@ def scale_sessions(app_id: str, desired: int, token: str) -> dict:
         "POST", f"/apps/{app_id}/sessions/scale", body={"desired_sessions": desired}, token=token
     )
     if not isinstance(resp, dict):
-        raise RuntimeError(f"Unexpected response from POST /apps/{app_id}/sessions/scale: {type(resp)}")
+        raise RuntimeError(
+            f"Unexpected response from POST /apps/{app_id}/sessions/scale: {type(resp)}"
+        )
     return resp
 
 

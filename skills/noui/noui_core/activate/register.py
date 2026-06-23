@@ -20,9 +20,7 @@ from noui_core.config import settings
 def resolve_admin_token() -> str:
     token = os.environ.get("TABBY_ADMIN_TOKEN", "") or settings.tabby_admin_token
     if not token:
-        raise RuntimeError(
-            "TABBY_ADMIN_TOKEN must be set to register apps/profiles with Tabby."
-        )
+        raise RuntimeError("TABBY_ADMIN_TOKEN must be set to register apps/profiles with Tabby.")
     return token
 
 

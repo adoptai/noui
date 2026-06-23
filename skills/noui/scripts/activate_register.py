@@ -23,7 +23,12 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("compiled", help="path to a compiled login result JSON")
     p.add_argument("--promote", action="store_true", help="promote STAGING → ACTIVE")
-    p.add_argument("--as-template", dest="as_template", action="store_true", help="also create a tenant-wide App Template")
+    p.add_argument(
+        "--as-template",
+        dest="as_template",
+        action="store_true",
+        help="also create a tenant-wide App Template",
+    )
     args = p.parse_args()
 
     result = json.loads(Path(args.compiled).read_text())

@@ -52,7 +52,9 @@ def test_credential_leak_warns():
 
 
 def test_no_mutation_warns():
-    r = validate_har_dict(_har([_entry("https://api.x.com/v1/a"), _entry("https://api.x.com/v1/b")]))
+    r = validate_har_dict(
+        _har([_entry("https://api.x.com/v1/a"), _entry("https://api.x.com/v1/b")])
+    )
     assert r.passed
     assert any("mutation" in w.lower() for w in r.warnings)
 

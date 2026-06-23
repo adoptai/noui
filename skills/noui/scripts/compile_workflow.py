@@ -26,7 +26,10 @@ def main() -> int:
     p.add_argument("--as", dest="target", choices=["mcp", "skill", "both"], default="mcp")
     p.add_argument("--profile-slug", dest="profile_slug", default="")
     p.add_argument(
-        "--execution-mode", dest="execution_mode", choices=["tabby", "http", "harness"], default="tabby"
+        "--execution-mode",
+        dest="execution_mode",
+        choices=["tabby", "http", "harness"],
+        default="tabby",
     )
     p.add_argument("--start-url", dest="start_url", default="")
     args = p.parse_args()
@@ -46,7 +49,11 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"Compile failed: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps({k: v.get("server_id") or v.get("skill_id") for k, v in result.items()}, indent=2))
+    print(
+        json.dumps(
+            {k: v.get("server_id") or v.get("skill_id") for k, v in result.items()}, indent=2
+        )
+    )
     return 0
 
 

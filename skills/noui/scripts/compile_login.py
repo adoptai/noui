@@ -24,7 +24,12 @@ def main() -> int:
     p.add_argument("--session-id", dest="session_id", default="")
     p.add_argument("--name", default="")
     p.add_argument("--url", default="", help="login URL; else inferred from URL flow")
-    p.add_argument("--auth-mode", dest="auth_mode", choices=["agent_token", "platform_jwt"], default="agent_token")
+    p.add_argument(
+        "--auth-mode",
+        dest="auth_mode",
+        choices=["agent_token", "platform_jwt"],
+        default="agent_token",
+    )
     p.add_argument("--out", default="", help="write compiled drafts here (default: stdout)")
     args = p.parse_args()
 

@@ -42,7 +42,12 @@ def test_get_session_status_healthy(monkeypatch):
     monkeypatch.setattr(
         tabby_client,
         "_tabby_http",
-        lambda *a, **k: {"session_id": "s-1", "state": "HEALTHY", "hitl_active": False, "vnc_stream": None},
+        lambda *a, **k: {
+            "session_id": "s-1",
+            "state": "HEALTHY",
+            "hitl_active": False,
+            "vnc_stream": None,
+        },
     )
     st = tabby_client.get_session_status("expedia-e2e2", "agent-tok")
     assert st["state"] == "HEALTHY"

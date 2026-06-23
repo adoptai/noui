@@ -32,7 +32,13 @@ def _patch(monkeypatch, fake):
 
 
 def test_session_synthesizes_bundle(monkeypatch):
-    har = {"log": {"entries": [{"request": {"url": "https://api.x.com/v1/go", "method": "POST"}, "response": {}}]}}
+    har = {
+        "log": {
+            "entries": [
+                {"request": {"url": "https://api.x.com/v1/go", "method": "POST"}, "response": {}}
+            ]
+        }
+    }
     fake = FakeTabby(har)
     _patch(monkeypatch, fake)
 

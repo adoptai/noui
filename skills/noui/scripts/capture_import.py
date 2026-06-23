@@ -33,12 +33,25 @@ def main() -> int:
     p.add_argument("--as", dest="target", choices=["mcp", "skill", "both"], default="mcp")
     p.add_argument("--profile-slug", dest="profile_slug", default="")
     p.add_argument(
-        "--execution-mode", dest="execution_mode", choices=["tabby", "http", "harness"], default="tabby"
+        "--execution-mode",
+        dest="execution_mode",
+        choices=["tabby", "http", "harness"],
+        default="tabby",
     )
     # login options
-    p.add_argument("--auth-mode", dest="auth_mode", choices=["agent_token", "platform_jwt"], default="agent_token")
+    p.add_argument(
+        "--auth-mode",
+        dest="auth_mode",
+        choices=["agent_token", "platform_jwt"],
+        default="agent_token",
+    )
     p.add_argument("--promote", action="store_true", help="(login) promote STAGING → ACTIVE")
-    p.add_argument("--as-template", dest="as_template", action="store_true", help="(login) also create a tenant-wide App Template")
+    p.add_argument(
+        "--as-template",
+        dest="as_template",
+        action="store_true",
+        help="(login) also create a tenant-wide App Template",
+    )
     args = p.parse_args()
 
     print(f"Fetching recording bundle from Tabby ({args.session_id}) …", file=sys.stderr)
@@ -96,7 +109,10 @@ def main() -> int:
     print("Registered login profile:")
     print(json.dumps(prov, indent=2))
     if prov.get("version_state") not in ("ACTIVE", "CANARY"):
-        print("Profile is STAGING — re-run with --promote (runtime resolves ACTIVE/CANARY only).", file=sys.stderr)
+        print(
+            "Profile is STAGING — re-run with --promote (runtime resolves ACTIVE/CANARY only).",
+            file=sys.stderr,
+        )
     return 0
 
 

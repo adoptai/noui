@@ -33,7 +33,12 @@ def main() -> int:
     p.add_argument("--steps", required=True, help="JSON file: list of {action, ...} steps")
     p.add_argument("--name", default="", help="name for the generated asset")
     p.add_argument("--as", dest="target", choices=["mcp", "skill", "both"], default="mcp")
-    p.add_argument("--execution-mode", dest="execution_mode", choices=["tabby", "http", "harness"], default="tabby")
+    p.add_argument(
+        "--execution-mode",
+        dest="execution_mode",
+        choices=["tabby", "http", "harness"],
+        default="tabby",
+    )
     p.add_argument("--save-bundle", default="", help="also write the synthesized bundle here")
     args = p.parse_args()
 
@@ -49,7 +54,10 @@ def main() -> int:
         return 1
 
     report = validate_har_dict(bundle.get("har", {}))
-    print(f"Captured {report.api_call_count} API call(s) across {len(report.domains)} domain(s).", file=sys.stderr)
+    print(
+        f"Captured {report.api_call_count} API call(s) across {len(report.domains)} domain(s).",
+        file=sys.stderr,
+    )
     for w in report.warnings:
         print(f"  {w}", file=sys.stderr)
     if not report.passed:
@@ -68,7 +76,11 @@ def main() -> int:
         profile_slug=args.profile_slug,
         execution_mode=args.execution_mode,
     )
-    print(json.dumps({k: v.get("server_id") or v.get("skill_id") for k, v in result.items()}, indent=2))
+    print(
+        json.dumps(
+            {k: v.get("server_id") or v.get("skill_id") for k, v in result.items()}, indent=2
+        )
+    )
     return 0
 
 

@@ -15,8 +15,21 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 _STATIC_EXTENSIONS = {
-    ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
-    ".woff", ".woff2", ".ttf", ".eot", ".map", ".webp", ".avif",
+    ".js",
+    ".css",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".map",
+    ".webp",
+    ".avif",
 }
 
 _CRED_KEYS = re.compile(
