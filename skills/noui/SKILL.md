@@ -84,6 +84,12 @@ python scripts/capture_import.py <session_id> --promote          # needs TABBY_A
 
 ---
 
+## Capture bundles are always saved (keep them)
+
+Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the raw bundle** — `{har, click_events, url_events}` — to `workbench/bundles/<name>.json`. **Do not discard it.** The bundle, not the compiled asset, is the source of truth for *generalizing* and *regenerating* the asset later: renaming tools, parameterizing request bodies (e.g. recovering a GraphQL query body), dropping telemetry/ad calls, or fixing anti-bot issues. A compiled MCP/Skill cannot be re-generalized; its bundle can — recompile with `compile_workflow.py <bundle.json>`. Recording bundles also expire server-side (Tabby TTL), so the local copy is the only durable one.
+
+---
+
 ## Reference docs
 
 - `references/pillar-1-capture.md` — VNC vs Autopilot, bundle shape, session reuse (`--from`)

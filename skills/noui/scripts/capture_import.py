@@ -20,6 +20,7 @@ import _bootstrap  # noqa: F401
 
 from noui_core.activate import register
 from noui_core.capture import recording
+from noui_core.capture.bundle import save_bundle
 from noui_core.compile.login import compile_login_bundle
 from noui_core.compile.workflow import compile_workflow_bundle
 
@@ -76,6 +77,11 @@ def main() -> int:
     except (RuntimeError, ValueError) as exc:
         print(f"Fetch failed: {exc}", file=sys.stderr)
         return 1
+
+    # ALWAYS persist the drained bundle — recording bundles expire server-side
+    # (Tabby TTL) and are the source for generalizing/regenerating the asset later.
+    bundle_path = save_bundle(bundle, args.name or args.session_id)
+    print(f"Saved capture bundle → {bundle_path}", file=sys.stderr)
 
     if session_type == "workflow":
         try:

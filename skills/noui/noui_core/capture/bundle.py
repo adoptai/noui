@@ -19,6 +19,9 @@ them pure (no I/O) makes them unit-testable; the CLI orchestrator does the HTTP.
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
 from typing import Any
 
 # Fields accepted by backend ClickEventCreate (backend/shared/schemas.py).
@@ -47,6 +50,26 @@ _CLICK_FIELDS = (
 )
 
 _VALID_MODES = ("login", "workflow")
+
+
+def save_bundle(bundle: dict[str, Any], name: str, output_root: str | None = None) -> Path:
+    """Persist a capture bundle to ``<workbench>/bundles/<name>-<session>.json``.
+
+    Capture bundles ({har, click_events, url_events}) are the source of truth for
+    *regenerating* and *generalizing* assets — renaming tools, parameterizing
+    request bodies, fixing anti-bot issues — so every capture should be saved, not
+    just compiled-and-discarded. Returns the written path.
+    """
+    from noui_core.config import settings
+
+    root = Path(output_root or settings.workbench_dir) / "bundles"
+    root.mkdir(parents=True, exist_ok=True)
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "capture").lower()).strip("-") or "capture"
+    sid = str(bundle.get("session_id") or "")[:8]
+    fname = f"{slug}-{sid}.json" if sid else f"{slug}.json"
+    path = root / fname
+    path.write_text(json.dumps(bundle, indent=2) + "\n")
+    return path
 
 
 def validate_bundle(bundle: dict[str, Any]) -> str:

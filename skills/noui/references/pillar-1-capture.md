@@ -57,6 +57,14 @@ python scripts/capture_record.py --mode workflow --url https://example.com --fro
 
 Tabby pulls the source recording's cookies server-side; they never pass through NoUI.
 
+## Bundles are always saved — keep them for generalization
+Both capture scripts persist the raw bundle to `workbench/bundles/<name>.json` via `noui_core.capture.bundle.save_bundle` (Autopilot saves the synthesized bundle; `capture_import` saves the drained one). **This is not optional and the saved bundle must be kept**, because:
+
+- The **bundle is the only source for regenerating/generalizing** an asset — renaming tools to readable names, parameterizing request bodies, recovering a body the first compile dropped (e.g. a GraphQL query lost to `/graphql` dedup), stripping telemetry/ad calls, or rewriting for anti-bot. A compiled MCP/Skill **cannot** be re-generalized; recompile from the bundle: `python scripts/compile_workflow.py workbench/bundles/<name>.json --as both`.
+- **Recording bundles expire server-side** (Tabby TTL) — once gone, the only way back is a full re-record. The local saved copy is the durable one.
+
+`--save-bundle <path>` overrides the location; otherwise it lands in `workbench/bundles/`.
+
 ## Bundle validation
 `noui_core.capture.bundle.validate_bundle` enforces shape (`recording_mode` ∈ {login, workflow}, HAR present); `count_sensitive_unredacted` blocks import if passwords/OTP weren't redacted. `validate.validate_har_dict` reports API-call count, domains, and credential-leak / no-mutation warnings.
 

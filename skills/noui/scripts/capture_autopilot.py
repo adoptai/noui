@@ -23,6 +23,7 @@ from pathlib import Path
 import _bootstrap  # noqa: F401
 
 from noui_core.capture.autopilot import run_steps
+from noui_core.capture.bundle import save_bundle
 from noui_core.capture.validate import validate_har_dict
 from noui_core.compile.workflow import compile_workflow_bundle
 
@@ -39,7 +40,12 @@ def main() -> int:
         choices=["tabby", "http", "harness"],
         default="tabby",
     )
-    p.add_argument("--save-bundle", default="", help="also write the synthesized bundle here")
+    p.add_argument(
+        "--save-bundle",
+        default="",
+        help="override the bundle save path (default: <workbench>/bundles/<name>.json). "
+        "The bundle is ALWAYS saved — it's the source for generalizing/regenerating the asset.",
+    )
     args = p.parse_args()
 
     steps = json.loads(Path(args.steps).read_text())
@@ -64,10 +70,18 @@ def main() -> int:
         print("HAR did not pass validation — aborting compile.", file=sys.stderr)
         return 1
 
-    if args.save_bundle:
-        Path(args.save_bundle).write_text(json.dumps(bundle, indent=2) + "\n")
-
     name = args.name or f"autopilot-{args.profile_slug}"
+
+    # ALWAYS persist the bundle — it's the source of truth for generalizing the
+    # asset later (rename tools, parameterize bodies, fix anti-bot). A compiled
+    # asset alone cannot be regeneralized; the bundle can.
+    if args.save_bundle:
+        bundle_path = Path(args.save_bundle)
+        bundle_path.write_text(json.dumps(bundle, indent=2) + "\n")
+    else:
+        bundle_path = save_bundle(bundle, name)
+    print(f"Saved capture bundle → {bundle_path}", file=sys.stderr)
+
     result = compile_workflow_bundle(
         session_id=name,
         bundle=bundle,
