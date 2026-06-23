@@ -356,3 +356,17 @@ def execute_browser(
     if resp.get("success") is False:
         raise RuntimeError(f"execute/browser '{command}' failed: {resp.get('error', 'unknown error')}")
     return resp
+
+
+def register_app_template(payload: dict, token: str) -> dict:
+    """
+    POST /admin/app-templates with a template payload from
+    noui_core.compile.login_assets.build_app_template_payload.
+
+    A template is the tenant-wide, per-user auto-provisioning blueprint.
+    Returns the created template dict (includes id). Raises RuntimeError on failure.
+    """
+    resp = _tabby_http("POST", "/admin/app-templates", body=payload, token=token)
+    if not isinstance(resp, dict):
+        raise RuntimeError(f"Unexpected response from POST /admin/app-templates: {type(resp)}")
+    return resp

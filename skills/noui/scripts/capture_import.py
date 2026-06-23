@@ -38,6 +38,7 @@ def main() -> int:
     # login options
     p.add_argument("--auth-mode", dest="auth_mode", choices=["agent_token", "platform_jwt"], default="agent_token")
     p.add_argument("--promote", action="store_true", help="(login) promote STAGING → ACTIVE")
+    p.add_argument("--as-template", dest="as_template", action="store_true", help="(login) also create a tenant-wide App Template")
     args = p.parse_args()
 
     print(f"Fetching recording bundle from Tabby ({args.session_id}) …", file=sys.stderr)
@@ -85,7 +86,7 @@ def main() -> int:
         return 1
 
     try:
-        prov = register.register_login(compiled, promote=args.promote)
+        prov = register.register_login(compiled, promote=args.promote, as_template=args.as_template)
     except RuntimeError as exc:
         print(f"Register failed: {exc}", file=sys.stderr)
         # Still emit the compiled drafts so the user can register manually.

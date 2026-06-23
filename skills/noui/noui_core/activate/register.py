@@ -26,15 +26,23 @@ def resolve_admin_token() -> str:
     return token
 
 
-def register_login(result: dict, *, promote: bool = False, token: str = "") -> dict:
+def register_login(
+    result: dict,
+    *,
+    promote: bool = False,
+    as_template: bool = False,
+    token: str = "",
+) -> dict:
     """Register App + STAGING ServiceProfile from a compiled login result.
 
     Args:
         result: the dict from compile.login (application_draft, service_profile_draft, validation).
         promote: if True, promote STAGING → CANARY → ACTIVE.
+        as_template: if True, also create a tenant-wide App Template for
+            per-user auto-provisioning (platform_jwt / federated users).
         token: admin token; defaults to TABBY_ADMIN_TOKEN.
 
-    Returns {app_id, profile_db_id, profile_id, version_state}.
+    Returns {app_id, profile_db_id, profile_id, version_state, template_id?}.
     """
     if not tabby_client.is_alive():
         raise RuntimeError(f"Tabby API not reachable at {settings.tabby_api_host}")
@@ -61,9 +69,22 @@ def register_login(result: dict, *, promote: bool = False, token: str = "") -> d
         tabby_client.promote_profile(profile_db_id, token)
         version_state = "ACTIVE"
 
-    return {
+    out = {
         "app_id": app_id,
         "profile_db_id": profile_db_id,
         "profile_id": profile_id,
         "version_state": version_state,
     }
+
+    if as_template:
+        # Local import avoids a compile↔activate import cycle at module load.
+        from noui_core.compile.login_assets import build_app_template_payload
+
+        payload = build_app_template_payload(
+            result.get("application_draft", {}),
+            result.get("service_profile_draft", {}),
+        )
+        template = tabby_client.register_app_template(payload, token)
+        out["template_id"] = template.get("id", "")
+
+    return out

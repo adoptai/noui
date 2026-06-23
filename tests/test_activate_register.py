@@ -1,0 +1,102 @@
+"""Tests for noui_core.activate.register — login registration + App Template wiring.
+
+tabby_client HTTP calls are mocked; we assert the right endpoints fire and the
+template payload is built from the compiled drafts.
+"""
+
+from __future__ import annotations
+
+import noui_core.activate.register as register
+
+
+def _compiled():
+    return {
+        "validation": {"generator_valid": True},
+        "application_draft": {
+            "name": "Expedia",
+            "target_urls": ["https://www.expedia.com/"],
+            "login_config": {"steps": []},
+            "export_policy": {},
+        },
+        "service_profile_draft": {
+            "profile_id": "expedia-login",
+            "credential_types": {"cookies": [{"name": "sid", "volatility": "STABLE"}]},
+            "target_domains": ["www.expedia.com"],
+        },
+    }
+
+
+class FakeClient:
+    def __init__(self):
+        self.calls = []
+
+    def is_alive(self):
+        return True
+
+    def register_application(self, bundle, token):
+        self.calls.append(("register_application", token))
+        return {"app_id": "app-123"}
+
+    def register_service_profile(self, bundle, token, app_id):
+        self.calls.append(("register_service_profile", app_id))
+        return {"id": "profile-db-456"}
+
+    def promote_profile(self, profile_db_id, token):
+        self.calls.append(("promote_profile", profile_db_id))
+        return {}
+
+    def register_app_template(self, payload, token):
+        self.calls.append(("register_app_template", payload))
+        return {"id": "tmpl-789"}
+
+
+def _patch(monkeypatch, fake):
+    monkeypatch.setattr(register, "tabby_client", fake)
+    monkeypatch.setattr(register, "resolve_admin_token", lambda: "admin-tok")
+
+
+def test_register_basic(monkeypatch):
+    fake = FakeClient()
+    _patch(monkeypatch, fake)
+    out = register.register_login(_compiled())
+    assert out == {
+        "app_id": "app-123",
+        "profile_db_id": "profile-db-456",
+        "profile_id": "expedia-login",
+        "version_state": "STAGING",
+    }
+    assert [c[0] for c in fake.calls] == ["register_application", "register_service_profile"]
+
+
+def test_register_with_promote(monkeypatch):
+    fake = FakeClient()
+    _patch(monkeypatch, fake)
+    out = register.register_login(_compiled(), promote=True)
+    assert out["version_state"] == "ACTIVE"
+    # Promote called twice: STAGING → CANARY → ACTIVE.
+    assert [c[0] for c in fake.calls].count("promote_profile") == 2
+
+
+def test_register_with_template(monkeypatch):
+    fake = FakeClient()
+    _patch(monkeypatch, fake)
+    out = register.register_login(_compiled(), promote=True, as_template=True)
+    assert out["template_id"] == "tmpl-789"
+    tmpl_call = next(c for c in fake.calls if c[0] == "register_app_template")
+    payload = tmpl_call[1]
+    # profile_name_pattern must equal the runtime slug; execute_enabled must NOT be present.
+    assert payload["profile_name_pattern"] == "expedia-login"
+    assert "execute_enabled" not in payload
+    # profile credential_types/target_domains folded into export_policy.
+    assert payload["export_policy"]["target_domains"] == ["www.expedia.com"]
+
+
+def test_register_rejects_invalid(monkeypatch):
+    import pytest
+
+    fake = FakeClient()
+    _patch(monkeypatch, fake)
+    bad = _compiled()
+    bad["validation"] = {"generator_valid": False, "issues": ["nope"]}
+    with pytest.raises(RuntimeError, match="invalid"):
+        register.register_login(bad)
