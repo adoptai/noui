@@ -68,6 +68,8 @@ wait_for_url(pattern=<post-login>, on_failure=request_help confirm)
 
 The `wait_for_url` is the important part: when the browser reaches the post-login URL, **Tabby auto-resolves the HITL** — the human logs in and the flow continues *without clicking "Mark as Resolved"* every time (this is what fixes the repeated-click complaint and the login desync). If the URL can't be auto-verified, `on_failure: request_help` falls back to a confirm.
 
+The `goto` lands on the recording's **initial page** (default `login_url` = the first recorded URL), and the human drives everything from there — the worker does **not** replay recorded clicks in takeover mode. So don't point `--url` at a deep login page (e.g. `/login`): that skips initial-page interactions the human needs — cookie/region banners, anti-bot **sliders**, "sign in" entry points. Start where the recording started.
+
 It only works when the pattern **distinguishes the logged-in page from the login page**. NoUI auto-derives it from the recording's landing URL, but for **same-origin** apps (login and app on the same host/path, e.g. Expedia) auto-derivation is unreliable and is skipped (a review item is emitted) — pass `--post-login-url-pattern '<glob>'` (e.g. `**/lightning/**`) so the logged-in URL matches but the login page does not. NoUI does **not** submit username/password (that flow is unsupported); the human authenticates in the VNC viewer.
 
 ## Bundles are always saved — keep them for generalization
