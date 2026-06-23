@@ -26,6 +26,16 @@ ADOPT_CLIENT_SECRET=<platform PAT secret>
 The platform PAT mints a platform JWT, exchanged for a Tabby JWT that carries
 `owner_user_id` (per-user profiles + template auto-provision). No admin token.
 
+## Same-tenant requirement (important)
+`TABBY_ADMIN_TOKEN` (used to register/promote apps & profiles) and
+`TABBY_CLIENT_ID/SECRET` (the agent token used to record + execute) **must belong
+to the same Tabby tenant**. If they don't, registration lands in the admin
+token's tenant while the agent token resolves a different one — every
+agent-token call (`/agent/session-status`, `/execute/*`) then 404s with
+*"No active profile found"* even though the profile exists. Decode a token's
+`tenant_id` claim (middle JWT segment) to check. Targets must also be **HTTPS**
+(`https://…`) — `POST /recording/sessions` rejects `http://` URLs.
+
 ## Health check
 `noui_core.tabby_client.is_alive()` probes `GET /health/live`. If recording or
 execute calls fail, confirm Tabby is reachable at `TABBY_API_URL` and the
