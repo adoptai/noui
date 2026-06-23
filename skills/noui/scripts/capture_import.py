@@ -69,6 +69,14 @@ def main() -> int:
         help="(login) Admin-only: register App/Profile/Template in this tenant "
         "(default: the agent token's own tenant, so the agent can drive them)",
     )
+    p.add_argument(
+        "--post-login-url-pattern",
+        dest="post_login_url_pattern",
+        default="",
+        help="(login/takeover) glob the LOGGED-IN url matches but the login page does NOT "
+        "(e.g. '**/lightning/**'). Enables auto-resolve: reaching it completes login with no "
+        "'Mark as Resolved' click. Needed for same-origin apps where it can't be auto-derived.",
+    )
     args = p.parse_args()
 
     print(f"Fetching recording bundle from Tabby ({args.session_id}) …", file=sys.stderr)
@@ -121,6 +129,7 @@ def main() -> int:
             auth_mode=args.auth_mode,
             manual_credentials=manual_credentials,
             manual_takeover=manual_takeover,
+            post_login_url_pattern=args.post_login_url_pattern,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Login compile failed: {exc}", file=sys.stderr)

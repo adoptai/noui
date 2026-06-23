@@ -78,6 +78,8 @@ def test_credential_mode_manual_vs_stored():
 def test_manual_takeover_emits_confirm_step():
     from noui_core.compile.login import compile_login_bundle
 
+    # Same-origin login+landing (root path) → no reliable auto-resolve pattern,
+    # so just goto + confirm (the human clicks Mark as Resolved).
     bundle = {
         "recording_mode": "login",
         "url_events": [{"to_url": "https://x.com/login"}],
@@ -88,12 +90,58 @@ def test_manual_takeover_emits_confirm_step():
     res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
     lc = res["application_draft"]["login_config"]
     assert lc["credential_ref"] == "manual:"
-    actions = [s["action"] for s in lc["steps"]]
-    assert actions == ["goto", "request_human_input"]
-    confirm = lc["steps"][1]
-    assert confirm["input_type"] == "confirm"
-    # Takeover has no username/password fields — must still validate.
+    assert [s["action"] for s in lc["steps"]] == ["goto", "request_human_input"]
+    assert lc["steps"][1]["input_type"] == "confirm"
     assert res["validation"]["generator_valid"] is True
+
+
+def test_manual_takeover_autoresolve_wait_for_url():
+    from noui_core.compile.login import compile_login_bundle
+
+    # Distinguishing post-login path (Salesforce-like) → wait_for_url auto-resolve.
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [
+            {"from_url": "", "to_url": "https://test.salesforce.com/"},
+            {
+                "from_url": "https://test.salesforce.com/",
+                "to_url": "https://x.lightning.force.com/lightning/page/home",
+            },
+        ],
+        "click_events": [],
+        "har": {"log": {"entries": []}},
+        "cookies": [],
+    }
+    res = compile_login_bundle(
+        session_id="s",
+        bundle=bundle,
+        name="sf",
+        login_url="https://test.salesforce.com/",
+        manual_takeover=True,
+    )
+    steps = res["application_draft"]["login_config"]["steps"]
+    assert [s["action"] for s in steps] == ["goto", "request_human_input", "wait_for_url"]
+    wfu = steps[2]
+    assert "lightning" in wfu["pattern"]
+    assert wfu["on_failure"]["action"] == "request_help"
+    assert wfu["on_failure"]["input_type"] == "confirm"
+
+    # Explicit pattern wins even for same-origin apps.
+    res2 = compile_login_bundle(
+        session_id="s",
+        bundle={
+            "recording_mode": "login",
+            "url_events": [{"to_url": "https://x.com/login"}],
+            "click_events": [],
+            "har": {"log": {"entries": []}},
+            "cookies": [],
+        },
+        name="x",
+        manual_takeover=True,
+        post_login_url_pattern="https://x.com/dashboard/**",
+    )
+    s2 = res2["application_draft"]["login_config"]["steps"]
+    assert s2[-1]["action"] == "wait_for_url" and s2[-1]["pattern"] == "https://x.com/dashboard/**"
 
 
 def test_resolve_panel_url():

@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from fnmatch import fnmatch
 from typing import Any
 from urllib.parse import urlparse
 
@@ -461,6 +462,7 @@ def generate(
     auth_mode: str | None = None,
     manual_credentials: bool | None = None,
     manual_takeover: bool = False,
+    post_login_url_pattern: str = "",
 ) -> dict[str, Any]:
     """
     Generate an Application draft, ServiceProfile draft, and review items
@@ -786,15 +788,71 @@ def generate(
     # pattern Tabby's bare VNC viewer supports; per-field request_human_input
     # expects Slack/MCP-delivered values instead.
     if manual_takeover:
-        steps = [
+        # Salesforce-template structure (the supported VNC manual-login flow):
+        #   goto → request_human_input(confirm) → wait_for_url(post-login pattern).
+        # Reaching the post-login URL auto-resolves the HITL (Tabby marks it
+        # resolved) so the user usually need not click "Mark as Resolved" — this
+        # is what avoids the repeated-click complaint. on_failure falls back to a
+        # confirm if the URL can't be auto-verified.
+        takeover_steps: list[dict[str, Any]] = [
             {"action": "goto", "url": first_url},
             {
                 "action": "request_human_input",
                 "input_type": "confirm",
-                "label": "Log in manually in the browser, then click 'Mark as Resolved'.",
-                "timeout_ms": 600000,
+                "label": (
+                    "Open the VNC viewer and log in (complete any MFA/OTP). The flow "
+                    "continues automatically once you reach the logged-in page; otherwise "
+                    "click 'Mark as Resolved'."
+                ),
+                "timeout_ms": 1200000,
             },
         ]
+        # Resolve the post-login pattern: explicit wins; else derive from the
+        # recording's landing URL — but ONLY if it actually distinguishes the
+        # logged-in page from the login page (else it would match immediately and
+        # falsely auto-resolve). Same-origin root-path apps need an explicit pattern.
+        pattern = post_login_url_pattern
+        if not pattern and stable_urls:
+            _raw = stable_urls[-1]
+            if not _raw.startswith(("http://", "https://")):
+                _raw = "http://" + _raw
+            p = urlparse(_raw)
+            seg = p.path.strip("/").split("/")[0] if p.path.strip("/") else ""
+            cand = f"{p.scheme}://{p.netloc}/{seg}/**" if seg else f"{p.scheme}://{p.netloc}/**"
+            if not fnmatch(first_url, cand):  # skip if it also matches the login page
+                pattern = cand
+        if pattern:
+            takeover_steps.append(
+                {
+                    "action": "wait_for_url",
+                    "pattern": pattern,
+                    "timeout_ms": 30000,
+                    "retry_count": 0,
+                    "on_failure": {
+                        "action": "request_help",
+                        "message": (
+                            "Login could not be auto-verified. Finish logging in and reach "
+                            "the home/dashboard, then click 'Mark as Resolved'."
+                        ),
+                        "input_type": "confirm",
+                        "timeout_ms": 600000,
+                    },
+                }
+            )
+        else:
+            review_items.append(
+                {
+                    "type": "no_autoresolve_pattern",
+                    "severity": "info",
+                    "message": (
+                        "Post-login URL shares the login origin/path, so no auto-resolve "
+                        "wait_for_url was added — the user clicks 'Mark as Resolved' to "
+                        "continue. Pass post_login_url_pattern (a glob the logged-in URL "
+                        "matches but the login page does not) to enable auto-resolve."
+                    ),
+                }
+            )
+        steps = takeover_steps
 
     # ---- Build login_config ----
     login_config: dict[str, Any] = {

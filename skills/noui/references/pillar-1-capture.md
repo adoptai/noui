@@ -57,6 +57,19 @@ python scripts/capture_record.py --mode workflow --url https://example.com --fro
 
 Tabby pulls the source recording's cookies server-side; they never pass through NoUI.
 
+## Login profiles: manual VNC takeover (the supported flow) + auto-resolve
+A login profile compiled in **takeover** mode (`capture_import --credential-mode takeover`, the default) uses `credential_ref: manual:` and a minimal login DSL — the supported Tabby flow, mirroring the Salesforce template:
+
+```
+goto(login_url)
+request_human_input(input_type=confirm)         # VNC link + "log in manually" prompt
+wait_for_url(pattern=<post-login>, on_failure=request_help confirm)
+```
+
+The `wait_for_url` is the important part: when the browser reaches the post-login URL, **Tabby auto-resolves the HITL** — the human logs in and the flow continues *without clicking "Mark as Resolved"* every time (this is what fixes the repeated-click complaint and the login desync). If the URL can't be auto-verified, `on_failure: request_help` falls back to a confirm.
+
+It only works when the pattern **distinguishes the logged-in page from the login page**. NoUI auto-derives it from the recording's landing URL, but for **same-origin** apps (login and app on the same host/path, e.g. Expedia) auto-derivation is unreliable and is skipped (a review item is emitted) — pass `--post-login-url-pattern '<glob>'` (e.g. `**/lightning/**`) so the logged-in URL matches but the login page does not. NoUI does **not** submit username/password (that flow is unsupported); the human authenticates in the VNC viewer.
+
 ## Bundles are always saved — keep them for generalization
 Both capture scripts persist the raw bundle to `workbench/bundles/<name>.json` via `noui_core.capture.bundle.save_bundle` (Autopilot saves the synthesized bundle; `capture_import` saves the drained one). **This is not optional and the saved bundle must be kept**, because:
 
