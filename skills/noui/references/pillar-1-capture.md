@@ -20,7 +20,15 @@ python scripts/capture_import.py <session_id> --as both --profile-slug <slug>
 ### Autopilot (agent-driven)
 The agent drives the browser through Tabby `POST /execute/browser` (`har_start` → `navigate/click/type` → `har_stop`). Because the agent issues the commands, NoUI knows the interaction log and synthesizes the bundle from the inline HAR + that log (`noui_core.capture.validate.validate_har_dict` checks quality). No human, no VNC viewer.
 
-> Status: the driving + inline-HAR commands are live on Tabby; the NoUI-side synthesize path is `noui_core.capture.autopilot`. True *server-side* drainable capture for `/execute/browser` (parity with VNC's `recording-stop`) is a Tabby enhancement tracked in `plans/noui/noui-extensionless-autopilot-plan.md`.
+Implemented in `noui_core.capture.autopilot` (`AutopilotSession` for interactive driving; `run_steps` for scripted runs). It drives via `tabby_client.execute_browser` (Tabby `POST /execute/browser`, `{profile_id, command, params}` + bearer) and synthesizes the bundle from the inline `har_stop` HAR + the click/url events NoUI issued. **No Tabby-side change is required** — the existing `/execute/browser` command set (`navigate`, `click_element`, `type_text`, `har_start/stop`, …) is sufficient.
+
+```python
+from noui_core.capture.autopilot import AutopilotSession
+ap = AutopilotSession("<profile-slug>")
+ap.start_capture(); ap.navigate(url); ap.click("#go"); bundle = ap.finish()
+```
+
+> The driven session must be a non-recording, execute-enabled session for the profile (recording sessions reject `/execute/*` with 409). True *server-side* DOM-event drain for `/execute/browser` (full parity with VNC's `recording-stop`, capturing human-style clicks server-side) remains an optional Tabby enhancement tracked in `plans/noui/noui-extensionless-autopilot-plan.md`; it is **not** needed for Autopilot workflow capture.
 
 ## Session reuse (`--from`)
 Record a workflow already authenticated, with **no stored credentials**: seed the recording browser with cookies captured by a prior **login** recording.

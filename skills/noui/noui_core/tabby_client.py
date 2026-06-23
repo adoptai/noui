@@ -323,3 +323,36 @@ def update_service_profile_credential_types(
             f"Unexpected response from PATCH /admin/profiles/{profile_db_id}: {type(resp)}"
         )
     return resp
+
+
+def execute_browser(
+    profile_slug: str,
+    command: str,
+    params: dict | None = None,
+    *,
+    token: str,
+    timeout_ms: int | None = None,
+) -> dict:
+    """
+    POST /execute/browser — run a Playwright command in the profile's authenticated
+    Tabby browser session (Autopilot). The API resolves the profile's healthy
+    session and proxies to the worker. One active consumer per session.
+
+    Commands: navigate, click_element, click_by_text, click_at, type_text,
+    type_into_label, press_key, get_page_summary, get_page_info, screenshot,
+    wait_for_selector, scroll_page, har_start, har_stop, har_status.
+
+    Returns the worker response: {"success": bool, "data"|"error": ...}.
+    Raises RuntimeError on HTTP error or a worker-reported failure.
+    """
+    body: dict[str, Any] = {"profile_id": profile_slug, "command": command, "params": params or {}}
+    if timeout_ms is not None:
+        body["timeout_ms"] = timeout_ms
+    # Browser commands (navigation) can be slow; give the HTTP call generous headroom.
+    http_timeout = max(30, int((timeout_ms or 30000) / 1000) + 10)
+    resp = _tabby_http("POST", "/execute/browser", body=body, token=token, timeout=http_timeout)
+    if not isinstance(resp, dict):
+        raise RuntimeError(f"Unexpected response from POST /execute/browser: {type(resp)}")
+    if resp.get("success") is False:
+        raise RuntimeError(f"execute/browser '{command}' failed: {resp.get('error', 'unknown error')}")
+    return resp

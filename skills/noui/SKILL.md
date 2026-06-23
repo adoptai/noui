@@ -74,6 +74,7 @@ python scripts/capture_import.py <session_id> --promote          # needs TABBY_A
 | Script | Pillar | Purpose |
 |---|---|---|
 | `capture_record.py` | 1 | Provision a VNC recording session; prints the viewer URL |
+| `capture_autopilot.py` | 1→2 | Drive a profile's session via `/execute/browser` (scripted steps); synthesize a bundle + compile |
 | `capture_import.py` | 1→2→3 | Drain the bundle; compile (workflow) or compile+register (login) |
 | `compile_workflow.py` | 2 | Re-compile a saved workflow bundle → MCP/Skill |
 | `compile_login.py` | 2 | Compile a saved login bundle → App/ServiceProfile drafts |
