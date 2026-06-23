@@ -869,9 +869,22 @@ def generate(
     }
 
     # ---- Validation ----
+    # A credential field is satisfied by either a `fill ${USERNAME}/${PASSWORD}`
+    # step (stored-secret mode) OR a `request_human_input` step of the matching
+    # input_type (manual: mode — the human supplies it via HITL/VNC).
     generator_valid = True
-    has_username_step = any(s.get("value") == "${USERNAME}" for s in steps)
-    has_password_step = any(s.get("value") == "${PASSWORD}" for s in steps)
+
+    def _has_human_input(types: tuple[str, ...]) -> bool:
+        return any(
+            s.get("action") == "request_human_input" and s.get("input_type") in types for s in steps
+        )
+
+    has_username_step = any(s.get("value") == "${USERNAME}" for s in steps) or _has_human_input(
+        ("email", "username")
+    )
+    has_password_step = any(s.get("value") == "${PASSWORD}" for s in steps) or _has_human_input(
+        ("password",)
+    )
     if not has_username_step and not has_otp:
         issues.append("No username field detected in recording")
     if not has_password_step and not has_otp:
