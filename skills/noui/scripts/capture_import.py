@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Drain a Tabby recording bundle, compile it, and (for logins) register it.
+
+Workflow recording → MCP and/or Skill:
+    python scripts/capture_import.py <session_id> --as both --profile-slug <slug>
+
+Login recording → Tabby App + ServiceProfile:
+    python scripts/capture_import.py <session_id> --promote
+
+End to end, no NoUI backend round-trip: Tabby captured the bundle server-side.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+import _bootstrap  # noqa: F401
+
+from noui_core.activate import register
+from noui_core.capture import recording
+from noui_core.compile.login import compile_login_bundle
+from noui_core.compile.workflow import compile_workflow_bundle
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("session_id", help="Tabby recording session id")
+    p.add_argument("--name", default="", help="name for the app/asset")
+    p.add_argument("--url", default="", help="(login) login URL; else inferred from URL flow")
+    # workflow options
+    p.add_argument("--as", dest="target", choices=["mcp", "skill", "both"], default="mcp")
+    p.add_argument("--profile-slug", dest="profile_slug", default="")
+    p.add_argument(
+        "--execution-mode", dest="execution_mode", choices=["tabby", "http", "harness"], default="tabby"
+    )
+    # login options
+    p.add_argument("--auth-mode", dest="auth_mode", choices=["agent_token", "platform_jwt"], default="agent_token")
+    p.add_argument("--promote", action="store_true", help="(login) promote STAGING → ACTIVE")
+    args = p.parse_args()
+
+    print(f"Fetching recording bundle from Tabby ({args.session_id}) …", file=sys.stderr)
+    try:
+        session_type, bundle = recording.fetch_bundle(args.session_id)
+    except (RuntimeError, ValueError) as exc:
+        print(f"Fetch failed: {exc}", file=sys.stderr)
+        return 1
+
+    if session_type == "workflow":
+        try:
+            result = compile_workflow_bundle(
+                session_id=args.session_id,
+                bundle=bundle,
+                name=args.name,
+                target=args.target,
+                profile_slug=args.profile_slug,
+                execution_mode=args.execution_mode,
+                start_url=args.url,
+            )
+        except Exception as exc:  # noqa: BLE001 — surface any compile failure
+            print(f"Workflow compile failed: {exc}", file=sys.stderr)
+            return 1
+        mcp = result.get("mcp") or {}
+        skill = result.get("skill") or {}
+        if mcp:
+            print(f"MCP server: {mcp.get('server_id', '?')} ({len(mcp.get('tools', []))} tool(s))")
+        if skill:
+            print(f"Skill: {skill.get('skill_id', '?')} ({len(skill.get('operations', []))} op(s))")
+        if not args.profile_slug:
+            print("No --profile-slug: tools run unauthenticated.", file=sys.stderr)
+        return 0
+
+    # login
+    try:
+        compiled = compile_login_bundle(
+            session_id=args.session_id,
+            bundle=bundle,
+            name=args.name,
+            login_url=args.url,
+            auth_mode=args.auth_mode,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"Login compile failed: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        prov = register.register_login(compiled, promote=args.promote)
+    except RuntimeError as exc:
+        print(f"Register failed: {exc}", file=sys.stderr)
+        # Still emit the compiled drafts so the user can register manually.
+        print(json.dumps({"compiled": compiled.get("service_profile_draft", {})}, indent=2))
+        return 1
+
+    print("Registered login profile:")
+    print(json.dumps(prov, indent=2))
+    if prov.get("version_state") != "ACTIVE":
+        print("Profile is STAGING — re-run with --promote (runtime resolves ACTIVE/CANARY only).", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

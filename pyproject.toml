@@ -75,6 +75,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E402"]  # sys.path manipulation before imports is intentional
+# Scripts import _bootstrap first to put the bundle root on sys.path before
+# importing noui_core; that ordering is intentional, so silence import-sort/E402.
+"skills/noui/scripts/*" = ["E402", "I001"]
 
 [tool.ruff.format]
 quote-style = "double"
