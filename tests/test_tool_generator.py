@@ -18,7 +18,7 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.mcp.server_generator import _render_operation
+from noui_core.compile.server_generator import _render_operation
 
 
 def _render_http(td: dict, *, auth_plan: dict) -> str:

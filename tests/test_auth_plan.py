@@ -19,7 +19,7 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.mcp.auth_plan import (
+from noui_core.compile.auth_plan import (
     _env_var_name,
     _is_static_api_key_app,
     generate_auth_plan,

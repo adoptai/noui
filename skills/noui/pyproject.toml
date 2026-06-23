@@ -1,0 +1,25 @@
+[project]
+name = "noui"
+version = "2.0.0"
+description = "NoUI — capture browser workflows/logins via Tabby, compile them into agent-ready MCP servers / Skills / Tabby ServiceProfiles, and run them through Tabby's /execute engine."
+readme = "SKILL.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Runtime dependencies the agent installs into its OWN environment.
+#   httpx, python-dotenv : required by noui_core (the builder).
+#   mcp                  : required only to RUN a generated MCP server.
+# No FastAPI/SQLAlchemy/Anthropic — there is no backend daemon and the
+# record→compile pipeline makes no LLM calls.
+dependencies = [
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "mcp>=1.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["noui_core"]

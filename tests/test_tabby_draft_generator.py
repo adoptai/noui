@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from compiler.login.tabby_draft_generator import (
+from noui_core.compile.login_assets import (
     _build_selector,
     _is_redirect_hop,
     _selector_confidence,

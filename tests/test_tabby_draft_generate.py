@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
-
-from compiler.login.tabby_draft_generator import (
+from noui_core.compile.login_assets import (
     _analyze_har,
     build_app_template_payload,
     egress_allowlist_from_domains,
@@ -541,7 +540,7 @@ class TestBuildAppTemplatePayload:
         assert "execute_enabled" not in payload
 
     def test_merge_unions_export_policy_additive_fields(self) -> None:
-        from compiler.login.tabby_draft_generator import merge_template_export_policy
+        from noui_core.compile.login_assets import merge_template_export_policy
 
         existing = {
             "export_policy": {
@@ -578,7 +577,7 @@ class TestBuildAppTemplatePayload:
         assert out["login_config"] == {"steps": [1]}
 
     def test_merge_new_wins_on_key_conflict(self) -> None:
-        from compiler.login.tabby_draft_generator import merge_template_export_policy
+        from noui_core.compile.login_assets import merge_template_export_policy
 
         existing = {"export_policy": {"custom_extractions": [{"key": "t", "v": "old"}]}}
         new_payload = {"export_policy": {"custom_extractions": [{"key": "t", "v": "new"}]}}

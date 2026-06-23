@@ -11,13 +11,31 @@ _NOUI_ROOT = Path(__file__).resolve().parent.parent
 if str(_NOUI_ROOT) not in sys.path:
     sys.path.insert(0, str(_NOUI_ROOT))
 
-from compiler.recording.bundle_adapter import (
+from noui_core.capture.bundle import (
     click_payloads,
     count_sensitive_unredacted,
     har_log,
+    save_bundle,
     url_payloads,
     validate_bundle,
 )
+
+
+def test_save_bundle(tmp_path):
+    import json
+
+    bundle = {
+        "recording_mode": "workflow",
+        "session_id": "abcd1234ef",
+        "har": {"log": {"entries": []}},
+    }
+    path = save_bundle(bundle, "Expedia Stay Search!", output_root=str(tmp_path))
+    # Lands under <root>/bundles/, slugified name + session prefix.
+    assert path == tmp_path / "bundles" / "expedia-stay-search-abcd1234.json"
+    assert json.loads(path.read_text())["session_id"] == "abcd1234ef"
+    # No session_id → name-only filename.
+    p2 = save_bundle({"recording_mode": "login"}, "login-flow", output_root=str(tmp_path))
+    assert p2.name == "login-flow.json"
 
 
 def _bundle(**overrides):

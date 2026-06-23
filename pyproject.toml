@@ -1,31 +1,21 @@
 [tool.poetry]
 name = "noui"
-version = "1.0.0"
-description = "NoUI backend service for capturing browser sessions from a Chrome extension."
+version = "2.0.0"
+description = "NoUI — dev repo for the agent-agnostic skill bundle (skills/noui) that captures, compiles, and activates browser workflows/logins via Tabby."
 authors = ["Adopt AI <contact@adopt.ai>"]
 readme = "README.md"
 license = "MIT"
 package-mode = false
 
+# Runtime deps for the noui_core toolkit + generated MCP/Skill assets. The
+# distributable bundle declares the same set in skills/noui/pyproject.toml.
+# No FastAPI/SQLAlchemy/Anthropic — there is no backend daemon and the
+# compile pipeline makes no LLM calls.
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
-fastapi = ">=0.115.0"
-uvicorn = {version = ">=0.32.0", extras = ["standard"]}
-sqlalchemy = {version = ">=2.0", extras = ["asyncio"]}
-aiosqlite = ">=0.20.0"
-pydantic = ">=2.0.0"
 python-dotenv = ">=1.0.0"
-python-multipart = ">=0.0.9"
-colorama = ">=0.4.6"
 mcp = ">=1.0.0"
-anthropic = ">=0.43.0"
-sse-starlette = ">=2.0.0"
-Jinja2 = ">=3.1.0"
-# Runtime deps for generated MCP/Skill operations. httpx is also used internally
-# by backend, but the explicit declaration here guards against generated servers
-# losing transitive access if an upstream ever drops the dep.
 httpx = ">=0.27.0"
-websockets = ">=13.0"
 
 [tool.poetry.group.lint]
 optional = true
@@ -75,6 +65,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E402"]  # sys.path manipulation before imports is intentional
+# Scripts import _bootstrap first to put the bundle root on sys.path before
+# importing noui_core; that ordering is intentional, so silence import-sort/E402.
+"skills/noui/scripts/*" = ["E402", "I001"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -85,7 +78,17 @@ indent-style = "space"
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.11"
-exclude = ["workbench/", "mcp/", "skills/", "tabby/"]
+# Type-check the core toolkit (skills/noui/noui_core); skip generated assets,
+# demo skills, the workbench, examples, and the Tabby submodule.
+mypy_path = "skills/noui"
+exclude = [
+    "skills/noui/workbench/",
+    "skills/airbnb-search-places/",
+    "skills/expedia-stay-search/",
+    "skills/flydubai-pricing/",
+    "mcp/",
+    "tabby/",
+]
 warn_unused_configs = true
 ignore_missing_imports = true
 disallow_untyped_defs = true
@@ -97,31 +100,6 @@ warn_return_any = false
 no_implicit_reexport = true
 strict_equality = true
 show_error_codes = true
-
-# FastAPI router functions return types are enforced via response_model= — relax
-# the no-untyped-def rule for router modules that predate type coverage.
-[[tool.mypy.overrides]]
-module = [
-    "backend.elicitation.routers.*",
-    "backend.login.router",
-    "backend.workflow.router",
-    "backend.shared.routers.*",
-    "backend.autopilot.router",
-]
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-
-# Pre-existing issues in backend modules not part of the auth-loop-optimization
-# work — suppress until a dedicated type-coverage pass is done.
-[[tool.mypy.overrides]]
-module = [
-    "backend.elicitation.markdown_generator",
-    "backend.elicitation.mcp_server",
-    "backend.elicitation.routers.export",
-    "backend.elicitation.routers.documents",
-    "backend.elicitation.claude_client",
-]
-ignore_errors = true
 
 # Tests and fixtures — no strict typing required.
 [[tool.mypy.overrides]]
@@ -137,3 +115,6 @@ ignore_errors = true
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The distributable bundle lives at skills/noui/; put it on the path so tests
+# (and scripts) can `import noui_core`.
+pythonpath = ["skills/noui"]

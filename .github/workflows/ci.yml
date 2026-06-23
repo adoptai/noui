@@ -90,24 +90,6 @@ jobs:
       - name: pytest
         run: poetry run pytest -v
 
-  extension-lint:
-    name: extension-lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-
-      - name: Validate manifest.json
-        run: |
-          node -e "const m = require('./extension/manifest.json'); if (m.manifest_version !== 3) process.exit(1);"
-
-      - name: ESLint (extension JS)
-        working-directory: extension
-        run: npx --yes eslint@9 "**/*.js"
-
   secrets-scan:
     name: secrets-scan
     runs-on: ubuntu-latest
