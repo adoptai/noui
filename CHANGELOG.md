@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-06-23
+
+> **Three-pillar consolidation (this release).** NoUI is now a single,
+> agent-agnostic **skill bundle** at `skills/noui/` (Capture → Compile →
+> Activate). The Chrome extension, the FastAPI backend daemon, and the
+> monolithic CLI are removed; the deterministic compiler/runtime moved into
+> `noui_core`, the CLI's useful commands became thin `scripts/`, and the
+> `ANTHROPIC_API_KEY` dependency is gone (the record→compile pipeline makes no
+> LLM calls). The standalone `compiler/`, `cli/`, and backend items listed
+> further below are **superseded** by this section.
+
+### Added — consolidation
+
+- **Single skill bundle `skills/noui/`**: `noui_core/` (the moved, deterministic
+  compiler + runtime, organized as `capture/`, `compile/`, `activate/`, plus
+  `config`, `tabby_client`, `auth`), CLI-free `scripts/`, `references/`, a
+  self-contained `pyproject.toml`, and `SKILL.md`. Installable agent-agnostically
+  (`npx skills add … --skill noui`); the only runtime dependency is a reachable
+  Tabby.
+- **Pillar 1 — Capture**: `capture.recording` (VNC) and `capture.autopilot`
+  (drives Tabby `POST /execute/browser`; `AutopilotSession`/`run_steps`
+  synthesize a bundle from inline HAR + the commands issued). Capture **bundles
+  are always saved** to `workbench/bundles/` (source of truth for
+  generalizing/regenerating; recording bundles expire server-side).
+- **Pillar 2 — Compile**: `compile.workflow` / `compile.login` orchestration over
+  the generators; login `credential_types` are derived from the bundle's captured
+  `cookies` (Tabby sanitizes `Set-Cookie` out of the HAR).
+- **Pillar 3 — Activate**: `activate.register` (App + ServiceProfile, promote
+  STAGING → **CANARY**, optional tenant-wide App Template), `activate.verify`
+  (auth dry-run), `activate.install` (agent-agnostic skill install). Registration
+  auto-targets the **agent token's tenant** via an Admin `tenant_id` override so
+  the agent can resolve/drive the result.
+- **Manual VNC login (takeover)**: `credential_ref: manual:` with a single
+  `request_human_input(confirm)` + a `wait_for_url` **auto-resolve** step
+  (Salesforce-template pattern) — reaching the post-login URL completes login
+  with no repeated "Mark as Resolved" clicks. `--post-login-url-pattern` sets the
+  distinguishing glob (auto-derived from the recording when login/landing differ;
+  required for same-origin apps). `resolve_panel_url` appends `?from=mcp` so
+  Tabby's viewer renders the HITL panel. No username/password is ever stored.
+- **Tabby session helpers**: `tabby_client.scale_sessions`,
+  `get_session_status` (agent-accessible; surfaces the HITL VNC URL),
+  `register_app_template`, `execute_browser`.
+- `docs/HANDOFF.md` — install + use guide for a colleague; `skills/noui/.env.example`.
+
+### Removed — consolidation (BREAKING)
+
+- The Chrome extension (`extension/`), the FastAPI backend daemon and all routers,
+  and `backend/elicitation/*` (the only `ANTHROPIC_API_KEY` consumer — the `/chat`
+  assistant). `ANTHROPIC_API_KEY` is no longer required.
+- `cli/main.py` (6685-line HTTP client) — dissolved into `skills/noui/scripts/`.
+- The 7 old `noui-*` orchestration skills — consolidated into the single
+  `skills/noui` bundle (demo skills kept as siblings; MCP examples kept at repo
+  root).
+- `local_check.sh` and the `extension-lint` CI job (the extension is gone).
+
 ### Added
 
 - **Cloud Tabby auth via platform token-exchange.** Generated MCP servers/Skills
@@ -102,5 +157,6 @@ Initial open-source release.
   and this changelog.
 - Replaced internal fixture references (`adopt-bank` → `example-bank`).
 
-[Unreleased]: https://github.com/adoptai/noui/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/adoptai/noui/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/adoptai/noui/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/adoptai/noui/releases/tag/v1.0.0
