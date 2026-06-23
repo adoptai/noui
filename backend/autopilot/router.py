@@ -199,11 +199,11 @@ async def start_capture(data: CaptureControlIn):
 
 
 @router.post("/stop-capture")
-async def stop_capture(data: CaptureControlIn):
+async def stop_capture(data: CaptureControlIn, db: AsyncSession = Depends(get_db)):
     """Stop capture and retrieve HAR.
 
     In Tabby mode: sends har_stop to the worker, receives HAR JSON, and
-    stores it locally via the HAR storage path.
+    stores it via the shared HAR storage path so the exporter can find it.
     In extension mode: the extension uploads HAR when the capture session is stopped.
     """
     if _use_tabby_driver():
@@ -211,23 +211,30 @@ async def stop_capture(data: CaptureControlIn):
         result_data = result.get("data", {})
         har_json = result_data.get("har")
 
-        # Store HAR locally if returned
+        # Persist the worker-captured HAR exactly like the extension upload path:
+        # keyed by the domain (workflow) session id + type, with a HarFile row and
+        # CaptureSession.har_file_path set. Without this the exporter can't locate it.
+        stored_path = None
         if har_json:
-            import os
-            from pathlib import Path
+            from backend.shared.routers.har import persist_capture_har
 
-            data_dir = os.environ.get("NOUI_DATA_DIR", "data")
-            har_dir = Path(data_dir) / "har" / "autopilot"
-            har_dir.mkdir(parents=True, exist_ok=True)
-            har_path = har_dir / f"{data.capture_session_id}.har"
-            har_path.write_text(json.dumps(har_json, indent=2), encoding="utf-8")
-            logger.info("HAR saved to %s (%d entries)", har_path, result_data.get("entry_count", 0))
+            har_record = await persist_capture_har(
+                db, data.capture_session_id, json.dumps(har_json).encode()
+            )
+            stored_path = har_record.file_path
+            logger.info(
+                "Tabby HAR stored for capture %s → %s (%d entries)",
+                data.capture_session_id,
+                stored_path,
+                result_data.get("entry_count", 0),
+            )
 
         return {
             "status": "stopped",
             "capture_session_id": data.capture_session_id,
             "driver": "tabby",
             "entry_count": result_data.get("entry_count", 0),
+            "har_file_path": stored_path,
             "note": "HAR captured server-side by the Tabby worker.",
         }
 

@@ -157,8 +157,9 @@ Removes the skill from that specific agent's skills directory. If you installed 
 
 | Command | Purpose |
 |---|---|
-| `skill list` | List generated skills under `workbench/skills/` |
-| `skill show <skill_id>` | Print manifest + SKILL.md preview for a skill |
-| `skill install <skill_id> <agent> [--project]` | Install to the agent's skills directory. Agent: `claude-code`, `codex`, `cline`, `opencode`, `agents`. |
-| `skill uninstall <skill_id> <agent> [--project]` | Remove from the agent's skills directory. Mirror the install args. |
-| `workflow export --as skill <session_id> ...` | Regenerate a skill from a recorded workflow (invoke via `/noui-record-workflow`) |
+| `.venv/bin/python cli/main.py skill list` | List generated skills under `workbench/skills/` |
+| `.venv/bin/python cli/main.py skill show <skill_id>` | Print manifest + SKILL.md preview for a skill |
+| `.venv/bin/python cli/main.py skill install <skill_id> <agent> [--project]` | Install to the agent's skills directory. Agent: `claude-code`, `codex`, `cline`, `opencode`, `agents`. |
+| `.venv/bin/python cli/main.py skill uninstall <skill_id> <agent> [--project]` | Remove from the agent's skills directory. Mirror the install args. |
+| `.venv/bin/python cli/main.py skill docs <skill_id> [--check]` | Regenerate `SKILL.md` + `API.md` from `manifest.json`, preserving custom-fenced regions. `--check` exits non-zero if stale (CI / agent validation) without overwriting. |
+| `.venv/bin/python cli/main.py workflow export --as skill <session_id> ...` | Regenerate a skill from a recorded workflow (invoke via `/noui-record-workflow`) |

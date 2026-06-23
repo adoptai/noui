@@ -1,6 +1,6 @@
 ---
 name: noui-generate-mcp
-description: Use this skill when the user wants to start, stop, check, or list generated NoUI MCP servers, or connect a server to Claude Code. Triggers on "start the MCP server", "run noui mcp", "connect to Claude Code", "add to mcpServers", "noui mcp start", "noui mcp list", "noui mcp status", "how do I use the generated server", or "I want to call this tool from Claude".
+description: Use this skill when the user wants to start, stop, check, list, or install generated NoUI MCP servers, or connect a server to Claude Code. Triggers on "start the MCP server", "run noui mcp", "connect to Claude Code", "install the MCP server", "noui mcp install", "add to mcpServers", "noui mcp start", "noui mcp list", "noui mcp status", "how do I use the generated server", or "I want to call this tool from Claude".
 ---
 
 # NoUI MCP Server Lifecycle
@@ -159,6 +159,7 @@ Start
 | `.venv/bin/python cli/main.py mcp start <server_id>` | Start a server process in the background |
 | `.venv/bin/python cli/main.py mcp stop <server_id>` | Stop a running server process |
 | `.venv/bin/python cli/main.py mcp status <server_id>` | Show running state, tool count, manifest path, and Tabby session health (for browser-based servers) |
+| `.venv/bin/python cli/main.py mcp install <server_id> <agent>` | Wire the server into an agent's config. Agent: `claude-desktop`, `claude-code`, `codex`, `opencode`. The primary way to use a generated server from Claude Code. |
 | `.venv/bin/python cli/main.py mcp docs <server_id>` | Regenerate `API.md` from current `tools.json` |
 | `.venv/bin/python cli/main.py mcp docs <server_id> --check` | Exit non-zero if `API.md` is stale (for CI / agent validation) |
 | `.venv/bin/python cli/main.py mcp verify <server_id>` | Run AuthVerifier — reports PASS / REPAIR_APPLIED / NEEDS_SECRET / UNSUPPORTED |

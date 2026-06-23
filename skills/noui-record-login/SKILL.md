@@ -178,7 +178,7 @@ Check the output for:
 
 ## Step 6 — Register with Tabby
 
-Tabby must be reachable at `TABBY_API_URL` (default `http://localhost:8080`) and `TABBY_ADMIN_TOKEN` must be set in `.env`.
+Tabby must be reachable at `TABBY_API_URL` and `TABBY_ADMIN_TOKEN` must be set in `.env`. `TABBY_API_URL` is topology-dependent: `http://localhost:8080` for local compose, `http://localhost:18080` for local Kind (the VNC path below needs Kind/cloud, not compose), or the hosted URL for cloud. See the port map in `/noui-tabby-integration`.
 
 > **If Tabby is not yet running:** run `noui tabby start` then `noui tabby setup` (interactive) to start the service and provision agent credentials before registering. See `/noui-setup` for the full Tabby CLI reference.
 

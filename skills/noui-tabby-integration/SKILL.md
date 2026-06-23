@@ -77,6 +77,36 @@ The common framing is: *"creating Apps/Profiles directly makes the profile usabl
 
 ---
 
+## Local bring-up & port map
+
+There are two local Tabby topologies, and conflating them is the #1 source of "why can't I get a session" friction:
+
+| Topology | How | Gives you | API at |
+|---|---|---|---|
+| **Compose API-only** | `noui tabby start` | Docker-compose infra (postgres/redis/nats/minio) + the **API process only** — **no controller, no worker** | `http://localhost:8080` |
+| **Kind full stack** | (in `tabby/`) `make kind-create` → `make kind-reload-all` → `kubectl port-forward -n browser-hitl svc/browser-hitl-api 18080:8000` | Controller + per-session **worker pods** (real Playwright browsers, VNC/CDP) — the only local way to get a **live browser session** | `http://localhost:18080` |
+| **Cloud / staging** | point env at the hosted Tabby | Full managed stack | e.g. `https://tabby-api.adoptai.dev` |
+
+**Key consequence:** `noui tabby start` (compose) **cannot produce a live browser session on its own** — no controller/worker. Anything that needs `/execute/*`, `session ensure`, VNC recording, or autopilot Tabby mode needs the **Kind full stack** or **cloud**. (Locally, the spawned worker + `LOCAL_WORKER_URL=http://localhost:8091` can also bridge a single worker to the compose API — see [execute-and-runtime](reference/execute-and-runtime.md).)
+
+**Port reference (so the scattered numbers stop surprising you):**
+
+| Port | Service | Context |
+|---|---|---|
+| `8002` | NoUI backend (`noui start`) | always |
+| `8080` | Tabby API | local **compose** (`noui tabby start`); also `tabby/.env.local` `API_PORT` |
+| `18080` | Tabby API | local **Kind** (via `k8s-port-forward`) — this is what `TABBY_API_URL` should be for Kind |
+| `8000` | Tabby API | in-cluster / cloud (generated runtime default) |
+| `8090` | Controller (health) | Kind/cloud |
+| `8091` | Worker `/execute/*` + health | the execute surface; `noui status` reports it as `Execute :8091` |
+| `9222` / `9223` | Worker CDP (DevTools / relay) | the streaming surface |
+
+> The `TABBY_API_URL` in `.env` must match your topology: `:8080` for compose, `:18080` for Kind, the hosted URL for cloud. A mismatch makes `noui tabby start`'s readiness probe and the autopilot/CLI calls hit the wrong port.
+
+**Kind gotchas (one-time, real):** the `egress-proxy` pod needs the stock `node:20.18.1-alpine` image loaded into the node (`docker pull` it, then `kind load docker-image node:20.18.1-alpine --name tabby-dev`) or it sits in `ImagePullBackOff`; and a `credential_ref: k8s:secret/<name>` app needs that k8s secret to actually exist (e.g. a no-auth app needs `kubectl create secret generic no-auth -n browser-hitl --from-literal=username=x --from-literal=password=x`) or the worker pod hangs in `ContainerCreating` on a `FailedMount`.
+
+---
+
 ## Critical rules (don't get these wrong)
 
 - **`owner_user_id` is the scoping switch, not "direct vs template."** NULL = tenant-shared; set = per-user. Templates *produce* per-user (set) connections; raw `POST /apps`/`/profiles` produce NULL (shared) ones.
@@ -85,7 +115,7 @@ The common framing is: *"creating Apps/Profiles directly makes the profile usabl
 - **`HEALTHY` ≠ authenticated/extracted.** A HEALTHY session only means the keepalive check passed; the login DSL may not have completed or no credential bundle may exist yet.
 - **The default `tabby` runtime now supports both auth modes (the gap-closure plan A2).** It honors `NOUI_TABBY_AUTH_MODE=platform_jwt` (auto-detected from `ADOPT_*`, else explicit), so it *can* carry `owner_user_id` and trigger template auto-provisioning — no longer agent-token-only. `agent_token` stays the default for local/self-host.
 - **`noui tabby setup --cloud` can now provision a template (the gap-closure plan A3).** Bare `--cloud` still only verifies the round-trip + writes env, but `--cloud --template-bundle <bundle.json>` (or `noui tabby template create` / `noui login register --as-template`) emits a tenant-wide App Template.
-- **NoUI now sets `execute_enabled: true` on every app payload (the gap-closure plan A4).** `session ensure` warns if a pre-existing app row still has it `false`. ⚠️ Open Tabby-side: the App Template entity has no `execute_enabled` column and `autoProvisionFromTemplate` doesn't copy it, so per-user auto-provisioned cloud apps stay execute-disabled until a Tabby PR lands. See the Tabby hardening plan (A4-tabby).
+- **NoUI now sets `execute_enabled: true` on every app payload (the gap-closure plan A4).** `session ensure` warns if a pre-existing app row still has it `false`. The Tabby-side half is now **closed** (PR adoptai/tabby#90, merged to `dev`): the App Template entity has an `execute_enabled` column, the create DTO accepts it, it's in `PROPAGATED_FIELDS`, and `autoProvisionFromTemplate` copies `template.execute_enabled` onto each per-user app — so cloud auto-provisioned apps inherit execute access. Only caveat: a pre-existing app/template created before that change may still be `false`; verify the Tabby you point at includes #90.
 - **`credential_ref` has exactly two forms:** `k8s:secret/{name}` or `manual:`. The secret name is mounted verbatim from a shared worker namespace — choose it carefully (see the security notes in the Tabby hardening plan).
 
 ---

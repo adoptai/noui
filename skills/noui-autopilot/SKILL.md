@@ -17,12 +17,45 @@ The autopilot has two browser driver modes, selected automatically by environmen
 
 | Mode | When | Prerequisites |
 |------|------|---------------|
-| **Tabby** (headless, no extension) | `TABBY_API_URL` + `TABBY_CLIENT_ID` + `TABBY_PROFILE_ID` are set | A healthy Tabby session for the profile. No Chrome extension needed. |
+| **Tabby** (headless, no extension) | `TABBY_API_URL` + `TABBY_CLIENT_ID` + `TABBY_PROFILE_ID` are set | See the full Tabby-mode checklist below. No Chrome extension needed. |
 | **Extension** (local Chrome) | Tabby env vars not set | Chrome with the NoUI extension loaded and connected to `localhost:8002`. `/noui-setup` must be complete. |
 
 In Tabby mode, browser commands go to Tabby's `POST /execute/browser` endpoint — the worker drives Playwright directly. HAR capture is server-side (`har_start`/`har_stop`), no extension capture session needed. This enables headless/server-side autopilot for agent-builder pipelines.
 
 In extension mode (the original path), commands go through the Chrome extension's in-memory queue. HAR capture is extension-managed. The "Verify Extension" preflight step (Step 1.5) applies only to this mode.
+
+#### Tabby-mode prerequisites (read before relying on `TABBY_*`)
+
+The driver auto-selects Tabby mode when `TABBY_API_URL` + `TABBY_CLIENT_ID` + `TABBY_PROFILE_ID` are set, but that gate is **not** the full requirement set:
+
+- **`TABBY_CLIENT_SECRET` is also required.** The mode gate doesn't check it, but the first browser command mints an agent token and reads `TABBY_CLIENT_SECRET` — if it's missing you get a hard failure, not a graceful fallback. Set all four.
+- **The profile's app must have `execute_enabled = true`.** `/execute/browser` (and `/execute/fetch`) are gated on it; it defaults to `false`. `noui tabby setup` / `session ensure` set it on the apps they create, but a pre-existing or externally-created app may need re-provisioning. See `/noui-tabby-integration`.
+- **A live HEALTHY session must exist for the profile.** Tabby resolves `TABBY_PROFILE_ID` → a HEALTHY session → the worker. No HEALTHY session ⇒ `/execute/browser` fails. Bring one up with `noui tabby session ensure --profile <slug>`.
+- **`HEALTHY` ≠ authenticated.** A session can reach HEALTHY before login completes (the keepalive `url_check` may match a pre-login page). The recorded workflow will then silently capture unauthenticated 401/403 bodies wrapped as 200s. Pre-warm at the authenticated entry point and verify one known-authenticated request returns real data before trusting the capture. See `/noui-tabby-integration`.
+- **Egress is allowlisted.** The Tabby worker browser can only reach domains in the session's egress allowlist (the app's `target_urls` + the default allowlist). Driving to an off-allowlist domain fails — add the target's domain(s) to the app's `target_urls` before recording.
+- **`take_screenshot` is not available in Tabby CDP-streaming mode** — it returns HTTP 500. Use `get_page_summary` / `query_elements` (and `cdp_get_accessibility_tree`) to read the page instead.
+
+For how to stand up a local Tabby session for this, see `/noui-tabby-integration` (and note that `noui tabby start` alone only launches the compose API — a live session needs the Kind full stack or a cloud Tabby).
+
+#### Tabby-mode quickstart
+
+Once a HEALTHY, `execute_enabled` session exists for the profile:
+
+```bash
+# 1. Point at the live Tabby and the profile (all four are required)
+export TABBY_API_URL=http://localhost:18080   # :8080 compose / :18080 Kind / hosted URL
+export TABBY_CLIENT_ID=agent_cl_...
+export TABBY_CLIENT_SECRET=secret_sk_...
+export TABBY_PROFILE_ID=<profile_slug>
+
+# 2. Confirm a live session for the profile (Kind/cloud; not compose-only)
+.venv/bin/python cli/main.py tabby session ensure --profile <profile_slug>
+
+# 3. Start the NoUI backend (it reads the TABBY_* env at startup)
+.venv/bin/python cli/main.py start
+```
+
+Then run the normal capture flow below — **Steps 2–8, skipping Step 1.5** (`verify-extension` is a no-op in Tabby mode and reports "Tabby mode active — no Chrome extension to verify"). HAR is captured server-side and, on `stop-capture`, persisted where `export` reads it — no manual HAR upload needed.
 
 ---
 
@@ -465,6 +498,7 @@ Use this for precise element discovery when `get_page_summary` is not enough. **
 **CLI:** `.venv/bin/python cli/main.py autopilot browser take_screenshot`
 **Response:** `{ screenshot_id: string, url: string, file_path: string, image_url: string }`
 Uploads the screenshot to the backend. The `file_path` field contains the local disk path to the saved PNG — use this path to read the screenshot. Use sparingly.
+**⚠ Not available in Tabby CDP-streaming mode** — returns HTTP 500 (the worker's `/execute/browser` command set doesn't include it). Extension mode only. In Tabby mode, read the page with `get_page_summary` / `query_elements` / `cdp_get_accessibility_tree` instead.
 
 ---
 
