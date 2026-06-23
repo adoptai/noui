@@ -370,3 +370,35 @@ def register_app_template(payload: dict, token: str) -> dict:
     if not isinstance(resp, dict):
         raise RuntimeError(f"Unexpected response from POST /admin/app-templates: {type(resp)}")
     return resp
+
+
+def scale_sessions(app_id: str, desired: int, token: str) -> dict:
+    """
+    POST /apps/{app_id}/sessions/scale — set the desired worker session count.
+
+    The controller reconcile loop creates/terminates sessions to match. Needs an
+    Admin/Operator token. Returns {desired_sessions, app_id}.
+    """
+    resp = _tabby_http(
+        "POST", f"/apps/{app_id}/sessions/scale", body={"desired_sessions": desired}, token=token
+    )
+    if not isinstance(resp, dict):
+        raise RuntimeError(f"Unexpected response from POST /apps/{app_id}/sessions/scale: {type(resp)}")
+    return resp
+
+
+def get_session_status(profile_slug: str, token: str) -> dict:
+    """
+    GET /agent/session-status/{profile_slug} — most recent session status for a profile.
+
+    Agent-accessible. When the session needs login (state LOGIN_NEEDED /
+    LOGIN_IN_PROGRESS), the response carries ``hitl_active: true`` and
+    ``vnc_stream: {url, expires_at}`` — the URL a human opens to complete login.
+    Returns the status dict (session_id, state, hitl_active, vnc_stream, ...).
+    """
+    resp = _tabby_http("GET", f"/agent/session-status/{profile_slug}", token=token)
+    if not isinstance(resp, dict):
+        raise RuntimeError(
+            f"Unexpected response from GET /agent/session-status/{profile_slug}: {type(resp)}"
+        )
+    return resp
