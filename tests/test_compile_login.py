@@ -75,6 +75,40 @@ def test_credential_mode_manual_vs_stored():
     assert stored["application_draft"]["login_config"]["credential_ref"].startswith("k8s:secret/")
 
 
+def test_manual_takeover_emits_confirm_step():
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [{"to_url": "https://x.com/login"}],
+        "click_events": [],
+        "har": {"log": {"entries": []}},
+        "cookies": [],
+    }
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
+    lc = res["application_draft"]["login_config"]
+    assert lc["credential_ref"] == "manual:"
+    actions = [s["action"] for s in lc["steps"]]
+    assert actions == ["goto", "request_human_input"]
+    confirm = lc["steps"][1]
+    assert confirm["input_type"] == "confirm"
+    # Takeover has no username/password fields — must still validate.
+    assert res["validation"]["generator_valid"] is True
+
+
+def test_resolve_panel_url():
+    from noui_core.capture.autopilot import resolve_panel_url
+
+    # Inserts ?from=mcp before the fragment.
+    assert (
+        resolve_panel_url("https://t/vnc/abc#token=xyz") == "https://t/vnc/abc?from=mcp#token=xyz"
+    )
+    # Uses & when a query already exists; idempotent; no-op on empty.
+    assert resolve_panel_url("https://t/vnc/abc?x=1#f") == "https://t/vnc/abc?x=1&from=mcp#f"
+    assert resolve_panel_url("https://t/vnc/abc?from=mcp#f") == "https://t/vnc/abc?from=mcp#f"
+    assert resolve_panel_url("") == ""
+
+
 def test_enrich_noop_without_bundle_cookies():
     result = {"service_profile_draft": {"credential_types": {"cookies": []}}}
     _enrich_credential_types_from_cookies(result, {})  # no cookies field

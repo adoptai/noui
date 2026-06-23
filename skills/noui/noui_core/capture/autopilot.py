@@ -25,6 +25,21 @@ from noui_core import tabby_client
 from noui_core.capture import recording
 
 
+def resolve_panel_url(vnc_url: str) -> str:
+    """Insert ``?from=mcp`` before the ``#fragment`` so Tabby's noVNC viewer shows
+    the HITL panel (the "Mark as Resolved" button + status).
+
+    Tabby gates the whole HITL section behind ``?from=mcp``; the URL returned by
+    ``get_session_status`` omits it, so without this the human only sees Clipboard
+    + Restart and can't resolve a login.
+    """
+    if not vnc_url or "from=mcp" in vnc_url:
+        return vnc_url
+    base, sep, frag = vnc_url.partition("#")
+    base = f"{base}{'&' if '?' in base else '?'}from=mcp"
+    return f"{base}#{frag}" if sep else base
+
+
 def _extract_har(data: dict) -> dict:
     """Normalize the har_stop payload into a HAR 1.2 object ({"log": {...}})."""
     if not isinstance(data, dict):

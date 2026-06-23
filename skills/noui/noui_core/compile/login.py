@@ -64,6 +64,7 @@ def compile_login_bundle(
     login_url: str = "",
     auth_mode: str = "agent_token",
     manual_credentials: bool | None = None,
+    manual_takeover: bool = False,
 ) -> dict[str, Any]:
     """Compile a login bundle into App/ServiceProfile drafts + review items.
 
@@ -71,6 +72,9 @@ def compile_login_bundle(
     steps (no stored secret; the worker pod starts without a K8s secret mount and
     a human completes login via HITL/VNC). False → stored `k8s:secret`. None →
     legacy coupling (manual iff auth_mode is platform_jwt).
+    manual_takeover: True → manual: with a single confirm step (the human logs in
+    manually in the VNC viewer and clicks "Mark as Resolved"); the worker does not
+    drive the form. This is the pattern the bare VNC viewer supports.
     """
     name = name or f"recording-{session_id[:8]}"
 
@@ -90,6 +94,7 @@ def compile_login_bundle(
         har=bundle.get("har"),
         auth_mode=auth_mode,
         manual_credentials=manual_credentials,
+        manual_takeover=manual_takeover,
     )
     _enrich_credential_types_from_cookies(result, bundle)
     return result

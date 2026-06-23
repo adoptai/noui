@@ -48,10 +48,11 @@ def main() -> int:
     p.add_argument(
         "--credential-mode",
         dest="credential_mode",
-        choices=["manual", "stored", "auto"],
-        default="manual",
-        help="(login) manual: no stored secret — human completes login via VNC/HITL "
-        "(default); stored: k8s:secret with username/password; auto: manual iff platform_jwt",
+        choices=["takeover", "manual", "stored", "auto"],
+        default="takeover",
+        help="(login) takeover (default): manual:, human logs in via VNC + clicks "
+        "'Mark as Resolved' (single confirm step); manual: per-field request_human_input "
+        "(Slack/MCP-delivered values); stored: k8s:secret username/password; auto: legacy",
     )
     p.add_argument("--promote", action="store_true", help="(login) promote STAGING → ACTIVE")
     p.add_argument(
@@ -101,7 +102,10 @@ def main() -> int:
         return 0
 
     # login
-    manual_credentials = {"manual": True, "stored": False, "auto": None}[args.credential_mode]
+    manual_takeover = args.credential_mode == "takeover"
+    manual_credentials = {"takeover": True, "manual": True, "stored": False, "auto": None}[
+        args.credential_mode
+    ]
     try:
         compiled = compile_login_bundle(
             session_id=args.session_id,
@@ -110,6 +114,7 @@ def main() -> int:
             login_url=args.url,
             auth_mode=args.auth_mode,
             manual_credentials=manual_credentials,
+            manual_takeover=manual_takeover,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Login compile failed: {exc}", file=sys.stderr)

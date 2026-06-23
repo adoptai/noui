@@ -460,6 +460,7 @@ def generate(
     har: dict | None = None,
     auth_mode: str | None = None,
     manual_credentials: bool | None = None,
+    manual_takeover: bool = False,
 ) -> dict[str, Any]:
     """
     Generate an Application draft, ServiceProfile draft, and review items
@@ -495,6 +496,9 @@ def generate(
         manual_creds = _resolve_auth_mode(auth_mode) == "platform_jwt"
     else:
         manual_creds = manual_credentials
+    # Takeover implies no stored secret — the human logs in via VNC.
+    if manual_takeover:
+        manual_creds = True
     session_id = session.get("id", "")
     app_name = session.get("app_name") or "recorded-app"
     login_url = session.get("login_url") or ""
@@ -775,6 +779,23 @@ def generate(
     secret_name = f"tabby-{profile_id}"
     credential_ref = "manual:" if manual_creds else f"k8s:secret/{secret_name}"
 
+    # ---- Manual-takeover override ----
+    # For VNC manual login the worker shouldn't drive the form — it opens the
+    # login page and hands control to the human, who logs in and clicks
+    # "Mark as Resolved" (a single confirm-type request_human_input). This is the
+    # pattern Tabby's bare VNC viewer supports; per-field request_human_input
+    # expects Slack/MCP-delivered values instead.
+    if manual_takeover:
+        steps = [
+            {"action": "goto", "url": first_url},
+            {
+                "action": "request_human_input",
+                "input_type": "confirm",
+                "label": "Log in manually in the browser, then click 'Mark as Resolved'.",
+                "timeout_ms": 600000,
+            },
+        ]
+
     # ---- Build login_config ----
     login_config: dict[str, Any] = {
         "login_url": first_url,
@@ -885,9 +906,11 @@ def generate(
     has_password_step = any(s.get("value") == "${PASSWORD}" for s in steps) or _has_human_input(
         ("password",)
     )
-    if not has_username_step and not has_otp:
+    # In takeover mode the human logs in manually via VNC, so the recording need
+    # not contain username/password fields — skip those checks.
+    if not has_username_step and not has_otp and not manual_takeover:
         issues.append("No username field detected in recording")
-    if not has_password_step and not has_otp:
+    if not has_password_step and not has_otp and not manual_takeover:
         issues.append("No password field detected in recording")
         generator_valid = False
 
