@@ -18,7 +18,7 @@ python scripts/capture_import.py <session_id> --as both --profile-slug <slug>
 `capture_import.py` → `recording.fetch_bundle()` → Tabby `GET /recording/sessions/{id}/bundle`, then compile.
 
 ### Autopilot (agent-driven)
-The agent drives the browser through Tabby `POST /execute/browser` (`har_start` → `navigate/click/type` → `har_stop`). Because the agent issues the commands, NoUI knows the interaction log and synthesizes the bundle from the inline HAR + that log (`noui_core.capture.validate.validate_har_dict` checks quality). No human, no VNC viewer.
+The agent drives the browser through Tabby `POST /execute/browser` (`har_start` → `navigate/click/type` → `har_stop`). Because the agent issues the commands, NoUI knows the interaction log and synthesizes the bundle from the inline HAR + that log (`noui_core.capture.validate.validate_har_dict` checks quality). The *driving* is fully headless — the only time a human is involved is the one-time login escalation below.
 
 Implemented in `noui_core.capture.autopilot` (`AutopilotSession` for interactive driving; `run_steps` for scripted runs). It drives via `tabby_client.execute_browser` (Tabby `POST /execute/browser`, `{profile_id, command, params}` + bearer) and synthesizes the bundle from the inline `har_stop` HAR + the click/url events NoUI issued. **No Tabby-side change is required** — the existing `/execute/browser` command set (`navigate`, `click_element`, `type_text`, `har_start/stop`, …) is sufficient.
 
@@ -28,7 +28,25 @@ ap = AutopilotSession("<profile-slug>")
 ap.start_capture(); ap.navigate(url); ap.click("#go"); bundle = ap.finish()
 ```
 
-> The driven session must be a non-recording, execute-enabled session for the profile (recording sessions reject `/execute/*` with 409). True *server-side* DOM-event drain for `/execute/browser` (full parity with VNC's `recording-stop`, capturing human-style clicks server-side) remains an optional Tabby enhancement tracked in `plans/noui/noui-extensionless-autopilot-plan.md`; it is **not** needed for Autopilot workflow capture.
+#### Prerequisite: a HEALTHY execute session (+ login escalation)
+`/execute/browser` resolves the profile's **healthy** session, so one must be running on an `execute_enabled` app. Bring it up and, if it needs auth, escalate to a human via VNC — **no credentials are stored**:
+
+1. **Scale a session** (admin token): `tabby_client.scale_sessions(app_id, 1, admin_token)` → `POST /apps/{id}/sessions/scale`. The controller reconcile loop (~15s) starts a worker.
+2. **Poll status** (agent token): `tabby_client.get_session_status(profile_slug, agent_token)` → `GET /agent/session-status/{profile}`.
+   - If the session needs login it reports `hitl_active: true` and `vnc_stream: {url, expires_at}` (state `LOGIN_NEEDED` / `LOGIN_IN_PROGRESS`). **Hand that `vnc_stream.url` to the human** — they open it, complete the login (OTP/password/etc.) in the live browser, and the session proceeds. No `${USERNAME}`/`${PASSWORD}` secret needs to be stored.
+   - When `state == "HEALTHY"`, drive with `AutopilotSession`.
+3. **Drive → capture → compile**, then scale back to 0 when done.
+
+```python
+from noui_core import tabby_client
+tabby_client.scale_sessions(app_id, 1, admin_token)
+st = tabby_client.get_session_status(profile_slug, agent_token)
+if st["hitl_active"]:
+    print("Log in here:", st["vnc_stream"]["url"])   # human completes login
+# re-poll until st["state"] == "HEALTHY", then AutopilotSession(profile_slug)...
+```
+
+> Both tokens must share a tenant (see [tabby-setup](tabby-setup.md)). The driven session must be a non-recording, execute-enabled session (recording sessions reject `/execute/*` with 409). True *server-side* DOM-event drain for `/execute/browser` (full parity with VNC's `recording-stop`) remains an optional Tabby enhancement tracked in `plans/noui/noui-extensionless-autopilot-plan.md`; it is **not** needed for Autopilot workflow capture.
 
 ## Session reuse (`--from`)
 Record a workflow already authenticated, with **no stored credentials**: seed the recording browser with cookies captured by a prior **login** recording.
