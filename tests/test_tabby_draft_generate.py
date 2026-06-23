@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from noui_core.compile.login_assets import (
     _analyze_har,
     build_app_template_payload,

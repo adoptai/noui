@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
 from noui_core.auth import _build_headers_from_data, get_auth_headers, get_auth_headers_sync
 
 
