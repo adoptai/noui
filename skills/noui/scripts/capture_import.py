@@ -95,7 +95,7 @@ def main() -> int:
 
     print("Registered login profile:")
     print(json.dumps(prov, indent=2))
-    if prov.get("version_state") != "ACTIVE":
+    if prov.get("version_state") not in ("ACTIVE", "CANARY"):
         print("Profile is STAGING — re-run with --promote (runtime resolves ACTIVE/CANARY only).", file=sys.stderr)
     return 0
 
