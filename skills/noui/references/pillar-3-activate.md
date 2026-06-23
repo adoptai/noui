@@ -11,7 +11,18 @@ Make compiled assets usable, with Tabby `/execute` as the engine.
 
 > The runtime resolver matches **ACTIVE/CANARY only** — a STAGING-only profile 404s at the first tool call. Promote before use.
 
-Requires `TABBY_ADMIN_TOKEN`. CLI: `scripts/activate_register.py compiled-login.json --promote` (or fold into `capture_import.py <id> --promote`).
+### Why this step needs an admin token (not agent client/secret)
+Register/promote is the **only** part of NoUI that an agent client/secret cannot do. Those credentials mint an `Agent`-role token, and Tabby gates these endpoints higher:
+
+| Endpoint | Required role | Agent token? |
+|---|---|---|
+| `POST /apps` | `Admin`, `Operator` | ❌ 403 |
+| `POST /admin/profiles` | `Admin` | ❌ 403 |
+| `POST /admin/profiles/{id}/promote` | `Admin` | ❌ 403 |
+
+So `register_login` reads **`TABBY_ADMIN_TOKEN`** (`resolve_admin_token`) and fails fast if it's unset. Everything else — recording, Autopilot (`/execute/browser`), and running generated tools (`/execute/fetch`) — accepts the `Agent` role and works on agent client/secret alone. To avoid an admin token entirely, use the cloud **`platform_jwt`** route (per-user JWT + App-Template auto-provisioning) instead of these admin endpoints — see [auth-modes](auth-modes.md).
+
+CLI: `scripts/activate_register.py compiled-login.json --promote` (or fold into `capture_import.py <id> --promote`).
 
 ## Verify auth before use
 `scripts/activate_verify.py <server_dir>` → `noui_core.activate.verify.verify_before_install`. Deterministic-first repairs; statuses: `PASS`, `REPAIR_APPLIED`, `NEEDS_SECRET`, `UNSUPPORTED`. No `auth_plan.json` ⇒ `PASS` (unauthenticated server).
