@@ -30,6 +30,7 @@ def register_login(
     promote: bool = False,
     as_template: bool = False,
     token: str = "",
+    tenant_id: str = "",
 ) -> dict:
     """Register App + STAGING ServiceProfile from a compiled login result.
 
@@ -41,6 +42,9 @@ def register_login(
         as_template: if True, also create a tenant-wide App Template for
             per-user auto-provisioning (platform_jwt / federated users).
         token: admin token; defaults to TABBY_ADMIN_TOKEN.
+        tenant_id: Admin-only override — create the App/Profile/Template in this
+            tenant. Pass the *agent token's* tenant so the agent can resolve and
+            drive them (avoids the admin-token vs agent-token tenant mismatch).
 
     Returns {app_id, profile_db_id, profile_id, version_state, template_id?}.
     """
@@ -57,9 +61,9 @@ def register_login(
 
     token = token or resolve_admin_token()
 
-    app = tabby_client.register_application(result, token)
+    app = tabby_client.register_application(result, token, tenant_id=tenant_id)
     app_id = app["app_id"]
-    profile = tabby_client.register_service_profile(result, token, app_id)
+    profile = tabby_client.register_service_profile(result, token, app_id, tenant_id=tenant_id)
     profile_db_id = profile["id"]
 
     version_state = "STAGING"
@@ -86,7 +90,7 @@ def register_login(
             result.get("application_draft", {}),
             result.get("service_profile_draft", {}),
         )
-        template = tabby_client.register_app_template(payload, token)
+        template = tabby_client.register_app_template(payload, token, tenant_id=tenant_id)
         out["template_id"] = template.get("id", "")
 
     return out

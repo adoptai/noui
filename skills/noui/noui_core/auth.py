@@ -6,6 +6,7 @@ at runtime to resolve live auth material for a given Tabby profile.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import urllib.error
@@ -14,6 +15,21 @@ import urllib.request
 import httpx
 
 TABBY_API_HOST = os.environ.get("TABBY_API_URL", "http://localhost:8080")
+
+
+def tenant_id_from_token(token: str) -> str:
+    """Return the ``tenant_id`` claim from a Tabby JWT (no signature check).
+
+    Used to target an admin-token create call at the *agent's* tenant, so the
+    App/Profile/Template land where the agent token can resolve them.
+    """
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)  # restore base64 padding
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        return claims.get("tenant_id", "") or ""
+    except Exception:
+        return ""
 
 
 async def get_auth_headers(profile_id: str) -> dict:

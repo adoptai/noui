@@ -66,12 +66,15 @@ def is_alive() -> bool:
         return False
 
 
-def register_application(bundle: dict, token: str) -> dict:
+def register_application(bundle: dict, token: str, *, tenant_id: str = "") -> dict:
     """
     POST /apps with the application_draft from bundle.
 
     Patches http://localhost target_urls to https://localhost so Tabby
     validation does not reject local test origins.
+
+    tenant_id: optional Admin-only override — create the app in that tenant
+    (so an admin token can register into the agent token's tenant).
 
     Returns the created application dict (includes app_id).
     Raises RuntimeError on failure.
@@ -88,6 +91,8 @@ def register_application(bundle: dict, token: str) -> dict:
     patched_draft: dict[str, Any] = {**app_draft}
     if patched_urls:
         patched_draft["target_urls"] = patched_urls
+    if tenant_id:
+        patched_draft["tenant_id"] = tenant_id
 
     resp = _tabby_http("POST", "/apps", patched_draft, token=token)
     if not isinstance(resp, dict):
@@ -95,10 +100,12 @@ def register_application(bundle: dict, token: str) -> dict:
     return resp
 
 
-def register_service_profile(bundle: dict, token: str, app_id: str) -> dict:
+def register_service_profile(bundle: dict, token: str, app_id: str, *, tenant_id: str = "") -> dict:
     """
     POST /admin/profiles with the service_profile_draft from bundle,
     injecting the given app_id and a freshly computed version string.
+
+    tenant_id: optional Admin-only override — create the profile in that tenant.
 
     Returns the created profile dict (includes id as the DB primary key).
     Raises RuntimeError on failure.
@@ -113,6 +120,8 @@ def register_service_profile(bundle: dict, token: str, app_id: str) -> dict:
         "app_id": app_id,
         "version": version,
     }
+    if tenant_id:
+        profile_payload["tenant_id"] = tenant_id
 
     resp = _tabby_http("POST", "/admin/profiles", profile_payload, token=token)
     if not isinstance(resp, dict):
@@ -360,14 +369,18 @@ def execute_browser(
     return resp
 
 
-def register_app_template(payload: dict, token: str) -> dict:
+def register_app_template(payload: dict, token: str, *, tenant_id: str = "") -> dict:
     """
     POST /admin/app-templates with a template payload from
     noui_core.compile.login_assets.build_app_template_payload.
 
+    tenant_id: optional Admin-only override — create the template in that tenant.
+
     A template is the tenant-wide, per-user auto-provisioning blueprint.
     Returns the created template dict (includes id). Raises RuntimeError on failure.
     """
+    if tenant_id:
+        payload = {**payload, "tenant_id": tenant_id}
     resp = _tabby_http("POST", "/admin/app-templates", body=payload, token=token)
     if not isinstance(resp, dict):
         raise RuntimeError(f"Unexpected response from POST /admin/app-templates: {type(resp)}")

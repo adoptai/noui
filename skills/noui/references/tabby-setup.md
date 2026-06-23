@@ -26,15 +26,22 @@ ADOPT_CLIENT_SECRET=<platform PAT secret>
 The platform PAT mints a platform JWT, exchanged for a Tabby JWT that carries
 `owner_user_id` (per-user profiles + template auto-provision). No admin token.
 
-## Same-tenant requirement (important)
-`TABBY_ADMIN_TOKEN` (used to register/promote apps & profiles) and
-`TABBY_CLIENT_ID/SECRET` (the agent token used to record + execute) **must belong
-to the same Tabby tenant**. If they don't, registration lands in the admin
-token's tenant while the agent token resolves a different one — every
-agent-token call (`/agent/session-status`, `/execute/*`) then 404s with
-*"No active profile found"* even though the profile exists. Decode a token's
-`tenant_id` claim (middle JWT segment) to check. Targets must also be **HTTPS**
-(`https://…`) — `POST /recording/sessions` rejects `http://` URLs.
+## Tenant alignment (admin token vs agent token)
+`TABBY_ADMIN_TOKEN` (registers/promotes apps & profiles) and
+`TABBY_CLIENT_ID/SECRET` (the agent token used to record + execute) may belong to
+**different** Tabby tenants. If a profile is created in the admin's tenant but
+the agent resolves a different one, every agent-token call
+(`/agent/session-status`, `/execute/*`) 404s with *"No active profile found"*.
+
+NoUI handles this automatically: `register_login` (and `capture_import` /
+`activate_register`) **default the create calls to the agent token's tenant**
+via Tabby's Admin `tenant_id` override — so the App/Profile/Template land where
+the agent can resolve + drive them, even with a cross-tenant admin token.
+Override with `--tenant-id <id>` if you need a specific tenant. (Decode a token's
+`tenant_id` claim — middle JWT segment — to check; `noui_core.auth.tenant_id_from_token`.)
+
+Targets must be **HTTPS** (`https://…`) — `POST /recording/sessions` rejects
+`http://` URLs.
 
 ## Health check
 `noui_core.tabby_client.is_alive()` probes `GET /health/live`. If recording or

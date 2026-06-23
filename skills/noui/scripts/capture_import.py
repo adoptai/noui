@@ -52,6 +52,13 @@ def main() -> int:
         action="store_true",
         help="(login) also create a tenant-wide App Template",
     )
+    p.add_argument(
+        "--tenant-id",
+        dest="tenant_id",
+        default="",
+        help="(login) Admin-only: register App/Profile/Template in this tenant "
+        "(default: the agent token's own tenant, so the agent can drive them)",
+    )
     args = p.parse_args()
 
     print(f"Fetching recording bundle from Tabby ({args.session_id}) …", file=sys.stderr)
@@ -98,8 +105,18 @@ def main() -> int:
         print(f"Login compile failed: {exc}", file=sys.stderr)
         return 1
 
+    # Default to the agent token's tenant so the registered App/Profile/Template
+    # land where the agent token can resolve + drive them (avoids tenant mismatch).
+    tenant_id = args.tenant_id
+    if not tenant_id:
+        from noui_core import auth
+
+        tenant_id = auth.tenant_id_from_token(recording.resolve_agent_token())
+
     try:
-        prov = register.register_login(compiled, promote=args.promote, as_template=args.as_template)
+        prov = register.register_login(
+            compiled, promote=args.promote, as_template=args.as_template, tenant_id=tenant_id
+        )
     except RuntimeError as exc:
         print(f"Register failed: {exc}", file=sys.stderr)
         # Still emit the compiled drafts so the user can register manually.

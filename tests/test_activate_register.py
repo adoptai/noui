@@ -33,20 +33,20 @@ class FakeClient:
     def is_alive(self):
         return True
 
-    def register_application(self, bundle, token):
-        self.calls.append(("register_application", token))
+    def register_application(self, bundle, token, *, tenant_id=""):
+        self.calls.append(("register_application", token, tenant_id))
         return {"app_id": "app-123"}
 
-    def register_service_profile(self, bundle, token, app_id):
-        self.calls.append(("register_service_profile", app_id))
+    def register_service_profile(self, bundle, token, app_id, *, tenant_id=""):
+        self.calls.append(("register_service_profile", app_id, tenant_id))
         return {"id": "profile-db-456"}
 
     def promote_profile(self, profile_db_id, token):
         self.calls.append(("promote_profile", profile_db_id))
         return {}
 
-    def register_app_template(self, payload, token):
-        self.calls.append(("register_app_template", payload))
+    def register_app_template(self, payload, token, *, tenant_id=""):
+        self.calls.append(("register_app_template", payload, tenant_id))
         return {"id": "tmpl-789"}
 
 
@@ -91,6 +91,18 @@ def test_register_with_template(monkeypatch):
     assert payload["export_policy"]["target_domains"] == ["www.expedia.com"]
 
 
+def test_register_threads_tenant_id(monkeypatch):
+    # An explicit tenant_id must reach app, profile, AND template creates so the
+    # agent token (whose tenant it is) can resolve + drive them.
+    fake = FakeClient()
+    _patch(monkeypatch, fake)
+    register.register_login(_compiled(), as_template=True, tenant_id="7f420cc0")
+    by_name = {c[0]: c for c in fake.calls}
+    assert by_name["register_application"][2] == "7f420cc0"
+    assert by_name["register_service_profile"][2] == "7f420cc0"
+    assert by_name["register_app_template"][2] == "7f420cc0"
+
+
 def test_register_rejects_invalid(monkeypatch):
     import pytest
 
@@ -100,3 +112,18 @@ def test_register_rejects_invalid(monkeypatch):
     bad["validation"] = {"generator_valid": False, "issues": ["nope"]}
     with pytest.raises(RuntimeError, match="invalid"):
         register.register_login(bad)
+
+
+def test_tenant_id_from_token():
+    import base64
+    import json
+
+    from noui_core.auth import tenant_id_from_token
+
+    payload = (
+        base64.urlsafe_b64encode(json.dumps({"tenant_id": "abc-123"}).encode()).decode().rstrip("=")
+    )
+    jwt = f"hdr.{payload}.sig"
+    assert tenant_id_from_token(jwt) == "abc-123"
+    assert tenant_id_from_token("not-a-jwt") == ""
+    assert tenant_id_from_token("") == ""
