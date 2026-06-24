@@ -9,6 +9,15 @@ NoUI records what a site's browser already does and ships it as tools your agent
 
 **The only external requirement is a reachable Tabby.** There is no NoUI backend, no daemon, and no `ANTHROPIC_API_KEY` — the compile pipeline is deterministic.
 
+> **Running in the Agent Harness?** If `NOUI_TABBY_AUTH_MODE=broker` is set in your
+> environment, you are inside the harness sandbox. **Ignore the Setup, auth, and VNC
+> recording instructions below** — they are for local CLI use. In the harness:
+> `TABBY_API_URL` already points at the control-plane **broker** (fronting cloud Tabby),
+> auth is injected per-user by the broker (**no `.env`, no `TABBY_CLIENT_ID/SECRET/
+> ADMIN_TOKEN`**), recording is **Autopilot only** (no VNC), and you compile with
+> **`--execution-mode harness`** (never `tabby`/`http`). Follow the **`noui` harness
+> skill** instructions, not this file.
+
 ---
 
 ## The three pillars
