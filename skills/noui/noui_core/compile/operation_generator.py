@@ -45,6 +45,13 @@ def _render_skill_operation_tabby(td: dict, *, auth_plan: dict) -> str:
 
     profile_slug = auth_plan.get("profile_slug", "") if auth_plan else ""
 
+    # A static-secret-header app (Authorization/x-api-key, no login cookies) gets
+    # no auth from the browser session's credentials:'include', so the op must
+    # inject the secret header itself via resolve_auth() — the same wiring the
+    # http mode uses. (tabby_credentials apps ride their session cookies and need
+    # no injection here.)
+    needs_static_auth = bool(auth_plan and auth_plan.get("strategy") == "static_secret_header")
+
     static_headers = {
         h["name"]: h["value"] for h in request_headers if h.get("name") and h.get("value")
     }
@@ -85,6 +92,10 @@ def _render_skill_operation_tabby(td: dict, *, auth_plan: dict) -> str:
         "    sys.path.insert(0, str(_SKILL_ROOT))",
         "",
         "from noui_runtime.execute import execute_fetch  # noqa: E402",
+    ]
+    if needs_static_auth:
+        lines.append("from noui_runtime.auth import resolve_auth  # noqa: E402")
+    lines += [
         "",
         f"BASE_URL = {base_url!r}",
         f"PROFILE_SLUG = {profile_slug!r}",
@@ -112,7 +123,12 @@ def _render_skill_operation_tabby(td: dict, *, auth_plan: dict) -> str:
         _ = content_type
         lines.append(f"    body = {{{body_dict}}}")
 
-    if static_headers:
+    if needs_static_auth and static_headers:
+        lines.append(f"    _recorded = {static_headers!r}")
+        lines.append("    headers = {**_recorded, **await resolve_auth()}")
+    elif needs_static_auth:
+        lines.append("    headers = await resolve_auth()")
+    elif static_headers:
         lines.append(f"    headers = {static_headers!r}")
     else:
         lines.append("    headers: dict[str, str] | None = None")
