@@ -42,11 +42,17 @@ def main() -> int:
 
     session_id = result.get("session_id", "")
     vnc_url = result.get("vnc_url", "")
+    # Surface the vnc_url: it is the RECORDING viewer (``?mode=recording`` → has the
+    # "Finish & export" toolbar). The harness secret-redactor exempts ``/vnc/`` URLs,
+    # so the embedded login token survives — give the user this link verbatim.
+    # (Do NOT substitute the short-link route: it forces the HITL "Mark as Resolved"
+    #  viewer, which lacks "Finish & export" and can't complete a recording.)
     print(f"Recording session ready ({args.mode}):")
     print(f"  session_id : {session_id}")
     print(f"  vnc_url    : {vnc_url}")
     print()
-    print("Open the VNC URL, drive the browser, click 'Finish & export', then run:")
+    print("Give the user the vnc_url (the recording viewer, with 'Finish & export').")
+    print("Have them sign in, drive the flow, click 'Finish & export', then run:")
     print(f"  python scripts/capture_import.py {session_id}")
     return 0
 

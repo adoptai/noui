@@ -14,20 +14,45 @@ import os
 
 from noui_core import tabby_client
 from noui_core.capture.bundle import count_sensitive_unredacted, validate_bundle
+from noui_core.config import settings
 
 _MISSING_CREDS = (
     "TABBY_CLIENT_ID and TABBY_CLIENT_SECRET must be set (or present in the env / .env) "
     "to authenticate against Tabby. Run your Tabby setup first."
 )
 
+_MISSING_BROKER_TOKEN = (
+    "NOUI_TABBY_AUTH_MODE=broker but NOUI_BROKER_TOKEN is unset — the harness must "
+    "inject the per-conversation capability token into the sandbox env."
+)
+
 
 def resolve_agent_token() -> str:
-    """Resolve a Tabby agent bearer token from the environment."""
+    """Resolve the bearer NoUI sends to ``settings.tabby_api_host``.
+
+    In ``broker`` mode this is the opaque per-conversation capability token (the
+    broker swaps it for the real per-user Tabby bearer); no Tabby client creds are
+    needed or present in the sandbox. Otherwise it is a minted Tabby agent token.
+    """
+    if settings.broker_mode():
+        if not settings.broker_token:
+            raise RuntimeError(_MISSING_BROKER_TOKEN)
+        return settings.broker_token
     client_id = os.environ.get("TABBY_CLIENT_ID", "")
     client_secret = os.environ.get("TABBY_CLIENT_SECRET", "")
     if not (client_id and client_secret):
         raise RuntimeError(_MISSING_CREDS)
     return tabby_client.get_agent_token(client_id, client_secret)
+
+
+def short_link(session_id: str) -> str:
+    """Mint a redaction-safe short VNC URL for a recording session.
+
+    The raw ``vnc_url`` embeds a JWT the harness redactor strips; this short code
+    (``.../s/<id>``) is safe to show a user in the harness. See
+    ``tabby_client.create_short_link``.
+    """
+    return tabby_client.create_short_link(session_id, resolve_agent_token())
 
 
 def start(
