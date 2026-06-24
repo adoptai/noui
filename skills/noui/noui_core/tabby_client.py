@@ -421,16 +421,20 @@ def get_session_status(profile_slug: str, token: str) -> dict:
     return resp
 
 
-def create_short_link(session_id: str, token: str) -> str:
+def create_short_link(session_id: str, token: str, mode: str = "") -> str:
     """POST /sessions/{session_id}/short-link — a short (10-min) redirect URL to the
-    session's VNC viewer (``.../s/<id>``, with ``?from=mcp`` so the viewer shows the
-    resolve panel).
+    session's VNC viewer (``.../s/<id>``).
 
-    Prefer this over the raw ``vnc_url`` when surfacing a login link inside the Agent
-    Harness: the raw URL embeds a JWT in its ``#token=`` fragment that the harness
+    ``mode="recording"`` produces the **recording** viewer (``?mode=recording`` — the
+    one with the *Finish & export* toolbar); omitting ``mode`` gives the default MCP
+    resolve panel (``?from=mcp`` — *Mark as Resolved*).
+
+    Always prefer this over the raw ``vnc_url`` when surfacing a login link inside the
+    Agent Harness: the raw URL embeds a JWT in its ``#token=`` fragment that the harness
     secret-redactor strips (breaking the link), whereas the short code is redaction-safe.
     """
-    resp = _tabby_http("POST", f"/sessions/{session_id}/short-link", token=token)
+    body = {"mode": mode} if mode else None
+    resp = _tabby_http("POST", f"/sessions/{session_id}/short-link", body=body, token=token)
     if not isinstance(resp, dict) or "short_url" not in resp:
         raise RuntimeError(
             f"POST /sessions/{session_id}/short-link returned an unexpected payload: {resp}"
