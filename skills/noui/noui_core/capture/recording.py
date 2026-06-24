@@ -45,6 +45,16 @@ def resolve_agent_token() -> str:
     return tabby_client.get_agent_token(client_id, client_secret)
 
 
+def short_link(session_id: str) -> str:
+    """Mint a redaction-safe short VNC URL for a recording session.
+
+    The raw ``vnc_url`` embeds a JWT the harness redactor strips; this short code
+    (``.../s/<id>``) is safe to show a user in the harness. See
+    ``tabby_client.create_short_link``.
+    """
+    return tabby_client.create_short_link(session_id, resolve_agent_token())
+
+
 def start(
     mode: str,
     url: str = "",
