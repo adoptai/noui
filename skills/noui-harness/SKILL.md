@@ -62,12 +62,12 @@ Ask the user up front for: the **site** (login URL + the workflow to capture) an
 cd /workspace/noui
 python scripts/capture_record.py --mode login --url "<LOGIN_URL>"
 ```
-This prints `session_id`, a redaction-safe **`login_url`** (a short `.../s/<id>` link),
-and a raw `vnc_url`. **Show the user the `login_url` as a clickable markdown link** —
-**never the `vnc_url`** (it embeds a token the harness redacts, so it arrives broken).
-Say: *"Open this, sign in to the site, then click **Finish & export** in the viewer, and
-tell me when you're done."* Record the `session_id`. **End your turn here** — do not poll,
-do not continue until the user confirms.
+This prints `session_id` and a **`vnc_url`** — the *recording* viewer (it has the
+**Finish & export** toolbar). **Show the user the `vnc_url` as a clickable markdown
+link** (the harness redactor exempts `/vnc/` URLs, so it arrives intact). Say: *"Open
+this, sign in to the site, then click **Finish & export** in the viewer, and tell me
+when you're done."* Record the `session_id`. **End your turn here** — do not poll, do not
+continue until the user confirms.
 
 ### A2. Import the login → App Template + ServiceProfile (after the user confirms)
 ```bash
@@ -88,10 +88,10 @@ cd /workspace/noui
 python scripts/capture_record.py --mode workflow --from <login_session_id> --url "<START_URL>"
 ```
 `--from <login_session_id>` seeds the recorder with the just-captured login so it starts
-authenticated (no second login). Again surface the printed **`login_url`** (the short
-link), **not** the `vnc_url`: *"Open this and drive the exact workflow you want as a tool
-(e.g. run the search / open the report), then click **Finish & export** and tell me when
-done."* **End your turn.**
+authenticated (no second login). Again surface the printed **`vnc_url`** (the recording
+viewer): *"Open this and drive the exact workflow you want as a tool (e.g. run the search
+/ open the report), then click **Finish & export** and tell me when done."* **End your
+turn.**
 
 ### B2. Import the workflow → harness Skill (after the user confirms)
 ```bash
