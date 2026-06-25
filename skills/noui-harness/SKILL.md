@@ -112,21 +112,35 @@ done."* **End your turn.**
 cd /workspace/noui
 python scripts/capture_import.py <workflow_session_id> \
     --as skill --execution-mode harness \
-    --profile-slug <slug-from-A2> --name "<skill-name>"
+    --profile-slug <profile-slug> --name "<skill-name>"
 ```
-The compiled skill lands under `workbench/skills/<app>/` as `call_web_api` cards +
-`operations.json` (no transport code).
+`<profile-slug>` is the slug from A2, or — if you skipped Part A — the existing profile
+id the user gave you (e.g. `adopt-bank`). The compiled skill lands under
+`workbench/skills/<app>/` as `call_web_api` cards + `operations.json` (no transport code).
 
 > If the profile already has a HEALTHY session, you may instead drive the workflow
 > **agent-side** with `capture_autopilot.py <slug> --steps steps.json --as skill
 > --execution-mode harness` (no human VNC) — see the toolkit reference. For a brand-new
 > profile, the VNC workflow recording above is the reliable path.
 
-## Step C — report the deliverable
+## Step C — install the skill into the harness catalog
 
-Print: the App Template/profile slug created (Part A), the compiled skill path, the
-generated `SKILL.md` body, and `operations.json`. Tell the user they can review and
-publish the skill (publishing to the org store is an admin action they perform).
+Once compiled, **install it** so it becomes a usable tool on future turns. Call the
+**`install_skill`** harness tool (NOT a bash command — it's a tool in your catalog)
+with the compiled directory:
+
+```
+install_skill(skill_dir="/workspace/noui/workbench/skills/<app>")
+```
+
+It writes the skill to the org catalog (listable on a new turn, ~30s) and returns the
+`${SECRET:...}` name(s) the skill's operations need. **Relay those to the user**: an org
+admin must register each secret in the org secret store before the skill can actually
+run — that registration is the only step between "installed" and "runnable" (the skill
+auth itself is the signed-in user's session; the secret is any extra static API key).
+
+Then report the deliverable: the profile slug, the compiled skill path, the installed
+skill name, and the required secret(s).
 
 ## Troubleshooting
 
