@@ -147,6 +147,10 @@ def build_operation_recipe(td: dict, *, profile_slug: str, auth_plan: dict | Non
     }
     if profile_slug:
         recipe["app"] = profile_slug
+        # Explicit per-op auth binding: the harness call_web_api broker resolves
+        # the signed-in user's federated Tabby bearer (per-user, owner_user_id =
+        # the real user) for this profile. No secret travels with the recipe.
+        recipe["auth"] = {"type": "tabby_per_user", "profile": profile_slug}
     if static_headers:
         recipe["headers"] = static_headers
     if td.get("request_content_type"):

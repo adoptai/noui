@@ -18,6 +18,16 @@ from noui_core.config import settings
 
 
 def resolve_admin_token() -> str:
+    # In broker mode the sandbox holds no admin credential — it sends the opaque
+    # per-conversation capability token and the broker decides whether to inject
+    # admin privileges for register/promote paths (broker v2). See the broker plan.
+    if settings.broker_mode():
+        if not settings.broker_token:
+            raise RuntimeError(
+                "NOUI_TABBY_AUTH_MODE=broker but NOUI_BROKER_TOKEN is unset — the harness "
+                "must inject the per-conversation capability token into the sandbox env."
+            )
+        return settings.broker_token
     token = os.environ.get("TABBY_ADMIN_TOKEN", "") or settings.tabby_admin_token
     if not token:
         raise RuntimeError("TABBY_ADMIN_TOKEN must be set to register apps/profiles with Tabby.")

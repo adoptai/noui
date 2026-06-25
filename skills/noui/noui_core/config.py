@@ -27,9 +27,22 @@ load_dotenv(Path.cwd() / ".env")
 
 @dataclass
 class Settings:
-    # Tabby API — the only external dependency.
+    # Tabby API — the only external dependency. In ``broker`` auth mode this is
+    # the harness control-plane broker URL (not Tabby directly); the broker
+    # injects the per-user Tabby bearer so the sandbox holds no credential.
     tabby_api_host: str = "http://localhost:8000"
     tabby_admin_token: str = ""
+
+    # Auth mode: "agent_token" (default, mint from client creds), "platform_jwt"
+    # (per-user cloud token-exchange), or "broker" (run inside the Agent Harness
+    # sandbox — send an opaque per-conversation capability token; the broker swaps
+    # it for the real Tabby bearer). See plans/adoptai-workflows/noui-control-plane-broker-plan.
+    tabby_auth_mode: str = ""
+
+    # Opaque per-conversation capability token, only set in ``broker`` mode. NOT a
+    # Tabby credential — the broker validates it → (org, user) and injects the real
+    # per-user bearer server-side.
+    broker_token: str = ""
 
     # Default output dir for generated assets (workbench inside the bundle).
     workbench_dir: str = ""
@@ -38,9 +51,15 @@ class Settings:
         if not self.workbench_dir:
             self.workbench_dir = str(_BUNDLE_ROOT / "workbench")
 
+    def broker_mode(self) -> bool:
+        """True when NoUI runs behind the harness control-plane broker."""
+        return self.tabby_auth_mode == "broker"
+
 
 settings = Settings(
     tabby_api_host=os.environ.get("TABBY_API_URL", "http://localhost:8000"),
     tabby_admin_token=os.environ.get("TABBY_ADMIN_TOKEN", ""),
+    tabby_auth_mode=os.environ.get("NOUI_TABBY_AUTH_MODE", "").strip().lower(),
+    broker_token=os.environ.get("NOUI_BROKER_TOKEN", ""),
     workbench_dir=os.environ.get("NOUI_WORKBENCH_DIR", ""),
 )

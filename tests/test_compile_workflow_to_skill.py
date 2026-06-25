@@ -490,6 +490,9 @@ class TestSkillHarnessExecutionMode:
         recipe = recipes[0]
         assert recipe["tool"] == "call_web_api"
         assert recipe["app"] == "example"
+        # Explicit per-op auth binding: the broker resolves the signed-in user's
+        # federated Tabby bearer for this profile (no secret in the recipe).
+        assert recipe["auth"] == {"type": "tabby_per_user", "profile": "example"}
         assert recipe["url_template"].startswith("https://api.example.com")
         assert recipe["method"] == "GET"
         assert any(p["name"] == "id" for p in recipe["query_params"])
