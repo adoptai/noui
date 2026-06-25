@@ -32,8 +32,12 @@ def main() -> int:
     )
     args = p.parse_args()
 
+    # provision_live_link verifies the session can serve a viewer and refreshes a
+    # stale one (restart, else re-provision) before returning — so login_url is
+    # always a live, redaction-safe short link (.../s/<id> → ?mode=recording, the
+    # "Finish & export" viewer), never a dead raw vnc_url.
     try:
-        result = recording.start(
+        result = recording.provision_live_link(
             args.mode, args.url, profile=args.profile, from_session=args.from_session
         )
     except (RuntimeError, ValueError) as exc:
@@ -41,25 +45,17 @@ def main() -> int:
         return 1
 
     session_id = result.get("session_id", "")
-    vnc_url = result.get("vnc_url", "")
-    # Surface a short, redaction-safe login URL in RECORDING mode (.../s/<id> →
-    # ?mode=recording, the viewer with the "Finish & export" toolbar). Unlike the raw
-    # vnc_url (whose #token= JWT the harness secret-redactor strips), the short code
-    # survives redaction. Requires Tabby's mode-aware short-link endpoint.
-    login_url = ""
-    try:
-        login_url = recording.short_link(session_id, mode="recording")
-    except Exception as exc:  # best-effort; fall back to the raw vnc_url
-        print(f"(warning: could not mint short login link: {exc})", file=sys.stderr)
+    login_url = result.get("login_url", "")
+    if result.get("refreshed"):
+        print(f"(note: initial session was stale; refreshed via {result['refreshed']})", file=sys.stderr)
 
     print(f"Recording session ready ({args.mode}):")
     print(f"  session_id : {session_id}")
-    if login_url:
-        print(f"  login_url  : {login_url}    <-- give the user THIS (recording viewer, redaction-safe)")
-    else:
-        print(f"  vnc_url    : {vnc_url}    <-- fallback (raw link; may be redacted in the harness)")
+    print(f"  login_url  : {login_url}    <-- open THIS (recording viewer, redaction-safe)")
     print()
-    print("Have the user open the login_url, sign in, drive the flow, click 'Finish & export', then run:")
+    print("If the viewer shows 'Disconnected' at first, the browser is still starting —")
+    print("it connects on its own within ~30-60s (no need to re-provision).")
+    print("Open the login_url, sign in, drive the flow, click 'Finish & export', then run:")
     print(f"  python scripts/capture_import.py {session_id}")
     return 0
 

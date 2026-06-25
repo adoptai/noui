@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -440,3 +441,40 @@ def create_short_link(session_id: str, token: str, mode: str = "") -> str:
             f"POST /sessions/{session_id}/short-link returned an unexpected payload: {resp}"
         )
     return resp["short_url"]
+
+
+def _vnc_http(method: str, session_id: str, sub: str, stream_token: str, timeout: int = 15) -> dict:
+    """Call a ``/vnc/{session_id}/{sub}`` endpoint.
+
+    These are authenticated by the VNC **stream token** (the JWT from the
+    ``vnc_url`` ``#token=`` fragment) passed as a ``token`` query param — NOT the
+    agent bearer. Raises ``urllib.error`` on non-2xx.
+    """
+    qs = urllib.parse.urlencode({"token": stream_token})
+    url = f"{settings.tabby_api_host.rstrip('/')}/vnc/{session_id}/{sub}?{qs}"
+    req = urllib.request.Request(url, method=method)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read().decode()
+        return json.loads(raw) if raw else {}
+
+
+def get_recording_panel_state(session_id: str, stream_token: str) -> dict:
+    """GET /vnc/{id}/panel-state — recording session runtime state.
+
+    Returns ``{state, health_result_type, ...}``. ``state`` is ``STARTING`` while
+    the browser pod spins up (the viewer shows "Disconnected" until it leaves
+    STARTING), then ``LOGIN_NEEDED`` / ``LOGIN_IN_PROGRESS`` / ``HEALTHY`` once
+    connectable, or ``TERMINATED`` / ``FAILED`` once dead.
+    """
+    return _vnc_http("GET", session_id, "panel-state", stream_token)
+
+
+def restart_recording_session(session_id: str, stream_token: str) -> bool:
+    """POST /vnc/{id}/restart — revive a dead/stuck recording session in place
+    (keeps the same ``session_id``). Returns True on success, False on any
+    failure (caller should then re-provision a fresh session)."""
+    try:
+        _vnc_http("POST", session_id, "restart", stream_token)
+        return True
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+        return False

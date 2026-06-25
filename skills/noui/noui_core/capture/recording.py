@@ -11,6 +11,7 @@ noui_core.capture.autopilot.
 from __future__ import annotations
 
 import os
+import urllib.parse
 
 from noui_core import tabby_client
 from noui_core.capture.bundle import count_sensitive_unredacted, validate_bundle
@@ -81,6 +82,66 @@ def start(
     return tabby_client.create_recording_session(
         mode, url, token, profile, source_session_id=from_session
     )
+
+
+def _stream_token(vnc_url: str) -> str:
+    """Extract the VNC stream token from a vnc_url's ``#token=`` fragment."""
+    frag = urllib.parse.urlparse(vnc_url or "").fragment
+    return urllib.parse.parse_qs(frag).get("token", [""])[0]
+
+
+def provision_live_link(
+    mode: str,
+    url: str = "",
+    *,
+    profile: str = "",
+    from_session: str = "",
+) -> dict:
+    """Provision a recording session and return its payload with a ``login_url``
+    that is **verified live** — never a stale/dead link.
+
+    We never poll through browser startup: a live-but-still-``STARTING`` session
+    is returned immediately (the viewer reconnects on its own once the pod is up).
+    What we DO guard against is handing over a *dead* session. Minting the short
+    link is the liveness check — Tabby 400s ("Cannot open stream") on a
+    TERMINATED session. If that happens we refresh rather than fall back to the
+    (also-dead) raw ``vnc_url``:
+
+      1. ``restart`` the session in place (keeps the same ``session_id``), then
+         re-mint the link; failing that,
+      2. re-provision a fresh session and mint its link.
+
+    Returns the session payload with ``login_url`` set (and ``refreshed`` =
+    ``"restart"`` | ``"reprovision"`` when a refresh was needed).
+    """
+    token = resolve_agent_token()
+    result = start(mode, url, profile=profile, from_session=from_session)
+
+    try:
+        result["login_url"] = tabby_client.create_short_link(
+            result.get("session_id", ""), token, mode="recording"
+        )
+        return result
+    except RuntimeError:
+        pass  # session can't serve a viewer → stale; refresh below.
+
+    stream_token = _stream_token(result.get("vnc_url", ""))
+    sid = result.get("session_id", "")
+    if stream_token and tabby_client.restart_recording_session(sid, stream_token):
+        try:
+            result["login_url"] = tabby_client.create_short_link(sid, token, mode="recording")
+            result["refreshed"] = "restart"
+            return result
+        except RuntimeError:
+            pass  # restart didn't revive it → fall through to a fresh session.
+
+    # Restart unavailable or ineffective → provision a brand-new session.
+    result = start(mode, url, profile=profile, from_session=from_session)
+    result["login_url"] = tabby_client.create_short_link(
+        result.get("session_id", ""), token, mode="recording"
+    )
+    result["refreshed"] = "reprovision"
+    return result
 
 
 def fetch_bundle(session_id: str) -> tuple[str, dict]:
