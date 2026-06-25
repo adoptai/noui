@@ -23,17 +23,28 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--mode", choices=["login", "workflow"], default="workflow")
     p.add_argument("--url", default="", help="login/start URL to open")
-    p.add_argument("--profile", default="", help="(reserved) existing Tabby profile id")
+    p.add_argument(
+        "--profile",
+        default="",
+        help="(workflow) record using an EXISTING Tabby profile's auth — skip the "
+        "login recording entirely (e.g. --profile adopt-bank). Use this when the "
+        "App Template / profile is already set up.",
+    )
     p.add_argument(
         "--from",
         dest="from_session",
         default="",
-        help="seed cookies from a prior login recording (its session id)",
+        help="(workflow) seed cookies from a prior LOGIN recording (its session id), "
+        "when you just recorded the login in this same flow",
     )
     args = p.parse_args()
 
+    # provision_live_link verifies the session can serve a viewer and refreshes a
+    # stale one (restart, else re-provision) before returning — so login_url is
+    # always a live, redaction-safe short link (.../s/<id> → ?mode=recording, the
+    # "Finish & export" viewer), never a dead raw vnc_url.
     try:
-        result = recording.start(
+        result = recording.provision_live_link(
             args.mode, args.url, profile=args.profile, from_session=args.from_session
         )
     except (RuntimeError, ValueError) as exc:
@@ -41,18 +52,20 @@ def main() -> int:
         return 1
 
     session_id = result.get("session_id", "")
-    vnc_url = result.get("vnc_url", "")
-    # Surface the vnc_url: it is the RECORDING viewer (``?mode=recording`` → has the
-    # "Finish & export" toolbar). The harness secret-redactor exempts ``/vnc/`` URLs,
-    # so the embedded login token survives — give the user this link verbatim.
-    # (Do NOT substitute the short-link route: it forces the HITL "Mark as Resolved"
-    #  viewer, which lacks "Finish & export" and can't complete a recording.)
+    login_url = result.get("login_url", "")
+    if result.get("refreshed"):
+        print(
+            f"(note: initial session was stale; refreshed via {result['refreshed']})",
+            file=sys.stderr,
+        )
+
     print(f"Recording session ready ({args.mode}):")
     print(f"  session_id : {session_id}")
-    print(f"  vnc_url    : {vnc_url}")
+    print(f"  login_url  : {login_url}    <-- open THIS (recording viewer, redaction-safe)")
     print()
-    print("Give the user the vnc_url (the recording viewer, with 'Finish & export').")
-    print("Have them sign in, drive the flow, click 'Finish & export', then run:")
+    print("If the viewer shows 'Disconnected' at first, the browser is still starting —")
+    print("it connects on its own within ~30-60s (no need to re-provision).")
+    print("Open the login_url, sign in, drive the flow, click 'Finish & export', then run:")
     print(f"  python scripts/capture_import.py {session_id}")
     return 0
 
