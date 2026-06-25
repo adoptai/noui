@@ -69,10 +69,13 @@ def start(
     Args:
         mode: "login" or "workflow".
         url: start/login URL to open in the recorded browser.
-        profile: (reserved) existing Tabby profile id for workflow auth.
-        from_session: seed cookies from a prior login recording (its session id),
-            so a workflow recording starts already authenticated — session reuse,
-            no stored credentials.
+        profile: (workflow) record using an EXISTING Tabby profile's auth — the
+            recorder browser starts authenticated via this profile, so the login
+            recording can be skipped entirely. Use when the App Template/profile
+            already exists (e.g. "adopt-bank").
+        from_session: (workflow) seed cookies from a prior login recording (its
+            session id) just captured in this same flow — session reuse, no
+            stored credentials. Use --profile instead when a profile already exists.
 
     Returns the Tabby payload: {session_id, app_id, recording_mode, vnc_url, ...}.
     """

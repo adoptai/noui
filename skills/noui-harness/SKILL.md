@@ -57,6 +57,11 @@ Ask the user up front for: the **site** (login URL + the workflow to capture) an
 
 ## Part A — create the App Template (record the LOGIN)
 
+> **Skip Part A entirely** if the site already has a Tabby profile / App Template
+> (the user will say so, e.g. *"the profile `adopt-bank` is ready"*). Go straight
+> to **Part B** and provision the workflow recording with `--profile <profile_id>`
+> — the recorder starts already authenticated via that profile, no login needed.
+
 ### A1. Provision the login recording, surface the VNC link, STOP
 ```bash
 cd /workspace/noui
@@ -82,13 +87,22 @@ reports — you need it for Part B. The drained bundle is saved under `workbench
 
 ## Part B — author the Skill (record the WORKFLOW)
 
-### B1. Provision the workflow recording seeded with the login, surface the link, STOP
+### B1. Provision the workflow recording, surface the link, STOP
+
+Pick the variant by how the profile got set up:
+
 ```bash
 cd /workspace/noui
+# (a) Existing profile / App Template already set up (Part A skipped) — RECOMMENDED
+#     when the user says the profile is ready. Auth comes from the profile.
+python scripts/capture_record.py --mode workflow --profile <profile_id> --url "<START_URL>"
+
+# (b) You just recorded the login in this same flow (Part A above): seed from it.
 python scripts/capture_record.py --mode workflow --from <login_session_id> --url "<START_URL>"
 ```
-`--from <login_session_id>` seeds the recorder with the just-captured login so it starts
-authenticated (no second login). Again surface the printed **`login_url`** (the short,
+`--profile <profile_id>` starts the recorder authenticated via that Tabby profile (skip
+login); `--from <login_session_id>` instead reuses cookies from a login you just captured.
+There is **no `--from-profile`** flag. Again surface the printed **`login_url`** (the short,
 recording-viewer link): *"Open this and drive the exact workflow you want as a tool (e.g.
 run the search / open the report), then click **Finish & export** and tell me when
 done."* **End your turn.**

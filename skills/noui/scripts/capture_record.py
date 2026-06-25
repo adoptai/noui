@@ -23,12 +23,19 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--mode", choices=["login", "workflow"], default="workflow")
     p.add_argument("--url", default="", help="login/start URL to open")
-    p.add_argument("--profile", default="", help="(reserved) existing Tabby profile id")
+    p.add_argument(
+        "--profile",
+        default="",
+        help="(workflow) record using an EXISTING Tabby profile's auth — skip the "
+        "login recording entirely (e.g. --profile adopt-bank). Use this when the "
+        "App Template / profile is already set up.",
+    )
     p.add_argument(
         "--from",
         dest="from_session",
         default="",
-        help="seed cookies from a prior login recording (its session id)",
+        help="(workflow) seed cookies from a prior LOGIN recording (its session id), "
+        "when you just recorded the login in this same flow",
     )
     args = p.parse_args()
 
