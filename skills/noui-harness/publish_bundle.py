@@ -16,6 +16,7 @@ Defaults target THIS folder's ``SKILL.md`` + ``noui-bundle.zip`` and skill name
 ``noui`` — i.e. re-publishing the NoUI harness skill — but every value is a flag,
 so it publishes any harness skill to any org.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,7 +28,9 @@ _HERE = Path(__file__).resolve().parent
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--org-id", required=True, help="target org UUID")
     p.add_argument("--skill-name", default="noui", help="catalog skill name/slug (default: noui)")
     p.add_argument(
@@ -42,7 +45,9 @@ def _parse_args() -> argparse.Namespace:
         help="aux file to ship, as 'arcname=path' or just 'path' (repeatable). "
         "Default: noui-bundle.zip from this folder.",
     )
-    p.add_argument("--bucket", default=None, help="skill store bucket (default: deployment default)")
+    p.add_argument(
+        "--bucket", default=None, help="skill store bucket (default: deployment default)"
+    )
     p.add_argument("--no-replace", action="store_true", help="fail if the skill already exists")
     return p.parse_args()
 

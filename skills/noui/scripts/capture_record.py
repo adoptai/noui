@@ -54,7 +54,10 @@ def main() -> int:
     session_id = result.get("session_id", "")
     login_url = result.get("login_url", "")
     if result.get("refreshed"):
-        print(f"(note: initial session was stale; refreshed via {result['refreshed']})", file=sys.stderr)
+        print(
+            f"(note: initial session was stale; refreshed via {result['refreshed']})",
+            file=sys.stderr,
+        )
 
     print(f"Recording session ready ({args.mode}):")
     print(f"  session_id : {session_id}")
