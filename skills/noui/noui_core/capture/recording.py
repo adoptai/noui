@@ -11,6 +11,7 @@ noui_core.capture.autopilot.
 from __future__ import annotations
 
 import os
+import time
 import urllib.parse
 
 from noui_core import tabby_client
@@ -93,6 +94,36 @@ def _stream_token(vnc_url: str) -> str:
     return urllib.parse.parse_qs(frag).get("token", [""])[0]
 
 
+def _wait_for_pod_ready(
+    session_id: str, stream_token: str, *, attempts: int = 30, interval: float = 2.0
+) -> str:
+    """Block until the recording session's pod leaves ``STARTING``.
+
+    The viewer shows "Disconnected" while the pod boots — noVNC (port 6080) isn't
+    listening yet. ``GET /vnc/{id}/panel-state`` reads from the DB (not the pod),
+    so it answers even during ``STARTING``; we poll it and return as soon as the
+    state is anything else (``HEALTHY`` / ``LOGIN_NEEDED`` / ``FAILED`` /
+    ``TERMINATED``). At that point the pod is up, so the link we mint next opens a
+    viewer that connects immediately. The ~60s cap (30 × 2s) covers worst-case
+    startup; any non-``STARTING`` state — including a dead one — exits the loop,
+    so we never hang (a dead session is then caught by minting and refreshed).
+
+    Returns the last observed state ("" if it never became readable).
+    """
+    state = ""
+    for _ in range(attempts):
+        try:
+            state = tabby_client.get_recording_panel_state(session_id, stream_token).get(
+                "state", ""
+            )
+        except Exception:
+            state = ""
+        if state and state != "STARTING":
+            return state
+        time.sleep(interval)
+    return state
+
+
 def provision_live_link(
     mode: str,
     url: str = "",
@@ -101,13 +132,18 @@ def provision_live_link(
     from_session: str = "",
 ) -> dict:
     """Provision a recording session and return its payload with a ``login_url``
-    that is **verified live** — never a stale/dead link.
+    that is **verified live** — never a stale/dead link, and never handed over
+    before the pod can actually serve the viewer.
 
-    We never poll through browser startup: a live-but-still-``STARTING`` session
-    is returned immediately (the viewer reconnects on its own once the pod is up).
-    What we DO guard against is handing over a *dead* session. Minting the short
-    link is the liveness check — Tabby 400s ("Cannot open stream") on a
-    TERMINATED session. If that happens we refresh rather than fall back to the
+    First we wait out pod startup: a freshly-provisioned session is ``STARTING``
+    for ~20-40s while the browser pod boots and noVNC starts listening, and the
+    viewer shows "Disconnected" the whole time. ``_wait_for_pod_ready`` polls
+    ``panel-state`` (a DB read, safe during ``STARTING``) until the state flips,
+    so the link we surface opens a viewer that connects right away.
+
+    Then we guard against handing over a *dead* session. Minting the short link
+    is the liveness check — Tabby 400s ("Cannot open stream") on a TERMINATED
+    session. If that happens we refresh rather than fall back to the
     (also-dead) raw ``vnc_url``:
 
       1. ``restart`` the session in place (keeps the same ``session_id``), then
@@ -120,16 +156,17 @@ def provision_live_link(
     token = resolve_agent_token()
     result = start(mode, url, profile=profile, from_session=from_session)
 
+    stream_token = _stream_token(result.get("vnc_url", ""))
+    sid = result.get("session_id", "")
+    if stream_token and sid:
+        _wait_for_pod_ready(sid, stream_token)
+
     try:
-        result["login_url"] = tabby_client.create_short_link(
-            result.get("session_id", ""), token, mode="recording"
-        )
+        result["login_url"] = tabby_client.create_short_link(sid, token, mode="recording")
         return result
     except RuntimeError:
         pass  # session can't serve a viewer → stale; refresh below.
 
-    stream_token = _stream_token(result.get("vnc_url", ""))
-    sid = result.get("session_id", "")
     if stream_token and tabby_client.restart_recording_session(sid, stream_token):
         try:
             result["login_url"] = tabby_client.create_short_link(sid, token, mode="recording")

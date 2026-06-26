@@ -5,8 +5,12 @@ Creates an Application + STAGING ServiceProfile from a compiled login result
 STAGING → CANARY → ACTIVE so the runtime resolver (ACTIVE/CANARY only) can
 resolve the profile at the first tool call.
 
-Registration of apps/profiles requires an admin token (POST /apps,
-POST /admin/profiles). It is read from TABBY_ADMIN_TOKEN.
+Registration (POST /apps, POST /admin/profiles, profile promote) is gated by
+Tabby at the **Editor** role — NOT Admin; the /admin/ prefix is a URL namespace,
+not an admin-credential gate. In local/self-host mode the bearer is read from
+TABBY_ADMIN_TOKEN (any Editor+ token works); in broker mode the sandbox sends its
+capability and the broker forwards the user's own federated (Editor) bearer. The
+only genuinely Admin-gated bit is the cross-tenant ``tenant_id`` override.
 """
 
 from __future__ import annotations
@@ -18,9 +22,10 @@ from noui_core.config import settings
 
 
 def resolve_admin_token() -> str:
-    # In broker mode the sandbox holds no admin credential — it sends the opaque
-    # per-conversation capability token and the broker decides whether to inject
-    # admin privileges for register/promote paths (broker v2). See the broker plan.
+    # In broker mode the sandbox holds no Tabby credential — it sends the opaque
+    # per-conversation capability token; the broker swaps it for the user's own
+    # federated (Editor-role) bearer and forwards. No admin privileges are
+    # injected: register/promote are Editor-gated, and the broker allowlists them.
     if settings.broker_mode():
         if not settings.broker_token:
             raise RuntimeError(

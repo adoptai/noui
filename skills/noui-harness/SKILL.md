@@ -133,14 +133,20 @@ with the compiled directory:
 install_skill(skill_dir="/workspace/noui/workbench/skills/<app>")
 ```
 
-It writes the skill to the org catalog (listable on a new turn, ~30s) and returns the
-`${SECRET:...}` name(s) the skill's operations need. **Relay those to the user**: an org
-admin must register each secret in the org secret store before the skill can actually
-run — that registration is the only step between "installed" and "runnable" (the skill
-auth itself is the signed-in user's session; the secret is any extra static API key).
+It writes the skill to the org catalog (listable on a new turn, ~30s). A skill whose
+auth is the signed-in user's **session** (the usual login-recording case — e.g. a
+Tabby `profile_slug` was bound) needs **nothing more**: it is runnable as soon as it's
+listed. Do **not** invent a secret-registration step for these.
 
-Then report the deliverable: the profile slug, the compiled skill path, the installed
-skill name, and the required secret(s).
+`install_skill` returns a `${SECRET:...}` name list, but it is populated **only** when
+the API needs an *extra static secret* (an API key sent on every request, on top of —
+or instead of — the session). **Only if that list is non-empty**, relay it to the user:
+an org admin must register each named secret in the org secret store before the skill
+can run. **If it's empty (the common session-auth case), there is no secret step — say
+nothing about secrets.**
+
+Then report the deliverable: the profile slug, the compiled skill path, and the
+installed skill name — plus the required secret(s) only if `install_skill` returned any.
 
 ## Troubleshooting
 

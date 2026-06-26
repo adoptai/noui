@@ -6,7 +6,11 @@ Tabby Application + ServiceProfile records via urllib.request.
 
 Configuration is read from noui_core.config.settings:
     settings.tabby_api_host   — e.g. "http://localhost:8080"
-    settings.tabby_admin_token — bearer token for /admin/* endpoints
+    settings.tabby_admin_token — bearer for register/promote in local/self-host
+                                 mode. Those endpoints are Editor-gated, NOT
+                                 Admin-only, despite the /admin/ path prefix (the
+                                 name is conventional); broker mode forwards the
+                                 user's own federated bearer instead.
 """
 
 from __future__ import annotations
