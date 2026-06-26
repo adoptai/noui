@@ -71,69 +71,6 @@ def is_alive() -> bool:
         return False
 
 
-def register_application(bundle: dict, token: str, *, tenant_id: str = "") -> dict:
-    """
-    POST /apps with the application_draft from bundle.
-
-    Patches http://localhost target_urls to https://localhost so Tabby
-    validation does not reject local test origins.
-
-    tenant_id: optional Admin-only override — create the app in that tenant
-    (so an admin token can register into the agent token's tenant).
-
-    Returns the created application dict (includes app_id).
-    Raises RuntimeError on failure.
-    """
-    app_draft = bundle.get("application_draft", {})
-
-    # Rewrite http://localhost target_urls to https://localhost for Tabby
-    patched_urls = [
-        u.replace("http://localhost", "https://localhost", 1)
-        if u.startswith("http://localhost")
-        else u
-        for u in (app_draft.get("target_urls") or [])
-    ]
-    patched_draft: dict[str, Any] = {**app_draft}
-    if patched_urls:
-        patched_draft["target_urls"] = patched_urls
-    if tenant_id:
-        patched_draft["tenant_id"] = tenant_id
-
-    resp = _tabby_http("POST", "/apps", patched_draft, token=token)
-    if not isinstance(resp, dict):
-        raise RuntimeError(f"Unexpected response type from POST /apps: {type(resp)}")
-    return resp
-
-
-def register_service_profile(bundle: dict, token: str, app_id: str, *, tenant_id: str = "") -> dict:
-    """
-    POST /admin/profiles with the service_profile_draft from bundle,
-    injecting the given app_id and a freshly computed version string.
-
-    tenant_id: optional Admin-only override — create the profile in that tenant.
-
-    Returns the created profile dict (includes id as the DB primary key).
-    Raises RuntimeError on failure.
-    """
-    profile_draft = bundle.get("service_profile_draft", {})
-
-    t = time.localtime()
-    version = f"{t.tm_year % 100}.{t.tm_mon}.{t.tm_mday}"
-
-    profile_payload: dict[str, Any] = {
-        **profile_draft,
-        "app_id": app_id,
-        "version": version,
-    }
-    if tenant_id:
-        profile_payload["tenant_id"] = tenant_id
-
-    resp = _tabby_http("POST", "/admin/profiles", profile_payload, token=token)
-    if not isinstance(resp, dict):
-        raise RuntimeError(f"Unexpected response type from POST /admin/profiles: {type(resp)}")
-    return resp
-
-
 def validate_profile(profile_id: str, token: str, timeout_seconds: int = 60) -> dict:
     """
     Poll GET /admin/service-profiles/{id} until the profile's version_state
@@ -171,25 +108,6 @@ def validate_profile(profile_id: str, token: str, timeout_seconds: int = 60) -> 
         f"Profile {profile_id} did not reach HEALTHY within {timeout_seconds}s. "
         f"Last response: {last_resp}"
     )
-
-
-def promote_profile(profile_db_id: str, token: str) -> dict:
-    """
-    POST /admin/profiles/{id}/promote.
-
-    In the standard Tabby flow this must be called twice to move
-    STAGING → CANARY → ACTIVE. This function calls it once and
-    returns the updated profile dict.
-
-    Raises RuntimeError on failure.
-    """
-    resp = _tabby_http("POST", f"/admin/profiles/{profile_db_id}/promote", token=token)
-    if not isinstance(resp, dict):
-        raise RuntimeError(
-            f"Unexpected response type from POST /admin/profiles/{profile_db_id}/promote: "
-            f"{type(resp)}"
-        )
-    return resp
 
 
 def get_agent_token(client_id: str, client_secret: str) -> str:

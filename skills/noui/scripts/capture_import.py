@@ -4,8 +4,8 @@
 Workflow recording → MCP and/or Skill:
     python scripts/capture_import.py <session_id> --as both --profile-slug <slug>
 
-Login recording → Tabby App + ServiceProfile:
-    python scripts/capture_import.py <session_id> --promote
+Login recording → Tabby App Template (per-user auto-provisioning blueprint):
+    python scripts/capture_import.py <session_id> --name <app-name>
 
 End to end, no NoUI backend round-trip: Tabby captured the bundle server-side.
 """
@@ -56,13 +56,9 @@ def main() -> int:
         "(Slack/MCP-delivered values); stored: k8s:secret username/password (explicit "
         "opt-in — never the default); auto: same as manual (no stored secret)",
     )
-    p.add_argument("--promote", action="store_true", help="(login) promote STAGING → ACTIVE")
-    p.add_argument(
-        "--as-template",
-        dest="as_template",
-        action="store_true",
-        help="(login) also create a tenant-wide App Template",
-    )
+    # (login) registration is always template-first — we create a tenant-wide App
+    # Template and let Tabby auto-provision a private per-user App+Profile on each
+    # member's first request. No direct App/Profile creation, no promote step.
     p.add_argument(
         "--tenant-id",
         dest="tenant_id",
@@ -145,22 +141,21 @@ def main() -> int:
         tenant_id = auth.tenant_id_from_token(recording.resolve_agent_token())
 
     try:
-        prov = register.register_login(
-            compiled, promote=args.promote, as_template=args.as_template, tenant_id=tenant_id
-        )
+        prov = register.register_login(compiled, tenant_id=tenant_id)
     except RuntimeError as exc:
         print(f"Register failed: {exc}", file=sys.stderr)
         # Still emit the compiled drafts so the user can register manually.
         print(json.dumps({"compiled": compiled.get("service_profile_draft", {})}, indent=2))
         return 1
 
-    print("Registered login profile:")
+    print("Registered App Template:")
     print(json.dumps(prov, indent=2))
-    if prov.get("version_state") not in ("ACTIVE", "CANARY"):
-        print(
-            "Profile is STAGING — re-run with --promote (runtime resolves ACTIVE/CANARY only).",
-            file=sys.stderr,
-        )
+    print(
+        f"Profile slug '{prov.get('profile_id', '')}' is now tenant-wide. Tabby "
+        "auto-provisions a private per-user profile (→ ACTIVE) on each member's "
+        "first request — no promote needed.",
+        file=sys.stderr,
+    )
     return 0
 
 

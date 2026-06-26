@@ -352,9 +352,13 @@ def build_app_template_payload(
         # vendor's auth/CDN domains in their egress allowlist.
         "extra_egress_allowlist": application_draft.get("extra_egress_allowlist") or [],
         "notification_config": application_draft.get("notification_config") or {},
-        # NOTE: execute_enabled is intentionally NOT emitted — the App Template
-        # DTO rejects the field and returns 400 (A4). The auto-provisioned app
-        # picks up execute_enabled from its own creation path, not the template.
+        # execute_enabled is carried onto every app auto-provisioned from this
+        # template (Tabby's autoProvisionFromTemplate clones it), so the per-user
+        # connection can run /execute/fetch | /execute/browser — which call_web_api
+        # depends on. The App Template DTO now accepts this field (the earlier A4
+        # 400 was fixed); omitting it would default to false and silently break
+        # execute for every provisioned user.
+        "execute_enabled": bool(application_draft.get("execute_enabled", True)),
     }
 
 

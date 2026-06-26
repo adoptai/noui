@@ -74,16 +74,19 @@ then click **Finish & export** in the viewer, and tell me when you're done."* Re
 `session_id`. **End your turn here** — do not poll, do not continue until the user
 confirms.
 
-### A2. Import the login → App Template + ServiceProfile (after the user confirms)
+### A2. Import the login → App Template (after the user confirms)
 ```bash
 cd /workspace/noui
-python scripts/capture_import.py <login_session_id> \
-    --name "<app-name>" --credential-mode takeover --promote --as-template
+python scripts/capture_import.py <login_session_id> --name "<app-name>"
 # same-origin apps: add --post-login-url-pattern '<glob the logged-in URL matches>'
 ```
-`--promote` makes the profile runtime-usable (CANARY); `--as-template` creates the
-tenant-wide App Template (per-user auto-provisioning). Note the **profile slug** it
-reports — you need it for Part B. The drained bundle is saved under `workbench/bundles/`.
+Registration is **template-first**: this creates a tenant-wide **App Template**
+only — it does NOT create an App/ServiceProfile directly. Tabby auto-provisions a
+private, per-user App+Profile (straight to ACTIVE) on each member's first
+`call_web_api`, so there is no `--promote` step and the credential model defaults
+to `manual:` (the member logs in via VNC; nothing is stored). Note the **profile
+slug** it reports — you need it for Part B. The drained bundle is saved under
+`workbench/bundles/`.
 
 ## Part B — author the Skill (record the WORKFLOW)
 

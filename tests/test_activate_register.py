@@ -27,23 +27,15 @@ def _compiled():
 
 
 class FakeClient:
+    # Template-first only: the client no longer exposes register_application /
+    # register_service_profile / promote_profile. If register_login tried to call
+    # one, this fake would AttributeError — a loud guard against regressing to
+    # direct App creation.
     def __init__(self):
         self.calls = []
 
     def is_alive(self):
         return True
-
-    def register_application(self, bundle, token, *, tenant_id=""):
-        self.calls.append(("register_application", token, tenant_id))
-        return {"app_id": "app-123"}
-
-    def register_service_profile(self, bundle, token, app_id, *, tenant_id=""):
-        self.calls.append(("register_service_profile", app_id, tenant_id))
-        return {"id": "profile-db-456"}
-
-    def promote_profile(self, profile_db_id, token):
-        self.calls.append(("promote_profile", profile_db_id))
-        return {}
 
     def register_app_template(self, payload, token, *, tenant_id=""):
         self.calls.append(("register_app_template", payload, tenant_id))
@@ -55,51 +47,36 @@ def _patch(monkeypatch, fake):
     monkeypatch.setattr(register, "resolve_admin_token", lambda: "admin-tok")
 
 
-def test_register_basic(monkeypatch):
+def test_register_creates_template_only(monkeypatch):
+    # Template-first: ONLY the App Template is created — no direct App/Profile.
     fake = FakeClient()
     _patch(monkeypatch, fake)
     out = register.register_login(_compiled())
-    assert out == {
-        "app_id": "app-123",
-        "profile_db_id": "profile-db-456",
-        "profile_id": "expedia-login",
-        "version_state": "STAGING",
-    }
-    assert [c[0] for c in fake.calls] == ["register_application", "register_service_profile"]
+    assert out == {"template_id": "tmpl-789", "profile_id": "expedia-login"}
+    assert [c[0] for c in fake.calls] == ["register_app_template"]
 
 
-def test_register_with_promote(monkeypatch):
+def test_template_payload_is_correct(monkeypatch):
     fake = FakeClient()
     _patch(monkeypatch, fake)
-    out = register.register_login(_compiled(), promote=True)
-    # One promote: STAGING → CANARY (runtime-usable). ACTIVE is gated by canary traffic.
-    assert out["version_state"] == "CANARY"
-    assert [c[0] for c in fake.calls].count("promote_profile") == 1
-
-
-def test_register_with_template(monkeypatch):
-    fake = FakeClient()
-    _patch(monkeypatch, fake)
-    out = register.register_login(_compiled(), promote=True, as_template=True)
-    assert out["template_id"] == "tmpl-789"
-    tmpl_call = next(c for c in fake.calls if c[0] == "register_app_template")
-    payload = tmpl_call[1]
-    # profile_name_pattern must equal the runtime slug; execute_enabled must NOT be present.
+    register.register_login(_compiled())
+    payload = next(c for c in fake.calls if c[0] == "register_app_template")[1]
+    # profile_name_pattern must equal the runtime slug (the auto-provision match key).
     assert payload["profile_name_pattern"] == "expedia-login"
-    assert "execute_enabled" not in payload
+    # execute_enabled MUST be present and true — cloned onto each per-user app so
+    # /execute (call_web_api) works; the DTO now accepts it.
+    assert payload["execute_enabled"] is True
     # profile credential_types/target_domains folded into export_policy.
     assert payload["export_policy"]["target_domains"] == ["www.expedia.com"]
 
 
 def test_register_threads_tenant_id(monkeypatch):
-    # An explicit tenant_id must reach app, profile, AND template creates so the
-    # agent token (whose tenant it is) can resolve + drive them.
+    # An explicit tenant_id must reach the template create so the agent token
+    # (whose tenant it is) can resolve + drive the per-user profiles it provisions.
     fake = FakeClient()
     _patch(monkeypatch, fake)
-    register.register_login(_compiled(), as_template=True, tenant_id="7f420cc0")
+    register.register_login(_compiled(), tenant_id="7f420cc0")
     by_name = {c[0]: c for c in fake.calls}
-    assert by_name["register_application"][2] == "7f420cc0"
-    assert by_name["register_service_profile"][2] == "7f420cc0"
     assert by_name["register_app_template"][2] == "7f420cc0"
 
 
