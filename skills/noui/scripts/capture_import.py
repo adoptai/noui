@@ -53,7 +53,8 @@ def main() -> int:
         default="takeover",
         help="(login) takeover (default): manual:, human logs in via VNC + clicks "
         "'Mark as Resolved' (single confirm step); manual: per-field request_human_input "
-        "(Slack/MCP-delivered values); stored: k8s:secret username/password; auto: legacy",
+        "(Slack/MCP-delivered values); stored: k8s:secret username/password (explicit "
+        "opt-in — never the default); auto: same as manual (no stored secret)",
     )
     p.add_argument("--promote", action="store_true", help="(login) promote STAGING → ACTIVE")
     p.add_argument(

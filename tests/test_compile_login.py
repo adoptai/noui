@@ -75,6 +75,30 @@ def test_credential_mode_manual_vs_stored():
     assert stored["application_draft"]["login_config"]["credential_ref"].startswith("k8s:secret/")
 
 
+def test_default_credential_mode_is_manual_never_k8s():
+    """Regression: with no explicit credential mode, compile DEFAULTS to `manual:`
+    and must NEVER implicitly provision a k8s:secret. The Airbnb incident came
+    from compile_login.py (auth_mode=agent_token, no manual flag) silently
+    emitting credential_ref=k8s:secret/tabby-airbnb."""
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [{"to_url": "https://x.com/login"}],
+        "click_events": [],
+        "har": {"log": {"entries": []}},
+        "cookies": [],
+    }
+    # No manual_credentials passed → must be manual on both drafts.
+    default = compile_login_bundle(session_id="s", bundle=bundle, name="x")
+    assert default["application_draft"]["login_config"]["credential_ref"] == "manual:"
+    assert default["service_profile_draft"]["login_config"]["credential_ref"] == "manual:"
+
+    # agent_token must NOT couple to k8s anymore — storage is manual unless opted in.
+    agent = compile_login_bundle(session_id="s", bundle=bundle, name="x", auth_mode="agent_token")
+    assert agent["application_draft"]["login_config"]["credential_ref"] == "manual:"
+
+
 def test_manual_takeover_emits_confirm_step():
     from noui_core.compile.login import compile_login_bundle
 

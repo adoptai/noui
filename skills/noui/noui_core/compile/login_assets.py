@@ -21,7 +21,6 @@ Outputs (returned as a dict):
 from __future__ import annotations
 
 import json
-import os
 import re
 from fnmatch import fnmatch
 from typing import Any
@@ -441,19 +440,6 @@ def merge_template_export_policy(existing_template: dict, new_payload: dict) -> 
 # ---------------------------------------------------------------------------
 
 
-def _resolve_auth_mode(auth_mode: str | None) -> str:
-    """Normalize the credential auth mode.
-
-    'platform_jwt' (Scenario A) → per-user, no stored credentials: the runtime
-    escalates to the end-user via HITL (credential_ref 'manual:').
-    'agent_token'  (Scenario B) → service identity stores credentials in a K8s
-    Secret and reuses them (credential_ref 'k8s:secret/...').
-    Defaults to 'agent_token' (the historical behavior) when unset.
-    """
-    mode = (auth_mode or os.environ.get("NOUI_TABBY_AUTH_MODE") or "agent_token").strip().lower()
-    return "platform_jwt" if mode == "platform_jwt" else "agent_token"
-
-
 def generate(
     session: dict,
     click_events: list[dict],
@@ -482,20 +468,29 @@ def generate(
     har:
         HAR object (or None)
     auth_mode:
-        'platform_jwt' (per-user, HITL-supplied creds) or 'agent_token' (stored
-        K8s Secret). Defaults to $NOUI_TABBY_AUTH_MODE, then 'agent_token'.
+        Runtime token mode hint ('platform_jwt' | 'agent_token'). Does NOT control
+        credential storage — that is governed by manual_credentials/manual_takeover
+        below, which default to manual (no stored secret).
+    manual_credentials:
+        True → `credential_ref: "manual:"` (no stored secret; human logs in via
+        HITL). False → `credential_ref: "k8s:secret/..."` (stored credentials,
+        explicit opt-in only). None (default) → manual.
+    manual_takeover:
+        True → manual: with a single VNC confirm step. Implies manual_credentials.
 
     Returns
     -------
     Full bundle dict.
     """
-    # Credential model is independent of the runtime token mode: `manual:` means
-    # no stored secret — the worker pod starts without a K8s secret mount and the
-    # login is completed by a human via HITL/VNC (request_human_input steps).
-    # `k8s:secret` reuses stored username/password. When manual_credentials is
-    # None, fall back to the legacy coupling (manual iff platform_jwt).
+    # Credential model: `manual:` means no stored secret — the worker pod starts
+    # without a K8s secret mount and the login is completed by a human via
+    # HITL/VNC (request_human_input steps). We DEFAULT to manual and NEVER
+    # provision a `k8s:secret` credential implicitly: a stored credential is only
+    # emitted when the caller explicitly opts in with manual_credentials=False
+    # (i.e. `--credential-mode stored`). This is independent of the runtime token
+    # mode (auth_mode) — agent_token sessions are manual too unless opted in.
     if manual_credentials is None:
-        manual_creds = _resolve_auth_mode(auth_mode) == "platform_jwt"
+        manual_creds = True
     else:
         manual_creds = manual_credentials
     # Takeover implies no stored secret — the human logs in via VNC.

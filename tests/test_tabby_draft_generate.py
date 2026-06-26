@@ -103,8 +103,9 @@ class TestGenerate:
         assert any("observed.example.com" in str(s) for s in steps)
 
     def test_username_fill_step_generated(self) -> None:
+        # fill steps (${USERNAME}) are the stored-credential rendering — opt in.
         clicks = [_click(event_type="input", field_role="username", value="alice")]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         fill_steps = [
             s for s in steps if s.get("action") == "fill" and s.get("value") == "${USERNAME}"
@@ -115,7 +116,7 @@ class TestGenerate:
         clicks = [
             _click(event_type="input", field_role="password", input_type="password", value="secret")
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         fill_steps = [
             s for s in steps if s.get("action") == "fill" and s.get("value") == "${PASSWORD}"
@@ -126,14 +127,22 @@ class TestGenerate:
         clicks = [
             _click(event_type="input", field_role="password", input_type="password", value="s")
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         pw_steps = [s for s in steps if s.get("value") == "${PASSWORD}"]
+        assert pw_steps  # not vacuous
         assert all(s.get("sensitive") is True for s in pw_steps)
 
-    def test_agent_mode_default_uses_k8s_secret(self) -> None:
+    def test_default_credential_ref_is_manual_not_k8s(self) -> None:
+        # Regression: default must be manual: — never an implicit k8s secret.
         clicks = [_click(event_type="input", field_role="username", value="alice")]
         result = generate(_session(), clicks, [])
+        cref = result["application_draft"]["login_config"]["credential_ref"]
+        assert cref == "manual:"
+
+    def test_stored_mode_uses_k8s_secret(self) -> None:
+        clicks = [_click(event_type="input", field_role="username", value="alice")]
+        result = generate(_session(), clicks, [], manual_credentials=False)
         cref = result["application_draft"]["login_config"]["credential_ref"]
         assert cref.startswith("k8s:secret/")
 
@@ -223,7 +232,7 @@ class TestGenerate:
             _click(event_type="input", field_role="username", value="ali"),
             _click(event_type="input", field_role="username", value="alice"),
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         fill_steps = [s for s in steps if s.get("value") == "${USERNAME}"]
         assert len(fill_steps) == 1
@@ -246,7 +255,7 @@ class TestGenerate:
                 "placeholder": None,
             }
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         pw_steps = [s for s in steps if s.get("value") == "${PASSWORD}"]
         assert len(pw_steps) >= 1
@@ -269,7 +278,7 @@ class TestGenerate:
                 "placeholder": None,
             }
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         user_steps = [s for s in steps if s.get("value") == "${USERNAME}"]
         assert len(user_steps) >= 1
