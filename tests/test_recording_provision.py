@@ -46,9 +46,7 @@ def test_waits_through_starting_then_surfaces_link():
                 {"state": "HEALTHY"},
             ],
         ) as panel,
-        patch.object(
-            recording.tabby_client, "create_short_link", return_value="https://t/s/aaa"
-        ),
+        patch.object(recording.tabby_client, "create_short_link", return_value="https://t/s/aaa"),
         patch.object(recording.time, "sleep") as sleep,
     ):
         out = recording.provision_live_link("workflow", "https://x")
