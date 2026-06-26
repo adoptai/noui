@@ -288,12 +288,15 @@ def _render_body(
     sections.append("## Running operations")
     sections.append("")
     if authed:
+        # Only mention ${SECRET:...} headers when the skill actually has them.
+        # For a session-only skill there are none, and emitting the example token
+        # in prose is both misleading and a false-positive for any secret scanner.
+        secret_clause = " (and passing any `${SECRET:...}` headers verbatim)" if secrets else ""
         sections.append(
             "For each operation below, call the `call_web_api` tool with the shown payload, "
-            "substituting `<param>` placeholders (and passing any `${SECRET:...}` headers "
-            "verbatim). Text/JSON responses come back inline, truncated past "
-            f"~{_RESULT_CAP_CHARS_DEFAULT:,} characters — prefer narrow or paginated queries "
-            "over one huge fetch."
+            "substituting `<param>` placeholders" + secret_clause + ". Text/JSON responses "
+            f"come back inline, truncated past ~{_RESULT_CAP_CHARS_DEFAULT:,} characters — "
+            "prefer narrow or paginated queries over one huge fetch."
         )
         sections.append("")
         sections.append(
