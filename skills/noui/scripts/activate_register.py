@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Register a compiled login result with Tabby (App + ServiceProfile).
+"""Register a compiled login result with Tabby as a tenant-wide App Template.
 
-    python scripts/activate_register.py compiled-login.json --promote
+    python scripts/activate_register.py compiled-login.json
 
-Requires TABBY_ADMIN_TOKEN. --promote moves STAGING → CANARY so the runtime
-resolver (serves ACTIVE/CANARY) can resolve the profile at the first tool call.
+Template-first: creates the App Template only (POST /admin/app-templates). Tabby
+auto-provisions a private per-user App+Profile (→ ACTIVE) on each member's first
+request — no direct App/Profile creation, no promote. Editor role suffices
+(TABBY_ADMIN_TOKEN locally; the broker forwards the user's federated bearer).
 """
 
 from __future__ import annotations
@@ -24,13 +26,6 @@ from noui_core.capture.recording import resolve_agent_token
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("compiled", help="path to a compiled login result JSON")
-    p.add_argument("--promote", action="store_true", help="promote STAGING → CANARY")
-    p.add_argument(
-        "--as-template",
-        dest="as_template",
-        action="store_true",
-        help="also create a tenant-wide App Template",
-    )
     p.add_argument(
         "--tenant-id",
         dest="tenant_id",
@@ -49,9 +44,7 @@ def main() -> int:
 
     result = json.loads(Path(args.compiled).read_text())
     try:
-        prov = register.register_login(
-            result, promote=args.promote, as_template=args.as_template, tenant_id=tenant_id
-        )
+        prov = register.register_login(result, tenant_id=tenant_id)
     except RuntimeError as exc:
         print(f"Register failed: {exc}", file=sys.stderr)
         return 1

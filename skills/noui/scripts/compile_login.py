@@ -29,9 +29,25 @@ def main() -> int:
         dest="auth_mode",
         choices=["agent_token", "platform_jwt"],
         default="agent_token",
+        help="runtime token mode hint; does NOT control credential storage "
+        "(see --credential-mode).",
+    )
+    p.add_argument(
+        "--credential-mode",
+        dest="credential_mode",
+        choices=["takeover", "manual", "stored"],
+        default="takeover",
+        help="takeover (default): manual:, human logs in via VNC + single confirm; "
+        "manual: per-field request_human_input; stored: k8s:secret username/password "
+        "(explicit opt-in — never the default).",
     )
     p.add_argument("--out", default="", help="write compiled drafts here (default: stdout)")
     args = p.parse_args()
+
+    # Default is manual (no stored secret). Only --credential-mode stored opts into
+    # a k8s:secret credential, and never implicitly.
+    manual_takeover = args.credential_mode == "takeover"
+    manual_credentials = {"takeover": True, "manual": True, "stored": False}[args.credential_mode]
 
     bundle = json.loads(Path(args.bundle).read_text())
     session_id = args.session_id or bundle.get("session_id") or "bundle"
@@ -42,6 +58,8 @@ def main() -> int:
             name=args.name,
             login_url=args.url,
             auth_mode=args.auth_mode,
+            manual_credentials=manual_credentials,
+            manual_takeover=manual_takeover,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Compile failed: {exc}", file=sys.stderr)

@@ -103,8 +103,9 @@ class TestGenerate:
         assert any("observed.example.com" in str(s) for s in steps)
 
     def test_username_fill_step_generated(self) -> None:
+        # fill steps (${USERNAME}) are the stored-credential rendering — opt in.
         clicks = [_click(event_type="input", field_role="username", value="alice")]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         fill_steps = [
             s for s in steps if s.get("action") == "fill" and s.get("value") == "${USERNAME}"
@@ -115,7 +116,7 @@ class TestGenerate:
         clicks = [
             _click(event_type="input", field_role="password", input_type="password", value="secret")
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         fill_steps = [
             s for s in steps if s.get("action") == "fill" and s.get("value") == "${PASSWORD}"
@@ -126,14 +127,22 @@ class TestGenerate:
         clicks = [
             _click(event_type="input", field_role="password", input_type="password", value="s")
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         pw_steps = [s for s in steps if s.get("value") == "${PASSWORD}"]
+        assert pw_steps  # not vacuous
         assert all(s.get("sensitive") is True for s in pw_steps)
 
-    def test_agent_mode_default_uses_k8s_secret(self) -> None:
+    def test_default_credential_ref_is_manual_not_k8s(self) -> None:
+        # Regression: default must be manual: — never an implicit k8s secret.
         clicks = [_click(event_type="input", field_role="username", value="alice")]
         result = generate(_session(), clicks, [])
+        cref = result["application_draft"]["login_config"]["credential_ref"]
+        assert cref == "manual:"
+
+    def test_stored_mode_uses_k8s_secret(self) -> None:
+        clicks = [_click(event_type="input", field_role="username", value="alice")]
+        result = generate(_session(), clicks, [], manual_credentials=False)
         cref = result["application_draft"]["login_config"]["credential_ref"]
         assert cref.startswith("k8s:secret/")
 
@@ -223,7 +232,7 @@ class TestGenerate:
             _click(event_type="input", field_role="username", value="ali"),
             _click(event_type="input", field_role="username", value="alice"),
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         fill_steps = [s for s in steps if s.get("value") == "${USERNAME}"]
         assert len(fill_steps) == 1
@@ -246,7 +255,7 @@ class TestGenerate:
                 "placeholder": None,
             }
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         pw_steps = [s for s in steps if s.get("value") == "${PASSWORD}"]
         assert len(pw_steps) >= 1
@@ -269,7 +278,7 @@ class TestGenerate:
                 "placeholder": None,
             }
         ]
-        result = generate(_session(), clicks, [])
+        result = generate(_session(), clicks, [], manual_credentials=False)
         steps = self._steps(result)
         user_steps = [s for s in steps if s.get("value") == "${USERNAME}"]
         assert len(user_steps) >= 1
@@ -526,18 +535,19 @@ class TestBuildAppTemplatePayload:
         assert payload["export_policy"]["credential_types"] == prof["credential_types"]
         assert payload["export_policy"]["target_domains"] == ["app.example.com"]
 
-    def test_execute_enabled_omitted_from_template(self) -> None:
-        # A4: the App Template DTO rejects execute_enabled (400). It must NOT be
-        # emitted; the auto-provisioned app sets it on its own creation path.
+    def test_execute_enabled_emitted_on_template(self) -> None:
+        # autoProvisionFromTemplate clones execute_enabled onto each per-user app;
+        # it MUST be true or /execute/fetch (call_web_api) is dead for every user.
+        # The App Template DTO now accepts the field (the earlier A4 400 was fixed).
         app, prof = self._drafts()
         payload = build_app_template_payload(app, prof)
-        assert "execute_enabled" not in payload
+        assert payload["execute_enabled"] is True
 
-    def test_execute_enabled_omitted_even_when_app_sets_it(self) -> None:
+    def test_execute_enabled_defaults_true_when_app_omits_it(self) -> None:
         app, prof = self._drafts()
-        app = {**app, "execute_enabled": True}
+        app = {k: v for k, v in app.items() if k != "execute_enabled"}
         payload = build_app_template_payload(app, prof)
-        assert "execute_enabled" not in payload
+        assert payload["execute_enabled"] is True
 
     def test_merge_unions_export_policy_additive_fields(self) -> None:
         from noui_core.compile.login_assets import merge_template_export_policy
