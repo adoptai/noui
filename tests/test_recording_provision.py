@@ -16,6 +16,11 @@ def test_live_on_first_try_surfaces_link_without_refresh():
         patch.object(recording, "resolve_agent_token", return_value="agent"),
         patch.object(recording, "start", return_value=_session("s1")) as start,
         patch.object(
+            recording.tabby_client,
+            "get_recording_panel_state",
+            return_value={"state": "HEALTHY"},
+        ),
+        patch.object(
             recording.tabby_client, "create_short_link", return_value="https://t/s/aaa"
         ) as sl,
     ):
@@ -26,11 +31,43 @@ def test_live_on_first_try_surfaces_link_without_refresh():
     assert sl.call_count == 1
 
 
+def test_waits_through_starting_then_surfaces_link():
+    # pod is STARTING twice, then HEALTHY — we poll until it leaves STARTING
+    # before minting the link, and never sleep once it has.
+    with (
+        patch.object(recording, "resolve_agent_token", return_value="agent"),
+        patch.object(recording, "start", return_value=_session("s1")),
+        patch.object(
+            recording.tabby_client,
+            "get_recording_panel_state",
+            side_effect=[
+                {"state": "STARTING"},
+                {"state": "STARTING"},
+                {"state": "HEALTHY"},
+            ],
+        ) as panel,
+        patch.object(
+            recording.tabby_client, "create_short_link", return_value="https://t/s/aaa"
+        ),
+        patch.object(recording.time, "sleep") as sleep,
+    ):
+        out = recording.provision_live_link("workflow", "https://x")
+    assert out["login_url"] == "https://t/s/aaa"
+    assert "refreshed" not in out
+    assert panel.call_count == 3  # polled until it left STARTING
+    assert sleep.call_count == 2  # slept once per STARTING observation, not after
+
+
 def test_stale_session_is_restarted_in_place():
     # short-link 400s on the dead session, restart revives it, second mint works.
     with (
         patch.object(recording, "resolve_agent_token", return_value="agent"),
         patch.object(recording, "start", return_value=_session("s1")) as start,
+        patch.object(
+            recording.tabby_client,
+            "get_recording_panel_state",
+            return_value={"state": "TERMINATED"},
+        ),
         patch.object(
             recording.tabby_client,
             "create_short_link",
@@ -52,6 +89,11 @@ def test_dead_session_reprovisions_when_restart_fails():
     with (
         patch.object(recording, "resolve_agent_token", return_value="agent"),
         patch.object(recording, "start", side_effect=[_session("s1"), _session("s2")]) as start,
+        patch.object(
+            recording.tabby_client,
+            "get_recording_panel_state",
+            return_value={"state": "TERMINATED"},
+        ),
         patch.object(
             recording.tabby_client,
             "create_short_link",
