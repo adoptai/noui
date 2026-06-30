@@ -22,7 +22,7 @@ jobs:
         run: pip install poetry
 
       - name: Cache virtualenv
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .venv
           key: venv-${{ runner.os }}-3.12-${{ hashFiles('pyproject.toml') }}
@@ -52,7 +52,7 @@ jobs:
         run: pip install poetry
 
       - name: Cache virtualenv
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .venv
           key: venv-${{ runner.os }}-3.12-${{ hashFiles('pyproject.toml') }}
@@ -79,7 +79,7 @@ jobs:
         run: pip install poetry
 
       - name: Cache virtualenv
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .venv
           key: venv-${{ runner.os }}-3.12-${{ hashFiles('pyproject.toml') }}
