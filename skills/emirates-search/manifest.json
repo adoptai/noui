@@ -1,0 +1,28 @@
+{
+  "skill_id": "emirates-search",
+  "app": {
+    "name": "Emirates",
+    "slug": "emirates-search"
+  },
+  "workflow": {
+    "session_id": "aec4518f-4f8b-4d78-ac30-d5c1cf392e91",
+    "start_url": "https://www.emirates.com"
+  },
+  "tabby": {
+    "profile_slug": "emirates-search",
+    "profile_db_id": "6fbbf5fc-99d0-4b4e-a3ba-81cfb2613b80"
+  },
+  "operations": [
+    {
+      "name": "search_flights",
+      "description": "Search Emirates for available one-way flights on a given route and date.",
+      "args": [
+        {"name": "origin", "type": "string", "required": true, "description": "Departure IATA airport code (e.g. DXB, LHR, JFK)"},
+        {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA airport code (e.g. LHR, DXB, SYD)"},
+        {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+        {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY", "description": "Cabin class: ECONOMY, BUSINESS, or FIRST"},
+        {"name": "adults", "type": "integer", "required": false, "default": 1, "description": "Number of adult travelers"}
+      ]
+    }
+  ]
+}
