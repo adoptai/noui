@@ -1,0 +1,30 @@
+{
+  "skill_id": "qatar-airways-search",
+  "app": {
+    "name": "Qatar Airways",
+    "slug": "qatar-airways-search"
+  },
+  "workflow": {
+    "session_id": "c17314ff-ffd4-47f4-85f9-c414559a4f85",
+    "start_url": "https://www.qatarairways.com"
+  },
+  "tabby": {
+    "profile_slug": "qatar-airways-search",
+    "profile_db_id": "b297c448-d2b8-4119-9dc3-a438c20f07d3"
+  },
+  "operations": [
+    {
+      "name": "search_flights",
+      "description": "Search Qatar Airways for available one-way flights on a given route and date.",
+      "args": [
+        {"name": "origin", "type": "string", "required": true, "description": "Departure IATA airport code (e.g. DOH, LHR, JFK)"},
+        {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA airport code (e.g. LHR, DOH, DXB)"},
+        {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+        {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY", "description": "Cabin class: ECONOMY, BUSINESS, or FIRST"},
+        {"name": "adults", "type": "integer", "required": false, "default": 1, "description": "Number of adult travelers"},
+        {"name": "children", "type": "integer", "required": false, "default": 0, "description": "Number of child travelers (2-11 years)"},
+        {"name": "infants", "type": "integer", "required": false, "default": 0, "description": "Number of infant travelers (under 2)"}
+      ]
+    }
+  ]
+}
