@@ -1,0 +1,64 @@
+{
+  "schema_version": "1",
+  "skill_id": "alaska-search",
+  "app": {
+    "name": "Alaska Airlines Search",
+    "slug": "alaska-search"
+  },
+  "workflow": {
+    "id": "alaska-search",
+    "name": "Alaska Airlines Search",
+    "workflow_session_id": "cedd0256-f7ec-44ab-b8e3-82a90acd78f6",
+    "start_url": "https://www.alaskaair.com"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "alaska-search",
+    "profile_db_id": null,
+    "strategy": "tabby_credentials",
+    "execution_strategy": "cdp_browser_session",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "create_search_api_shoulderdates",
+      "description": "Search Alaska Airlines for lowest fares on and around a given date. Returns prices for 31 dates centered on the target date.",
+      "module": "operations/create_search_api_shoulderdates.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/search/api/shoulderDates",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Departure IATA airport code, e.g. \"SEA\", \"PDX\", \"ANC\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Arrival IATA airport code, e.g. \"LAX\", \"JFK\", \"ORD\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Target departure date in YYYY-MM-DD format."
+        },
+        {
+          "name": "adults",
+          "type": "integer",
+          "required": false,
+          "description": "Number of adult travelers (default: 1)."
+        }
+      ]
+    }
+  ]
+}
