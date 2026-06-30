@@ -1,0 +1,17 @@
+{
+  "skill_id": "united-search",
+  "app": {"name": "United Airlines", "slug": "united-search"},
+  "workflow": {"session_id": "7cd57b1d-7f92-4e87-906b-5d191215ad0b", "start_url": "https://www.united.com"},
+  "tabby": {"profile_slug": "united-search", "profile_db_id": "2c9e59d3-db9c-4fe4-b561-db874627ba07"},
+  "operations": [{
+    "name": "search_flights",
+    "description": "Search United Airlines for available one-way flights. Navigates Tabby browser to choose-flights URL and parses DOM after SSE loads.",
+    "args": [
+      {"name": "origin", "type": "string", "required": true, "description": "Departure IATA code (e.g. ORD, SFO, IAH)"},
+      {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA code (e.g. SFO, ORD, LAX)"},
+      {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+      {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY"},
+      {"name": "adults", "type": "integer", "required": false, "default": 1}
+    ]
+  }]
+}
