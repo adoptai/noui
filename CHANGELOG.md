@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for `tabby_credentials` strategy (both Skill and MCP outputs) whenever the
   auth plan declares required headers, not just for `static_secret_header`.
 
+### Changed
+- `resolve_admin_token()` now prefers exchanging the platform PAT
+  (`ADOPT_API_URL`/`ADOPT_CLIENT_ID`/`ADOPT_CLIENT_SECRET`) for a Tabby bearer
+  over reading a raw `TABBY_ADMIN_TOKEN` — local dev no longer needs a
+  separate admin token when platform_jwt is already configured for runtime
+  execution. The new login-scope-extension step goes template-first
+  (`GET /admin/app-templates`, matched by `profile_name_pattern`) and never
+  reads or writes an individual App directly.
+
 ## [2.0.0] - 2026-06-23
 
 > **Three-pillar consolidation (this release).** NoUI is now a single,
