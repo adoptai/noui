@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Dynamic bearer/CSRF header capture for `tabby_credentials` logins whose apps
+  attach a client-managed header (not just cookies) — a login's `target_urls`
+  now cover the post-login app hosts (not just the login origin), the
+  auth-strategy heuristic checks the paired login's declared headers before
+  falling back to a static secret, and an already-registered login's scope
+  can be widened after the fact when a later workflow capture needs more
+  hosts. Fixes API replay for enterprise SPAs like QuickBooks Online, which
+  previously required a fallback to (much more expensive) UI-driving.
+- Codegen: a GraphQL-style object/array body param (e.g. `variables`) is no
+  longer double-JSON-encoded on the wire, and `resolve_auth()` is now called
+  for `tabby_credentials` strategy (both Skill and MCP outputs) whenever the
+  auth plan declares required headers, not just for `static_secret_header`.
+
 ## [2.0.0] - 2026-06-23
 
 > **Three-pillar consolidation (this release).** NoUI is now a single,
