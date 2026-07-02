@@ -101,31 +101,21 @@ def test_register_rejects_invalid(monkeypatch):
 
 
 class FakeExtendClient:
-    def __init__(self, *, profile=None, app=None, template=None):
-        self.profile = profile
-        self.app = app
+    """Template-only: no get_app/update_app — extend_login_scope_for_workflow
+    must never touch the Apps API (Apps are provisioned FROM templates; see
+    register.py's module docstring). If it tried, this fake would AttributeError."""
+
+    def __init__(self, *, template=None):
         self.template = template
         self.update_app_template_calls: list[tuple[str, dict]] = []
-        self.update_app_calls: list[tuple[str, dict]] = []
 
-    def get_service_profile_by_slug(self, slug, token):
-        return self.profile
-
-    def get_app(self, app_id, token):
-        return self.app
-
-    def get_app_template(self, template_id, token):
+    def get_app_template_by_profile_slug(self, slug, token):
         return self.template
 
     def update_app_template(self, template_id, payload, token):
         self.update_app_template_calls.append((template_id, payload))
         self.template = {**self.template, **payload}
         return self.template
-
-    def update_app(self, app_id, payload, token):
-        self.update_app_calls.append((app_id, payload))
-        self.app = {**self.app, **payload}
-        return self.app
 
 
 def _extend_patch(monkeypatch, fake):
@@ -135,14 +125,9 @@ def _extend_patch(monkeypatch, fake):
 
 def test_extend_widens_target_urls_with_wildcard_suffix(monkeypatch):
     fake = FakeExtendClient(
-        profile={"app_id": "app-1"},
-        app={
-            "id": "app-1",
-            "template_id": "tmpl-1",
-            "target_urls": ["https://accounts.example.com/**"],
-        },
         template={
             "id": "tmpl-1",
+            "profile_name_pattern": "myapp",
             "export_policy": {
                 "encryption": {"algo": "AES-256-GCM", "key_version": "v1"},
                 "ttl_seconds": 3600,
@@ -167,30 +152,20 @@ def test_extend_widens_target_urls_with_wildcard_suffix(monkeypatch):
     # when the template update propagates (a key separate from target_urls).
     assert template_payload["export_policy"]["target_domains"] == ["api.example.com"]
     # Preserved fields untouched (the earlier live bug this guards against:
-    # dropping these caused Tabby to reject the App's own subsequent update).
+    # a bare partial payload silently dropped required fields from the
+    # saved template, which then made a downstream validation fail).
     assert template_payload["export_policy"]["encryption"] == {
         "algo": "AES-256-GCM",
         "key_version": "v1",
     }
     assert template_payload["export_policy"]["ttl_seconds"] == 3600
 
-    # The already-provisioned App's own top-level target_urls also extended.
-    app_id, app_payload = fake.update_app_calls[0]
-    assert app_id == "app-1"
-    assert "https://api.example.com/**" in app_payload["target_urls"]
-    assert "https://accounts.example.com/**" in app_payload["target_urls"]
-
 
 def test_extend_is_noop_when_scope_already_covers_workflow(monkeypatch):
     fake = FakeExtendClient(
-        profile={"app_id": "app-1"},
-        app={
-            "id": "app-1",
-            "template_id": "tmpl-1",
-            "target_urls": ["https://api.example.com/**"],
-        },
         template={
             "id": "tmpl-1",
+            "profile_name_pattern": "myapp",
             "export_policy": {
                 "target_urls": ["https://api.example.com/**"],
                 "target_domains": ["api.example.com"],
@@ -207,11 +182,11 @@ def test_extend_is_noop_when_scope_already_covers_workflow(monkeypatch):
         required_headers=["authorization"],
     )
     assert result["status"] == "unchanged"
-    assert fake.update_app_calls == []
+    assert fake.update_app_template_calls == []
 
 
-def test_extend_skips_when_profile_not_found(monkeypatch):
-    fake = FakeExtendClient(profile=None)
+def test_extend_skips_when_template_not_found(monkeypatch):
+    fake = FakeExtendClient(template=None)
     _extend_patch(monkeypatch, fake)
     result = register.extend_login_scope_for_workflow(
         "missing-profile",
@@ -225,7 +200,7 @@ def test_extend_never_raises_on_unexpected_error(monkeypatch):
     """Best-effort by design — a failure here must never break workflow compilation."""
 
     class ExplodingClient:
-        def get_service_profile_by_slug(self, slug, token):
+        def get_app_template_by_profile_slug(self, slug, token):
             raise RuntimeError("Tabby unreachable")
 
     monkeypatch.setattr(register, "tabby_client", ExplodingClient())
@@ -234,6 +209,61 @@ def test_extend_never_raises_on_unexpected_error(monkeypatch):
         "myapp", target_domains=["api.example.com"], required_headers=["authorization"]
     )
     assert result["status"] == "skipped"
+
+
+# ── resolve_admin_token() preference order ──────────────────────────────────
+
+
+class TestResolveAdminTokenPreference:
+    def test_prefers_platform_jwt_when_adopt_creds_present(self, monkeypatch):
+        monkeypatch.delenv("TABBY_ADMIN_TOKEN", raising=False)
+        monkeypatch.setenv("ADOPT_API_URL", "https://api.adopt.ai")
+        monkeypatch.setenv("ADOPT_CLIENT_ID", "cid")
+        monkeypatch.setenv("ADOPT_CLIENT_SECRET", "csecret")
+        monkeypatch.setattr(register.settings, "broker_mode", lambda: False)
+        monkeypatch.setattr(register.settings, "tabby_admin_token", "")
+
+        calls = []
+
+        def fake_get_platform_tabby_token(url, cid, secret):
+            calls.append((url, cid, secret))
+            return "platform-derived-tok"
+
+        monkeypatch.setattr(
+            register.tabby_client, "get_platform_tabby_token", fake_get_platform_tabby_token
+        )
+        assert register.resolve_admin_token() == "platform-derived-tok"
+        assert calls == [("https://api.adopt.ai", "cid", "csecret")]
+
+    def test_falls_back_to_tabby_admin_token_without_adopt_creds(self, monkeypatch):
+        monkeypatch.delenv("ADOPT_API_URL", raising=False)
+        monkeypatch.delenv("ADOPT_CLIENT_ID", raising=False)
+        monkeypatch.delenv("ADOPT_CLIENT_SECRET", raising=False)
+        monkeypatch.setenv("TABBY_ADMIN_TOKEN", "raw-admin-tok")
+        monkeypatch.setattr(register.settings, "broker_mode", lambda: False)
+        assert register.resolve_admin_token() == "raw-admin-tok"
+
+    def test_raises_when_nothing_configured(self, monkeypatch):
+        import pytest
+
+        monkeypatch.delenv("ADOPT_API_URL", raising=False)
+        monkeypatch.delenv("ADOPT_CLIENT_ID", raising=False)
+        monkeypatch.delenv("ADOPT_CLIENT_SECRET", raising=False)
+        monkeypatch.delenv("TABBY_ADMIN_TOKEN", raising=False)
+        monkeypatch.setattr(register.settings, "broker_mode", lambda: False)
+        monkeypatch.setattr(register.settings, "tabby_admin_token", "")
+        with pytest.raises(RuntimeError, match="No Editor\\+ credential"):
+            register.resolve_admin_token()
+
+    def test_broker_mode_ignores_platform_jwt_and_admin_token(self, monkeypatch):
+        """Broker mode always forwards the harness's own bearer, regardless of
+        what else is configured in the environment."""
+        monkeypatch.setenv("ADOPT_API_URL", "https://api.adopt.ai")
+        monkeypatch.setenv("ADOPT_CLIENT_ID", "cid")
+        monkeypatch.setenv("ADOPT_CLIENT_SECRET", "csecret")
+        monkeypatch.setattr(register.settings, "broker_mode", lambda: True)
+        monkeypatch.setattr(register.settings, "broker_token", "broker-tok")
+        assert register.resolve_admin_token() == "broker-tok"
 
 
 def test_tenant_id_from_token():
