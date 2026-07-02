@@ -17,6 +17,22 @@ payloads: exits 2 (still prints the JSON). On success: exits 0.
 from __future__ import annotations
 
 
+def _body_dict_entry(p: dict) -> str:
+    """Render one `body = {...}` entry for a skill CLI operation.
+
+    argparse can only ever hand a body param in as a plain string, but an
+    "object"/"array"-typed param (e.g. a GraphQL `variables` object) needs to
+    be a real JSON value on the wire — json.loads() it here rather than
+    forwarding the raw string, which double-encodes it and most servers
+    reject. See har_to_tools.py::_body_to_params for how "object"/"array" get
+    assigned.
+    """
+    name = p["name"]
+    if p.get("type", "").lower() in ("object", "array"):
+        return f"{name!r}: json.loads({name})"
+    return f"{name!r}: {name}"
+
+
 def render_skill_operation(td: dict, *, auth_plan: dict, execution_mode: str = "tabby") -> str:
     """Render the full Python source for a single Skill operation.
 
@@ -45,12 +61,15 @@ def _render_skill_operation_tabby(td: dict, *, auth_plan: dict) -> str:
 
     profile_slug = auth_plan.get("profile_slug", "") if auth_plan else ""
 
-    # A static-secret-header app (Authorization/x-api-key, no login cookies) gets
-    # no auth from the browser session's credentials:'include', so the op must
-    # inject the secret header itself via resolve_auth() — the same wiring the
-    # http mode uses. (tabby_credentials apps ride their session cookies and need
-    # no injection here.)
-    needs_static_auth = bool(auth_plan and auth_plan.get("strategy") == "static_secret_header")
+    # Any app with non-cookie required headers (Authorization/x-api-key/a
+    # dynamically-captured bearer, etc.) gets none of that from the browser
+    # session's credentials:'include' (cookies only) — the op must inject
+    # those headers itself via resolve_auth(), for BOTH auth strategies:
+    # static_secret_header (a manually-supplied secret) and tabby_credentials
+    # (Tabby dynamically captures the header from real page traffic — see
+    # login_assets.py's request_header_allowlist wiring). A cookie-only
+    # tabby_credentials app (required_auth.headers empty) needs no injection.
+    needs_header_injection = bool(auth_plan and auth_plan.get("required_auth", {}).get("headers"))
 
     static_headers = {
         h["name"]: h["value"] for h in request_headers if h.get("name") and h.get("value")
@@ -93,7 +112,7 @@ def _render_skill_operation_tabby(td: dict, *, auth_plan: dict) -> str:
         "",
         "from noui_runtime.execute import execute_fetch  # noqa: E402",
     ]
-    if needs_static_auth:
+    if needs_header_injection:
         lines.append("from noui_runtime.auth import resolve_auth  # noqa: E402")
     lines += [
         "",
@@ -119,14 +138,14 @@ def _render_skill_operation_tabby(td: dict, *, auth_plan: dict) -> str:
         lines.append("    url = url + ('?' + urllib.parse.urlencode(_query) if _query else '')")
 
     if has_body:
-        body_dict = ", ".join(f"{p['name']!r}: {p['name']}" for p in body_params)
+        body_dict = ", ".join(_body_dict_entry(p) for p in body_params)
         _ = content_type
         lines.append(f"    body = {{{body_dict}}}")
 
-    if needs_static_auth and static_headers:
+    if needs_header_injection and static_headers:
         lines.append(f"    _recorded = {static_headers!r}")
         lines.append("    headers = {**_recorded, **await resolve_auth()}")
-    elif needs_static_auth:
+    elif needs_header_injection:
         lines.append("    headers = await resolve_auth()")
     elif static_headers:
         lines.append(f"    headers = {static_headers!r}")
@@ -229,7 +248,7 @@ def _render_skill_operation_http(td: dict, *, auth_plan: dict) -> str:
     lines.append(f"    url = {url_expr}")
 
     if body_params and method in ("post", "put", "patch"):
-        body_dict = ", ".join(f"{p['name']!r}: {p['name']}" for p in body_params)
+        body_dict = ", ".join(_body_dict_entry(p) for p in body_params)
         if "json" in content_type:
             lines.append(f"    body = {{{body_dict}}}")
         else:
@@ -296,6 +315,8 @@ def _render_cli_wrapper(name: str, description: str, params: list[dict]) -> list
         flag = f"--{pname.replace('_', '-')}"
         ptype = p.get("type", "string").lower()
         help_text = (p.get("description") or "").replace('"', "'") or pname
+        if ptype in ("object", "array"):
+            help_text += " (JSON-encoded)"
         req_flag = "required=True" if p.get("required", True) else f"default={_py_default(ptype)}"
 
         if ptype in ("bool", "boolean"):

@@ -210,7 +210,15 @@ class TestStaticApiKeyApp:
         )
 
     def test_operations_use_execute_fetch(self) -> None:
-        """Default execution mode (tabby) wires operations through noui_runtime.execute."""
+        """Default execution mode (tabby) wires operations through noui_runtime.execute.
+
+        A static_secret_header app's secret can't come from the browser
+        session's cookies (credentials:'include'), so resolve_auth() must
+        still be called to inject it — even under the tabby-mode default.
+        (Previously this codegen path never called resolve_auth() at all
+        under tabby mode, for any strategy; found via a QuickBooks Online
+        capture that needed the equivalent for tabby_credentials + a
+        dynamically-captured header.)"""
         for path, content in self.files.items():
             if (
                 path.startswith("operations/")
@@ -221,8 +229,8 @@ class TestStaticApiKeyApp:
                     f"{path} must import from noui_runtime.execute under CDP default"
                 )
                 assert "execute_fetch" in content, f"{path} must call execute_fetch()"
-                assert "resolve_auth" not in content, (
-                    f"{path}: resolve_auth() must not be used under CDP default"
+                assert "resolve_auth" in content, (
+                    f"{path}: resolve_auth() must be used to inject the static secret"
                 )
                 assert "PROFILE_SLUG" in content, f"{path}: PROFILE_SLUG constant must be embedded"
 

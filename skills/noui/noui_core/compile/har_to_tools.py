@@ -489,6 +489,15 @@ def _body_to_params(body: dict | None) -> list[dict]:
             ptype = "int"
         elif isinstance(val, float):
             ptype = "float"
+        elif isinstance(val, dict):
+            # e.g. a GraphQL `variables` object. Skill CLI wrappers accept this
+            # as a JSON-encoded string and must json.loads() it before use
+            # (see operation_generator.py's object/array handling) — passing
+            # it through unparsed double-encodes it on the wire and most
+            # servers reject it.
+            ptype = "object"
+        elif isinstance(val, list):
+            ptype = "array"
         else:
             ptype = "string"
         params.append(

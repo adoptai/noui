@@ -48,6 +48,7 @@ def compile_workflow(
     profile_slug: str = "",
     profile_db_id: str = "",
     execution_mode: str = "tabby",
+    login_credential_headers: list[str] | None = None,
 ) -> dict:
     """Compile a recorded workflow session into a runnable FastMCP server.
 
@@ -64,6 +65,13 @@ def compile_workflow(
             with httpx and credentials resolved from Tabby's /credentials/request
             endpoint). Pick "http" only when in-browser execution is impossible
             (CORS, server-to-server endpoints, no live Tabby).
+        login_credential_headers: Header names already declared on the paired
+            login profile's Tabby `credential_types.headers` (fetched by the
+            caller, e.g. via `tabby_client.get_service_profile_by_slug`, when
+            `profile_slug` points at an existing login-derived profile). Passed
+            through to `generate_auth_plan` so a workflow whose auth headers are
+            already dynamically captured by Tabby doesn't get miscategorized as
+            needing a static secret. See `auth_plan.py::generate_auth_plan`.
 
     Returns the manifest dict (same content as manifest.json).
     """
@@ -126,6 +134,7 @@ def compile_workflow(
             profile_slug=effective_slug,
             profile_db_id=profile_db_id,
             app_slug=app_slug,
+            login_credential_headers=login_credential_headers,
         )
 
     # ── 3. Write noui_runtime/auth.py (and execute.py under tabby mode) ───────
@@ -363,6 +372,17 @@ def _render_operation_tabby(td: dict, *, auth_plan: dict) -> str:
 
     profile_slug = auth_plan.get("profile_slug", "") if auth_plan else ""
 
+    # Any app with non-cookie required headers (Authorization/x-api-key/a
+    # dynamically-captured bearer, etc.) gets none of that from the browser
+    # session's credentials:'include' (cookies only) — the op must inject
+    # those headers itself via resolve_auth(), for BOTH auth strategies:
+    # static_secret_header (a manually-supplied secret) and tabby_credentials
+    # (Tabby dynamically captures the header from real page traffic — see
+    # login_assets.py's request_header_allowlist wiring). A cookie-only
+    # tabby_credentials app (required_auth.headers empty) needs no injection.
+    # Mirrors operation_generator.py's identical fix for the Skill output.
+    needs_header_injection = bool(auth_plan and auth_plan.get("required_auth", {}).get("headers"))
+
     static_headers = {
         h["name"]: h["value"] for h in request_headers if h.get("name") and h.get("value")
     }
@@ -370,6 +390,9 @@ def _render_operation_tabby(td: dict, *, auth_plan: dict) -> str:
     body_params = [p for p in params if p.get("source") in ("body", None, "")]
     query_params = [p for p in params if p.get("source") == "query"]
     has_body = bool(body_params) and method in ("POST", "PUT", "PATCH")
+    has_object_body_param = any(
+        p.get("type", "").lower() in ("object", "array") for p in body_params
+    )
 
     lines: list[str] = [
         f'"""Auto-generated operation: {name}',
@@ -383,11 +406,17 @@ def _render_operation_tabby(td: dict, *, auth_plan: dict) -> str:
         "from __future__ import annotations",
         "",
     ]
+    if has_object_body_param:
+        lines.append("import json")
     if query_params:
         lines.append("import urllib.parse")
         lines.append("")
     lines += [
         "from noui_runtime.execute import execute_fetch",
+    ]
+    if needs_header_injection:
+        lines.append("from noui_runtime.auth import resolve_auth")
+    lines += [
         "",
         f"BASE_URL = {base_url!r}",
         f"PROFILE_SLUG = {profile_slug!r}",
@@ -414,13 +443,16 @@ def _render_operation_tabby(td: dict, *, auth_plan: dict) -> str:
         lines.append("    url = url + ('?' + urllib.parse.urlencode(_query) if _query else '')")
 
     if has_body:
-        body_dict = ", ".join(f"{p['name']!r}: {p['name']}" for p in body_params)
-        if "json" in content_type or not content_type:
-            lines.append(f"    body = {{{body_dict}}}")
-        else:
-            lines.append(f"    body = {{{body_dict}}}")
+        body_dict = ", ".join(_body_dict_entry(p) for p in body_params)
+        _ = content_type
+        lines.append(f"    body = {{{body_dict}}}")
 
-    if static_headers:
+    if needs_header_injection and static_headers:
+        lines.append(f"    _recorded = {static_headers!r}")
+        lines.append("    headers = {**_recorded, **await resolve_auth()}")
+    elif needs_header_injection:
+        lines.append("    headers = await resolve_auth()")
+    elif static_headers:
         lines.append(f"    headers = {static_headers!r}")
     else:
         lines.append("    headers: dict[str, str] | None = None")
@@ -463,6 +495,10 @@ def _render_operation_http(td: dict, *, auth_plan: dict) -> str:
     static_headers = {
         h["name"]: h["value"] for h in request_headers if h.get("name") and h.get("value")
     }
+    body_params_preview = [p for p in params if p.get("source") in ("body", None, "")]
+    has_object_body_param = any(
+        p.get("type", "").lower() in ("object", "array") for p in body_params_preview
+    )
 
     lines: list[str] = [
         f'"""Auto-generated operation: {name}',
@@ -475,6 +511,9 @@ def _render_operation_http(td: dict, *, auth_plan: dict) -> str:
         "import httpx",
         "",
     ]
+    if has_object_body_param:
+        lines.append("import json")
+        lines.append("")
 
     if needs_auth:
         lines.append("from noui_runtime.auth import resolve_auth")
@@ -507,7 +546,7 @@ def _render_operation_http(td: dict, *, auth_plan: dict) -> str:
 
     # Body / query
     if body_params and method in ("post", "put", "patch"):
-        body_dict = ", ".join(f"{repr(p['name'])}: {p['name']}" for p in body_params)
+        body_dict = ", ".join(_body_dict_entry(p) for p in body_params)
         if "json" in content_type:
             lines.append(f"    body = {{{body_dict}}}")
         else:
@@ -558,6 +597,21 @@ def _render_operation_http(td: dict, *, auth_plan: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _body_dict_entry(p: dict) -> str:
+    """Render one `body = {...}` entry for an MCP operation.
+
+    Duplicated from operation_generator.py (see that module's docstring on
+    why: avoids a cross-compiler private import). An "object"/"array"-typed
+    param here is an untyped MCP tool arg arriving as a JSON string in some
+    client integrations — json.loads() it defensively so a GraphQL-style
+    `variables` field can't get double-encoded on the wire.
+    """
+    name = p["name"]
+    if p.get("type", "").lower() in ("object", "array"):
+        return f"{name!r}: json.loads({name}) if isinstance({name}, str) else {name}"
+    return f"{name!r}: {name}"
+
+
 def _py_signature(params: list[dict]) -> list[str]:
     """Return a list of Python parameter declaration strings."""
     parts: list[str] = []
@@ -574,19 +628,33 @@ def _py_signature(params: list[dict]) -> list[str]:
 
 
 def _py_type(t: str) -> str:
+    # "object"/"array" (e.g. a GraphQL `variables` body field) map to real
+    # dict/list type hints — unlike the Skill CLI (argparse only ever produces
+    # strings), FastMCP builds each tool's JSON schema from these hints, so an
+    # MCP client sends (and this function receives) an already-parsed object,
+    # never a string needing json.loads(). See operation_generator.py's
+    # _body_dict_entry for the CLI-side counterpart of this same fix.
     return {
         "int": "int",
         "integer": "int",
         "bool": "bool",
         "boolean": "bool",
         "float": "float",
+        "object": "dict",
+        "array": "list",
     }.get(t.lower(), "str")
 
 
 def _py_default(t: str) -> str:
-    return {"int": "0", "integer": "0", "bool": "False", "boolean": "False", "float": "0.0"}.get(
-        t.lower(), '""'
-    )
+    return {
+        "int": "0",
+        "integer": "0",
+        "bool": "False",
+        "boolean": "False",
+        "float": "0.0",
+        "object": "None",
+        "array": "None",
+    }.get(t.lower(), '""')
 
 
 def _path_to_fstring(path_template: str) -> str:

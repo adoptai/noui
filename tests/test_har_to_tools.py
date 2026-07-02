@@ -359,6 +359,18 @@ class TestBodyToParams:
         params = _body_to_params({"score": 3.14})
         assert params[0]["type"] == "float"
 
+    def test_dict_value_is_object_type(self) -> None:
+        """A nested object (e.g. GraphQL `variables`) must be typed "object",
+        not fall through to "string" — the string fallback is what caused a
+        real bug: the Skill CLI/MCP codegen forwarded it unparsed, double-
+        encoding it on the wire (see operation_generator.py's fix)."""
+        params = _body_to_params({"variables": {"id": "abc"}})
+        assert params[0]["type"] == "object"
+
+    def test_list_value_is_array_type(self) -> None:
+        params = _body_to_params({"tags": ["a", "b"]})
+        assert params[0]["type"] == "array"
+
     def test_empty_body(self) -> None:
         assert _body_to_params({}) == []
         assert _body_to_params(None) == []  # type: ignore[arg-type]
