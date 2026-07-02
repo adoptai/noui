@@ -139,6 +139,62 @@ def get_agent_token(client_id: str, client_secret: str) -> str:
     return token
 
 
+def get_platform_jwt(adopt_api_url: str, client_id: str, client_secret: str) -> str:
+    """
+    POST {adopt_api_url}/v1/users/api-token — exchange an Adopt platform PAT
+    for a Frontegg-signed platform JWT. This talks to the Adopt platform, not
+    Tabby, so it can't use _tabby_http (different host, no bearer needed).
+
+    Returns the platform JWT string. Raises RuntimeError on failure.
+    """
+    if not adopt_api_url or not client_id or not client_secret:
+        raise RuntimeError(
+            "Missing ADOPT_API_URL, ADOPT_CLIENT_ID, or ADOPT_CLIENT_SECRET for platform_jwt mode."
+        )
+    url = adopt_api_url.rstrip("/") + "/v1/users/api-token"
+    data = json.dumps({"client_id": client_id, "secret": client_secret}).encode()
+    req = urllib.request.Request(
+        url, data=data, method="POST", headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode(errors="replace")
+        raise RuntimeError(f"HTTP {exc.code} from POST {url}: {body_text}") from exc
+    token = payload.get("access_token", "")
+    if not token:
+        raise RuntimeError(f"Platform /v1/users/api-token returned no access_token: {payload}")
+    return token
+
+
+def get_platform_tabby_token(adopt_api_url: str, client_id: str, client_secret: str) -> str:
+    """
+    Exchange a platform JWT for a Tabby JWT via POST /auth/token-exchange.
+
+    The resulting token carries owner_user_id (per-user profile resolution)
+    and a role resolved from Tabby's IdP config for this user (see
+    resolveRoleFromIdp — typically Editor or Admin for a real human account,
+    which is enough for the Editor-gated admin endpoints register.py and
+    activate/register.py's extend_login_scope_for_workflow() use, without
+    needing a separately-configured TABBY_ADMIN_TOKEN).
+
+    Returns the Tabby bearer token string. Raises RuntimeError on failure.
+    """
+    platform_jwt = get_platform_jwt(adopt_api_url, client_id, client_secret)
+    resp = _tabby_http(
+        "POST",
+        "/auth/token-exchange",
+        body={"subject_token": platform_jwt, "subject_token_type": "oidc_jwt"},
+    )
+    if not isinstance(resp, dict):
+        raise RuntimeError(f"Unexpected response from POST /auth/token-exchange: {type(resp)}")
+    token = resp.get("access_token", "")
+    if not token:
+        raise RuntimeError(f"Tabby /auth/token-exchange returned no access_token: {resp}")
+    return token
+
+
 def create_recording_session(
     recording_mode: str,
     start_url: str,
@@ -308,6 +364,79 @@ def register_app_template(payload: dict, token: str, *, tenant_id: str = "") -> 
     if not isinstance(resp, dict):
         raise RuntimeError(f"Unexpected response from POST /admin/app-templates: {type(resp)}")
     return resp
+
+
+def get_app_template(template_id: str, token: str) -> dict | None:
+    """
+    GET /admin/app-templates/{id}.
+
+    Returns the template dict, or None if not found (404). Raises RuntimeError
+    on other API errors.
+    """
+    try:
+        resp = _tabby_http("GET", f"/admin/app-templates/{template_id}", token=token)
+    except RuntimeError as exc:
+        if "HTTP 404" in str(exc):
+            return None
+        raise
+    if not isinstance(resp, dict):
+        raise RuntimeError(
+            f"Unexpected response from GET /admin/app-templates/{template_id}: {type(resp)}"
+        )
+    return resp
+
+
+def update_app_template(template_id: str, payload: dict, token: str) -> dict:
+    """
+    PATCH /admin/app-templates/{id} — partial update. Tabby propagates the
+    updated export_policy onto every App already cloned from this template
+    (see AppTemplatesService.propagateToLinkedApps), and onto every App
+    freshly auto-provisioned from it afterward. We deliberately never PUT an
+    App directly (see get_app_template_by_profile_slug's docstring) — Apps
+    are provisioned FROM templates, so keeping the template as the single
+    source of truth is both simpler and Editor-token-friendly. An
+    already-provisioned App's own copy of a field the propagation write
+    doesn't cover may lag until it's next (re-)provisioned; this is an
+    accepted tradeoff, not a bug to route around here.
+
+    Returns the updated template dict. Raises RuntimeError on failure.
+    """
+    resp = _tabby_http("PATCH", f"/admin/app-templates/{template_id}", body=payload, token=token)
+    if not isinstance(resp, dict):
+        raise RuntimeError(
+            f"Unexpected response from PATCH /admin/app-templates/{template_id}: {type(resp)}"
+        )
+    return resp
+
+
+def get_app_template_by_profile_slug(profile_slug: str, token: str) -> dict | None:
+    """
+    GET /admin/app-templates (list), filtered client-side by
+    profile_name_pattern == profile_slug (the auto-provisioning match key —
+    see build_app_template_payload's invariant 1).
+
+    Deliberately goes template-first rather than profile -> app -> template_id
+    -> template: /apps/{id} is gated to Admin/Operator/Viewer roles (NOT
+    Editor — an asymmetry with PUT /apps/{id}, which does allow Editor), while
+    this list endpoint has no @Roles restriction at all. A platform-JWT-
+    exchanged token (typically Editor role for a real human account) can
+    resolve the template this way without ever touching the Apps API, so
+    TABBY_ADMIN_TOKEN isn't required for this lookup in local dev.
+
+    Returns the template dict, or None if not found. Raises RuntimeError on
+    other API errors.
+    """
+    resp = _tabby_http("GET", "/admin/app-templates", token=token)
+    if isinstance(resp, list):
+        templates = resp
+    elif isinstance(resp, dict):
+        templates = resp.get("data") or resp.get("templates") or []
+    else:
+        templates = []
+    for t in templates:
+        if t.get("profile_name_pattern") == profile_slug:
+            return t
+    return None
 
 
 def scale_sessions(app_id: str, desired: int, token: str) -> dict:

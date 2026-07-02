@@ -113,6 +113,7 @@ def generate_auth_plan(
     profile_db_id: str,
     app_slug: str,
     target_domains: list[str] | None = None,
+    login_credential_headers: list[str] | None = None,
 ) -> dict:
     """Generate an auth_plan dict from a workflow HAR and auth signal analysis.
 
@@ -123,6 +124,16 @@ def generate_auth_plan(
         profile_db_id: Tabby profile DB UUID used for admin/profile version ops.
         app_slug: URL-safe lowercase slug for the app (used for env var naming).
         target_domains: Override list of target domains; auto-detected if None.
+        login_credential_headers: Header names the paired login profile already
+            declares in its Tabby `credential_types.headers` (i.e. Tabby's
+            worker actively captures these from real page traffic via
+            `export_policy.request_header_allowlist` and serves them dynamically
+            via `/credentials/request` — see `login_assets.py::generate()`).
+            When every header this workflow requires is already covered here,
+            the workflow needs no static secret even though `_is_static_api_key_app`
+            would otherwise flag it (its heuristic only sees the workflow's own
+            HAR, which — since login happens in a separate capture — never has
+            the Set-Cookie response that would tell it this is a session app).
 
     Returns:
         auth_plan dict (safe to serialise to JSON — no secret values).
@@ -134,7 +145,12 @@ def generate_auth_plan(
     if target_domains is None:
         target_domains = _extract_target_domains(har)
 
-    is_static = _is_static_api_key_app(har)
+    login_headers_lower = {h.lower() for h in (login_credential_headers or [])}
+    covered_by_login = bool(required_headers) and all(
+        h.lower() in login_headers_lower for h in required_headers
+    )
+
+    is_static = _is_static_api_key_app(har) and not covered_by_login
     strategy = "static_secret_header" if is_static else "tabby_credentials"
 
     # Build fallbacks for headers that need static secrets

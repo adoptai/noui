@@ -67,11 +67,12 @@ def compile_workflow_to_skill(
     description_override: str = "",
     execution_mode: str = "tabby",
     start_url: str = "",
+    login_credential_headers: list[str] | None = None,
 ) -> dict:
     """Compile a recorded workflow session into an installable Claude Code skill.
 
     See `compile_workflow` in noui_core.compile.server_generator for `execution_mode`
-    semantics — the two compilers stay in lockstep.
+    and `login_credential_headers` semantics — the two compilers stay in lockstep.
 
     Returns the manifest dict (same content as manifest.json).
     """
@@ -142,6 +143,7 @@ def compile_workflow_to_skill(
             profile_slug=effective_slug,
             profile_db_id=profile_db_id,
             app_slug=app_slug,
+            login_credential_headers=login_credential_headers,
         )
 
     # Harness mode ships no transport code and never holds the secret value: a

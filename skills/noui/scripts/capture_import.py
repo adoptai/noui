@@ -110,6 +110,9 @@ def main() -> int:
             print(f"Skill: {skill.get('skill_id', '?')} ({len(skill.get('operations', []))} op(s))")
         if not args.profile_slug:
             print("No --profile-slug: tools run unauthenticated.", file=sys.stderr)
+        scope_ext = result.get("scope_extension")
+        if scope_ext:
+            print(f"Login profile scope extension: {scope_ext}", file=sys.stderr)
         return 0
 
     # login

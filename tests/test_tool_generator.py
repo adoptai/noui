@@ -5,8 +5,16 @@ Two sections:
   resolve_auth() wiring, recorded headers merge with auth headers, unauth ops
   skip the auth import, etc.
 - Tabby-mode invariants (default): operations import from noui_runtime.execute
-  and call execute_fetch; recorded static headers are still embedded; no httpx or
-  resolve_auth appears.
+  and call execute_fetch; recorded static headers are still embedded; no httpx
+  appears. resolve_auth() is injected whenever required_auth.headers is
+  non-empty (a client-managed bearer/CSRF header the browser session's cookies
+  alone can't supply) — for BOTH static_secret_header and tabby_credentials
+  strategies. A cookie-only tabby_credentials app (required_auth.headers
+  empty) needs no injection, since execute_fetch already rides the session's
+  cookies via credentials:'include'. Found via a QuickBooks Online capture
+  whose auth_plan was tabby_credentials + a dynamically-captured Authorization
+  header — the old tabby-mode codegen never wired resolve_auth() in for
+  tabby_credentials at all, so that header was silently dropped.
 """
 
 from __future__ import annotations
@@ -63,6 +71,18 @@ def _tabby_auth_plan(profile_slug: str = "example-bank") -> dict:
         "profile_slug": profile_slug,
         "profile_db_id": "",
         "required_auth": {"headers": ["Authorization"], "cookies": []},
+        "fallbacks": [],
+    }
+
+
+def _tabby_cookie_only_auth_plan(profile_slug: str = "example-bank") -> dict:
+    """tabby_credentials with no required headers — the pure session-cookie
+    case, where execute_fetch's credentials:'include' is the only auth needed."""
+    return {
+        "strategy": "tabby_credentials",
+        "profile_slug": profile_slug,
+        "profile_db_id": "",
+        "required_auth": {"headers": [], "cookies": ["session_id"]},
         "fallbacks": [],
     }
 
@@ -219,10 +239,30 @@ class TestTabbyModeRender:
         assert "from noui_runtime.execute import" in src
         assert "execute_fetch" in src
 
-    def test_no_httpx_or_resolve_auth(self) -> None:
+    def test_no_httpx(self) -> None:
         src = _render_tabby(_simple_tool(), auth_plan=_tabby_auth_plan())
         assert "import httpx" not in src
+
+    def test_cookie_only_app_has_no_resolve_auth(self) -> None:
+        """Pure session-cookie auth needs no extra injection — execute_fetch's
+        credentials:'include' already carries the browser session's cookies."""
+        src = _render_tabby(_simple_tool(), auth_plan=_tabby_cookie_only_auth_plan())
         assert "resolve_auth" not in src
+
+    def test_tabby_credentials_with_required_header_calls_resolve_auth(self) -> None:
+        """The QBO-shaped case: tabby_credentials strategy but a required
+        non-cookie header (a dynamically-captured bearer) — execute_fetch's
+        cookie-only credentials:'include' can't supply this, so resolve_auth()
+        must be called and merged into headers."""
+        src = _render_tabby(_simple_tool(), auth_plan=_tabby_auth_plan())
+        assert "from noui_runtime.auth import resolve_auth" in src
+        assert "await resolve_auth()" in src
+
+    def test_static_secret_header_still_calls_resolve_auth(self) -> None:
+        """Regression: the pre-existing static_secret_header case must keep working."""
+        src = _render_tabby(_simple_tool(), auth_plan=_static_auth_plan())
+        assert "from noui_runtime.auth import resolve_auth" in src
+        assert "await resolve_auth()" in src
 
     def test_profile_slug_embedded(self) -> None:
         """PROFILE_SLUG must come from the auth_plan so execute_fetch can resolve the session."""

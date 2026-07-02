@@ -168,6 +168,96 @@ def test_manual_takeover_autoresolve_wait_for_url():
     assert s2[-1]["action"] == "wait_for_url" and s2[-1]["pattern"] == "https://x.com/dashboard/**"
 
 
+def test_dynamic_header_widens_scope_to_post_login_origin():
+    """A client-managed bearer header (e.g. QBO's) is only ever attached on
+    requests to the app the login lands on, not the login flow itself — so
+    target_urls/target_domains must cover the post-login origin too, and
+    Tabby needs a short refresh interval + a keepalive action to keep
+    capturing it. Regression for the QBO capture that found this gap:
+    the login origin alone (test.salesforce.com here) never matches requests
+    to the landing app (x.lightning.force.com), so the declared header would
+    never get a captured value."""
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [
+            {"from_url": "", "to_url": "https://test.salesforce.com/"},
+            {
+                "from_url": "https://test.salesforce.com/",
+                "to_url": "https://x.lightning.force.com/lightning/page/home",
+            },
+        ],
+        "click_events": [],
+        "har": {
+            "log": {
+                "entries": [
+                    {
+                        "request": {
+                            "url": "https://x.lightning.force.com/api/data",
+                            "headers": [{"name": "Authorization", "value": "Bearer tok"}],
+                        },
+                        "response": {"headers": []},
+                    }
+                ]
+            }
+        },
+        "cookies": [],
+    }
+    res = compile_login_bundle(
+        session_id="s",
+        bundle=bundle,
+        name="sf",
+        login_url="https://test.salesforce.com/",
+        manual_takeover=True,
+    )
+    app = res["application_draft"]
+    profile = res["service_profile_draft"]
+
+    # "/**" is required for Tabby's request-header-capture matcher (a fully
+    # anchored regex) to match real request paths, not just the bare origin.
+    assert set(app["target_urls"]) == {
+        "https://test.salesforce.com/**",
+        "https://x.lightning.force.com/**",
+    }
+    assert set(profile["target_domains"]) == {"test.salesforce.com", "x.lightning.force.com"}
+    assert app["export_policy"]["refresh_interval_seconds"] == 180
+    keepalive_goto_urls = [
+        a["url"] for a in app["keepalive_config"]["actions"] if a.get("action") == "goto"
+    ]
+    assert "https://x.lightning.force.com/lightning/page/home" in keepalive_goto_urls
+
+
+def test_no_dynamic_headers_keeps_scope_to_login_origin_only():
+    """No auth headers observed → no reason to widen scope or set a fast
+    refresh interval; behavior for cookie-only logins is unchanged."""
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [
+            {"from_url": "", "to_url": "https://test.salesforce.com/"},
+            {
+                "from_url": "https://test.salesforce.com/",
+                "to_url": "https://x.lightning.force.com/lightning/page/home",
+            },
+        ],
+        "click_events": [],
+        "har": {"log": {"entries": []}},
+        "cookies": [],
+    }
+    res = compile_login_bundle(
+        session_id="s",
+        bundle=bundle,
+        name="sf",
+        login_url="https://test.salesforce.com/",
+        manual_takeover=True,
+    )
+    app = res["application_draft"]
+    assert "refresh_interval_seconds" not in app["export_policy"]
+    assert app["keepalive_config"]["actions"] == []
+
+
 def test_resolve_panel_url():
     from noui_core.capture.autopilot import resolve_panel_url
 

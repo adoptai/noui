@@ -869,6 +869,26 @@ def generate(
     # ---- Analyze HAR ----
     har_analysis = _analyze_har(har)
 
+    # Non-cookie auth headers (e.g. a client-managed bearer token) are only ever
+    # attached on requests to the *app* the login lands on, not the login flow
+    # itself — so target_urls/target_domains must cover the post-login origin
+    # too, not just where the login started. Without this, Tabby's
+    # request-header-capture listener (export_policy.request_header_allowlist,
+    # matched against target_urls) never observes a matching request and the
+    # declared header never gets a captured value (see auth_plan.py's
+    # login_credential_headers doc for the full picture).
+    has_dynamic_headers = bool(har_analysis["auth_header_names"])
+    post_login_origin = _url_origin(post_login_url) if post_login_url else ""
+    post_login_domain = _url_domain(post_login_url) if post_login_url else ""
+    # Tabby's request-header-capture matcher (artifact-extractor.ts's
+    # buildUrlMatcher) converts each target_urls glob to a FULLY-ANCHORED regex
+    # (`^...$`) — a bare origin like "https://x.com" only matches that exact
+    # string, never "https://x.com/api/...". A "/**" suffix is required for any
+    # real request path to match. Verified live: capture stayed empty until
+    # this suffix was added, even with a correct request_header_allowlist.
+    target_urls = [f"{u}/**" for u in dict.fromkeys([origin, post_login_origin]) if u]
+    target_domains_list = [d for d in dict.fromkeys([domain, post_login_domain]) if d]
+
     # ---- Infer keepalive ----
     keepalive_actions: list[dict] = []
     keepalive_health_checks: list[dict] = []
@@ -883,6 +903,14 @@ def generate(
             "exists": True,
         }
     )
+
+    if has_dynamic_headers and post_login_url:
+        # Periodically revisit the post-login page so there's guaranteed real
+        # traffic for the request-header-capture listener to observe — without
+        # this, a captured header can go stale (or never populate) if nothing
+        # else on the session happens to hit an instrumented route between
+        # keepalive cycles.
+        keepalive_actions.append({"action": "goto", "url": post_login_url})
 
     keepalive_config: dict[str, Any] = {
         "interval_seconds": 300,
@@ -900,8 +928,15 @@ def generate(
         "artifact_types": artifact_types,
         "encryption": {"algo": "AES-256-GCM", "key_version": "v1"},
         "ttl_seconds": 3600,
-        "target_urls": [origin],
+        "target_urls": target_urls,
     }
+    if has_dynamic_headers:
+        # Client-managed bearer/CSRF tokens are typically short-lived
+        # (silent-refresh OAuth patterns); re-capture often enough to keep the
+        # value usable. 180s sits in Tabby's own documented 120-300s guidance
+        # for JWT-minting SPAs (tabby/CLAUDE.md gotcha #17) — the 3600s
+        # worker-side default is far too slow for this class of header.
+        export_policy["refresh_interval_seconds"] = 180
 
     # ---- Infer credential_types ----
     credential_types: dict[str, list] = {"cookies": [], "headers": []}
@@ -915,7 +950,7 @@ def generate(
     # ---- Build Application draft ----
     application_draft: dict[str, Any] = {
         "name": app_name,
-        "target_urls": [origin],
+        "target_urls": target_urls,
         # Auth/CDN domains observed in the HAR, as egress suffix patterns, so the
         # compiled app's egress allowlist covers the full login flow under enforce.
         "extra_egress_allowlist": egress_allowlist_from_domains(har_analysis["auth_domains"]),
@@ -942,7 +977,7 @@ def generate(
         "version": version,
         "login_config": login_config,  # identical to app at creation time
         "credential_types": credential_types,
-        "target_domains": [domain] if domain else [],
+        "target_domains": target_domains_list,
         "extra_config": {},
     }
 
