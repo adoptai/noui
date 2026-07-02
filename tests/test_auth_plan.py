@@ -364,3 +364,107 @@ class TestRequiredAuth:
         )
         # CSRF apps should use tabby_credentials (Tabby manages session + CSRF)
         assert plan["strategy"] == "tabby_credentials"
+
+
+# ── login_credential_headers override (cross-capture dynamic bearer) ────────
+#
+# A workflow's own HAR is captured separately from its paired login — it never
+# has the Set-Cookie response that would tell `_is_static_api_key_app` this is
+# a session-based app, so a client-managed bearer token (e.g. QBO's) gets
+# misclassified as needing a static secret even when the login profile already
+# declares Tabby dynamically captures it (`credential_types.headers`).
+
+
+class TestLoginCredentialHeadersOverride:
+    def _bearer_auth_info(self) -> dict:
+        return {
+            "has_auth_headers": True,
+            "has_cookies": False,
+            "has_csrf": False,
+            "auth_header_names": ["Authorization"],
+            "csrf_header_names": [],
+            "set_cookie_names": [],
+            "auth_domains": [],
+        }
+
+    def test_header_covered_by_login_profile_gets_tabby_strategy(self) -> None:
+        """The exact scenario this closes: a bearer-only HAR (no Set-Cookie)
+        would normally be static_secret_header, but the paired login profile
+        already declares it — so it should resolve to tabby_credentials."""
+        har = _make_har([_bearer_entry()])
+        plan = generate_auth_plan(
+            har=har,
+            auth_info=self._bearer_auth_info(),
+            profile_slug="qbo-sandbox",
+            profile_db_id="",
+            app_slug="qbo-sandbox",
+            login_credential_headers=["authorization", "x-csrf-token", "csrftoken"],
+        )
+        assert plan["strategy"] == "tabby_credentials"
+        assert plan["fallbacks"] == []
+
+    def test_header_covered_case_insensitively(self) -> None:
+        har = _make_har([_bearer_entry()])
+        plan = generate_auth_plan(
+            har=har,
+            auth_info=self._bearer_auth_info(),
+            profile_slug="qbo-sandbox",
+            profile_db_id="",
+            app_slug="qbo-sandbox",
+            login_credential_headers=["AUTHORIZATION"],
+        )
+        assert plan["strategy"] == "tabby_credentials"
+
+    def test_header_not_covered_by_login_profile_keeps_static_strategy(self) -> None:
+        """Login profile declares a different header — no override should apply."""
+        har = _make_har([_bearer_entry()])
+        plan = generate_auth_plan(
+            har=har,
+            auth_info=self._bearer_auth_info(),
+            profile_slug="qbo-sandbox",
+            profile_db_id="",
+            app_slug="qbo-sandbox",
+            login_credential_headers=["x-csrf-token"],
+        )
+        assert plan["strategy"] == "static_secret_header"
+        assert plan["fallbacks"]
+
+    def test_no_login_credential_headers_is_unchanged(self) -> None:
+        """Default (None) behaves exactly like before this parameter existed."""
+        har = _make_har([_bearer_entry()])
+        plan = generate_auth_plan(
+            har=har,
+            auth_info=self._bearer_auth_info(),
+            profile_slug="qbo-sandbox",
+            profile_db_id="",
+            app_slug="qbo-sandbox",
+        )
+        assert plan["strategy"] == "static_secret_header"
+
+    def test_partial_coverage_does_not_trigger_override(self) -> None:
+        """Only some required headers covered → keep the existing heuristic
+        (the runtime has no hybrid dynamic+static resolution path)."""
+        har = _make_har(
+            [
+                _bearer_entry(),
+                _make_entry(request_headers=[{"name": "X-Api-Key", "value": "k"}]),
+            ]
+        )
+        auth_info = {
+            "has_auth_headers": True,
+            "has_cookies": False,
+            "has_csrf": False,
+            "auth_header_names": ["Authorization", "X-Api-Key"],
+            "csrf_header_names": [],
+            "set_cookie_names": [],
+            "auth_domains": [],
+        }
+        plan = generate_auth_plan(
+            har=har,
+            auth_info=auth_info,
+            profile_slug="qbo-sandbox",
+            profile_db_id="",
+            app_slug="qbo-sandbox",
+            login_credential_headers=["authorization"],  # X-Api-Key not covered
+        )
+        assert plan["strategy"] == "static_secret_header"

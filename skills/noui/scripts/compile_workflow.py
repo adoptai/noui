@@ -51,9 +51,16 @@ def main() -> int:
         return 1
     print(
         json.dumps(
-            {k: v.get("server_id") or v.get("skill_id") for k, v in result.items()}, indent=2
+            {
+                k: v.get("server_id") or v.get("skill_id")
+                for k, v in result.items()
+                if k != "scope_extension"
+            },
+            indent=2,
         )
     )
+    if result.get("scope_extension"):
+        print(f"Login profile scope extension: {result['scope_extension']}", file=sys.stderr)
     return 0
 
 

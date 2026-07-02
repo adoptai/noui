@@ -310,6 +310,78 @@ def register_app_template(payload: dict, token: str, *, tenant_id: str = "") -> 
     return resp
 
 
+def get_app_template(template_id: str, token: str) -> dict | None:
+    """
+    GET /admin/app-templates/{id}.
+
+    Returns the template dict, or None if not found (404). Raises RuntimeError
+    on other API errors.
+    """
+    try:
+        resp = _tabby_http("GET", f"/admin/app-templates/{template_id}", token=token)
+    except RuntimeError as exc:
+        if "HTTP 404" in str(exc):
+            return None
+        raise
+    if not isinstance(resp, dict):
+        raise RuntimeError(
+            f"Unexpected response from GET /admin/app-templates/{template_id}: {type(resp)}"
+        )
+    return resp
+
+
+def update_app_template(template_id: str, payload: dict, token: str) -> dict:
+    """
+    PATCH /admin/app-templates/{id} — partial update. Tabby propagates the
+    updated fields (export_policy among them) onto every App already cloned
+    from this template (see AppTemplatesService.propagateToLinkedApps) — but
+    NOT onto an App's own top-level ``target_urls`` column, which is a
+    separate field the propagation doesn't touch. See ``update_app`` for that.
+
+    Returns the updated template dict. Raises RuntimeError on failure.
+    """
+    resp = _tabby_http("PATCH", f"/admin/app-templates/{template_id}", body=payload, token=token)
+    if not isinstance(resp, dict):
+        raise RuntimeError(
+            f"Unexpected response from PATCH /admin/app-templates/{template_id}: {type(resp)}"
+        )
+    return resp
+
+
+def get_app(app_id: str, token: str) -> dict | None:
+    """
+    GET /apps/{id}.
+
+    Returns the app dict, or None if not found (404). Raises RuntimeError on
+    other API errors.
+    """
+    try:
+        resp = _tabby_http("GET", f"/apps/{app_id}", token=token)
+    except RuntimeError as exc:
+        if "HTTP 404" in str(exc):
+            return None
+        raise
+    if not isinstance(resp, dict):
+        raise RuntimeError(f"Unexpected response from GET /apps/{app_id}: {type(resp)}")
+    return resp
+
+
+def update_app(app_id: str, payload: dict, token: str) -> dict:
+    """
+    PUT /apps/{id} — partial update (per Tabby's own docs: "only provided
+    fields are changed"). Use this to extend an already-provisioned App's
+    top-level ``target_urls`` — the field the worker's request-header-capture
+    listener actually matches against (``artifact-extractor.ts``'s
+    ``buildUrlMatcher``), which template-update propagation does not touch.
+
+    Returns the updated app dict. Raises RuntimeError on failure.
+    """
+    resp = _tabby_http("PUT", f"/apps/{app_id}", body=payload, token=token)
+    if not isinstance(resp, dict):
+        raise RuntimeError(f"Unexpected response from PUT /apps/{app_id}: {type(resp)}")
+    return resp
+
+
 def scale_sessions(app_id: str, desired: int, token: str) -> dict:
     """
     POST /apps/{app_id}/sessions/scale — set the desired worker session count.
