@@ -409,6 +409,23 @@ def update_app_template(template_id: str, payload: dict, token: str) -> dict:
     return resp
 
 
+def list_app_templates(token: str) -> list[dict]:
+    """
+    GET /admin/app-templates (list). No @Roles restriction on this endpoint
+    (unlike /apps/{id}, which is Admin/Operator/Viewer only), so any
+    authenticated bearer — including a plain agent token — can call it.
+
+    Returns the list of template dicts (``[]`` if the API returns none).
+    Raises RuntimeError on API errors.
+    """
+    resp = _tabby_http("GET", "/admin/app-templates", token=token)
+    if isinstance(resp, list):
+        return resp
+    if isinstance(resp, dict):
+        return resp.get("data") or resp.get("templates") or []
+    return []
+
+
 def get_app_template_by_profile_slug(profile_slug: str, token: str) -> dict | None:
     """
     GET /admin/app-templates (list), filtered client-side by
@@ -426,14 +443,7 @@ def get_app_template_by_profile_slug(profile_slug: str, token: str) -> dict | No
     Returns the template dict, or None if not found. Raises RuntimeError on
     other API errors.
     """
-    resp = _tabby_http("GET", "/admin/app-templates", token=token)
-    if isinstance(resp, list):
-        templates = resp
-    elif isinstance(resp, dict):
-        templates = resp.get("data") or resp.get("templates") or []
-    else:
-        templates = []
-    for t in templates:
+    for t in list_app_templates(token):
         if t.get("profile_name_pattern") == profile_slug:
             return t
     return None

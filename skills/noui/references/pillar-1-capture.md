@@ -57,6 +57,23 @@ python scripts/capture_record.py --mode workflow --url https://example.com --fro
 
 Tabby pulls the source recording's cookies server-side; they never pass through NoUI.
 
+## Duplicate-template pre-check (`--mode login`)
+Before provisioning a **login** recording session, pass `--name`:
+
+```bash
+python scripts/capture_record.py --mode login --url https://example.com/login --name example
+```
+
+This checks Tabby's existing App Templates (`GET /admin/app-templates`, via `tabby_client.list_app_templates`) for one with the **same origin** (from `login_config.login_url` or `export_policy.target_urls`) **and** a similar `name` (`noui_core.capture.template_match.find_similar_templates`, fuzzy match + substring check, threshold 0.6). Both signals are required — same host alone is common across unrelated logins, and name similarity alone proves nothing about the site.
+
+If a match is found, the login capture is **skipped** (no session is provisioned): the matching template's name/slug/id are printed along with the command to go straight to workflow recording against that profile —
+
+```bash
+python scripts/capture_record.py --mode workflow --url <workflow-url> --profile <slug>
+```
+
+— since the login is already covered. Pass `--force` to record the login anyway (e.g. deliberately re-capturing a login to widen or refresh it). Without `--name`, the pre-check is skipped entirely (nothing to compare against).
+
 ## Login profiles: manual VNC takeover (the supported flow) + auto-resolve
 A login profile compiled in **takeover** mode (`capture_import --credential-mode takeover`, the default) uses `credential_ref: manual:` and a minimal login DSL — the supported Tabby flow, mirroring the Salesforce template:
 

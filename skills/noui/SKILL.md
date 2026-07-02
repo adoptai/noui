@@ -69,7 +69,9 @@ python scripts/activate_install.py workbench/skills/<app> claude-code
 **Record a login → registered Tabby profile:**
 
 ```bash
-python scripts/capture_record.py --mode login --url https://example.com/login
+python scripts/capture_record.py --mode login --url https://example.com/login --name example
+# ^ --name triggers a check for an existing App Template with a similar name + same URL;
+#   if one matches, the capture is skipped and a reuse command is printed instead (--force to bypass)
 # drive the login in VNC, finish, then:
 python scripts/capture_import.py <session_id> --promote          # needs TABBY_ADMIN_TOKEN
 ```
