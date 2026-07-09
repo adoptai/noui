@@ -1,0 +1,21 @@
+{
+  "profile_slug": "quickbooks-sandbox",
+  "profile_db_id": "",
+  "strategy": "tabby_credentials",
+  "target_domains": [
+    "sandbox.qbo.intuit.com"
+  ],
+  "required_auth": {
+    "headers": ["authorization"],
+    "cookies": []
+  },
+  "observed_workflow_headers": {},
+  "tabby_export": {
+    "credential_types": {
+      "headers": ["authorization"],
+      "cookies": []
+    },
+    "runtime_identifier": "quickbooks-sandbox"
+  },
+  "fallbacks": []
+}

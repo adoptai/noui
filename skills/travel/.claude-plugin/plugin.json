@@ -1,0 +1,9 @@
+{
+  "name": "travel",
+  "version": "0.1.0",
+  "description": "Demo travel skills (Airbnb, Expedia, Flydubai, Google Flights) via Tabby browser execute",
+  "author": {
+    "name": "Adopt"
+  },
+  "keywords": ["travel", "tabby", "demo", "noui"]
+}

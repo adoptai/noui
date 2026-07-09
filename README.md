@@ -235,12 +235,18 @@ pillars and the scripts; `references/` holds the deep dives.
 
 ### Available skills
 
-| Skill | Purpose |
+| Skill / plugin | Purpose |
 |---|---|
 | `/noui` | The bundle — Capture (VNC/Autopilot) → Compile (MCP/Skill/Profile) → Activate (register/install/run) |
-| `/airbnb-search-places` | Demo: anonymous Airbnb place search |
-| `/expedia-stay-search` | Demo: authenticated Expedia stay search via Tabby |
-| `/flydubai-pricing` | Demo: flight pricing |
+| `skills/travel` | Claude Code plugin: Airbnb, Expedia, Flydubai, Google Flights via Tabby `/execute` |
+| `skills/quickbooks` | Claude Code plugin: QuickBooks bank reconciliation via Tabby `/execute` |
+
+Install demo plugins from a clone:
+
+```bash
+claude plugin install ./skills/travel
+claude plugin install ./skills/quickbooks
+```
 
 ------------------------------------------------------------------------
 

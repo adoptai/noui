@@ -1,0 +1,87 @@
+{
+  "schema_version": "1",
+  "skill_id": "flydubai-pricing",
+  "app": {
+    "name": "Flydubai Pricing",
+    "slug": "flydubai-pricing"
+  },
+  "workflow": {
+    "id": "flydubai-pricing",
+    "name": "Flydubai Pricing",
+    "workflow_session_id": "0ff88622-3931-4349-ace6-4aabeb5b82e8",
+    "start_url": "https://www.flydubai.com"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "flydubai",
+    "profile_db_id": null,
+    "strategy": "tabby_execute",
+    "auth_plan_file": "auth_plan.json"
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "transport": "execute",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "get_calendar",
+      "description": "Retrieve Flydubai schedule/calendar availability for a route via Tabby.",
+      "module": "operations/get_calendar.py",
+      "entry": "execute",
+      "method": "GET",
+      "path": "/api/Calendar/{origin}/{destination}",
+      "args": [
+        {"name": "origin", "type": "string", "required": true},
+        {"name": "destination", "type": "string", "required": true},
+        {"name": "from_date", "type": "string", "required": false, "default": null},
+        {"name": "is_origin_metro", "type": "string", "required": false, "default": "false"},
+        {"name": "is_dest_metro", "type": "string", "required": false, "default": "false"},
+        {"name": "profile_slug", "type": "string", "required": false, "default": "flydubai"}
+      ]
+    },
+    {
+      "name": "search_flights",
+      "description": "Search Flydubai fares via Tabby execute/fetch.",
+      "module": "operations/search_flights.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/api/flights/7",
+      "args": [
+        {"name": "origin", "type": "string", "required": true},
+        {"name": "destination", "type": "string", "required": true},
+        {"name": "depart_date", "type": "string", "required": true},
+        {"name": "return_date", "type": "string", "required": false, "default": null},
+        {"name": "adults", "type": "integer", "required": false, "default": 1},
+        {"name": "children", "type": "integer", "required": false, "default": 0},
+        {"name": "infants", "type": "integer", "required": false, "default": 0},
+        {"name": "cabin_class", "type": "string", "required": false, "default": "Economy"},
+        {"name": "include_nearby", "type": "boolean", "required": false, "default": true},
+        {"name": "profile_slug", "type": "string", "required": false, "default": "flydubai"}
+      ]
+    }
+  ],
+  "artifacts": {
+    "skill_file": "SKILL.md",
+    "files": [
+      "SKILL.md",
+      "API.md",
+      "manifest.json",
+      "auth_plan.json",
+      "operations/__init__.py",
+      "operations/get_calendar.py",
+      "operations/search_flights.py",
+      "noui_runtime/__init__.py",
+      "noui_runtime/auth.py",
+      "noui_runtime/execute.py"
+    ],
+    "api_docs_file": "API.md"
+  },
+  "generation": {
+    "generated_at": "2026-07-09T00:00:00Z",
+    "generator": "noui",
+    "generator_version": "v2-tabby-execute-plugin"
+  }
+}

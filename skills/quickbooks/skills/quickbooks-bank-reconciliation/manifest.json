@@ -1,0 +1,75 @@
+{
+  "schema_version": "1",
+  "skill_id": "quickbooks-bank-reconciliation",
+  "app": {
+    "name": "QuickBooks Bank Reconciliation",
+    "slug": "quickbooks-bank-reconciliation"
+  },
+  "workflow": {
+    "id": "quickbooks-bank-reconciliation",
+    "name": "QuickBooks Bank Reconciliation",
+    "start_url": "https://sandbox.qbo.intuit.com"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "quickbooks-sandbox",
+    "profile_db_id": null,
+    "strategy": "tabby_execute",
+    "auth_plan_file": "auth_plan.json"
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "transport": "execute",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "list_transactions",
+      "description": "Pull QBO transactions via GraphQL through Tabby execute/fetch.",
+      "module": "operations/list_transactions.py",
+      "entry": "execute",
+      "args": [
+        {"name": "variables_path", "type": "string", "required": true},
+        {"name": "query_path", "type": "string", "required": false},
+        {"name": "profile_slug", "type": "string", "required": false, "default": "quickbooks-sandbox"}
+      ]
+    },
+    {
+      "name": "create_journal_entry",
+      "description": "Post adjusting journal entry via GraphQL (needs CSRF allowlist).",
+      "module": "operations/create_journal_entry.py",
+      "entry": "execute",
+      "args": [
+        {"name": "txn_date", "type": "string", "required": true},
+        {"name": "amount", "type": "string", "required": true},
+        {"name": "memo", "type": "string", "required": true},
+        {"name": "debit_account_id", "type": "string", "required": true},
+        {"name": "credit_account_id", "type": "string", "required": true},
+        {"name": "profile_slug", "type": "string", "required": false, "default": "quickbooks-sandbox"}
+      ]
+    }
+  ],
+  "artifacts": {
+    "skill_file": "SKILL.md",
+    "files": [
+      "SKILL.md",
+      "manifest.json",
+      "auth_plan.json",
+      "operations/list_transactions.py",
+      "operations/create_journal_entry.py",
+      "noui_runtime/execute.py",
+      "noui_runtime/auth.py",
+      "scripts/run.py",
+      "scripts/bank_reconciliation.py",
+      "examples/",
+      "assets/"
+    ]
+  },
+  "generation": {
+    "generated_at": "2026-07-09T00:00:00Z",
+    "generator": "noui",
+    "generator_version": "v2-tabby-execute-plugin"
+  }
+}

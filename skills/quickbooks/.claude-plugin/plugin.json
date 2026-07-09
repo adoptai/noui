@@ -1,0 +1,9 @@
+{
+  "name": "quickbooks",
+  "version": "0.1.0",
+  "description": "QuickBooks Online demo skills via Tabby browser execute (bank reconciliation)",
+  "author": {
+    "name": "Adopt"
+  },
+  "keywords": ["quickbooks", "tabby", "demo", "noui", "accounting"]
+}

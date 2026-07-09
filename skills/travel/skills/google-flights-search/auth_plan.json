@@ -1,0 +1,21 @@
+{
+  "profile_slug": "google-flights",
+  "profile_db_id": "",
+  "strategy": "tabby_credentials",
+  "target_domains": [
+    "www.google.com"
+  ],
+  "required_auth": {
+    "headers": [],
+    "cookies": []
+  },
+  "observed_workflow_headers": {},
+  "tabby_export": {
+    "credential_types": {
+      "headers": [],
+      "cookies": []
+    },
+    "runtime_identifier": "google-flights"
+  },
+  "fallbacks": []
+}

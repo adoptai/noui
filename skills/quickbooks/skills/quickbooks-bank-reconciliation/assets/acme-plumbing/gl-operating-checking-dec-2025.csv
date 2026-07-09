@@ -1,0 +1,7 @@
+txn_id,date,type,payee_or_source,memo,amount
+GL-D-5501,2025-12-03,deposit,Customer receipts (batch),Deposited customer payments - cleared,258226.36
+GL-D-5540,2025-12-31,deposit,Riverside HOA,Progress billing deposit - lodged 12/31,6250.00
+GL-C-1042,2025-12-28,check,Pfeiffer Pipe Supply,Check 1042 - materials,-1450.00
+GL-C-1045,2025-12-29,check,Delgado Excavation,Check 1045 - subcontractor,-980.42
+GL-C-1047,2025-12-30,check,City of Lone Star Permits,Check 1047 - permits,-750.00
+GL-P-3300,2025-12-15,payment,Vendor & payroll disbursements (batch),Cleared vendor bills and payroll,-220675.48
