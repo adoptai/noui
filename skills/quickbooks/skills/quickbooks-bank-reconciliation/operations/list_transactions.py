@@ -32,7 +32,9 @@ async def execute(
     query_path: str | None = None,
     profile_slug: str | None = None,
 ) -> dict:
-    query_file = Path(query_path) if query_path else _ROOT / "examples" / "list_transactions.graphql"
+    query_file = (
+        Path(query_path) if query_path else _ROOT / "examples" / "list_transactions.graphql"
+    )
     vars_file = Path(variables_path)
     query = query_file.read_text(encoding="utf-8").strip()
     variables = json.loads(vars_file.read_text(encoding="utf-8"))

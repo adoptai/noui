@@ -10,6 +10,7 @@ the fallback is break-glass only; the demo path is the live pull.
 Returns a JSON-serialisable dict shaped for the `reconciliation-view` genui component,
 extended with `unrecorded_items` and `adjusting_journal_entry` for the write-back step.
 """
+
 from __future__ import annotations
 
 import csv
@@ -48,16 +49,29 @@ def _load_gl() -> tuple[float, list[dict[str, Any]], str]:
             # accept signed, or unsigned + type
             if amt >= 0 and str(ln.get("type", "")).lower() == "check":
                 amt = -amt
-            lines.append({"date": ln.get("date", ""), "amount": _r(amt),
-                          "memo": ln.get("memo", ln.get("payee_or_source", "")),
-                          "ref": ln.get("ref", ln.get("txn_id", "")), "matched": False})
+            lines.append(
+                {
+                    "date": ln.get("date", ""),
+                    "amount": _r(amt),
+                    "memo": ln.get("memo", ln.get("payee_or_source", "")),
+                    "ref": ln.get("ref", ln.get("txn_id", "")),
+                    "matched": False,
+                }
+            )
         return opening, lines, "QuickBooks (live pull via Tabby execute/fetch)"
     # fallback
     with open(_FALLBACK_GL, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    lines = [{"date": r["date"], "amount": _r(r["amount"]),
-              "memo": r.get("payee_or_source", ""), "ref": r.get("txn_id", ""), "matched": False}
-             for r in rows]
+    lines = [
+        {
+            "date": r["date"],
+            "amount": _r(r["amount"]),
+            "memo": r.get("payee_or_source", ""),
+            "ref": r.get("txn_id", ""),
+            "matched": False,
+        }
+        for r in rows
+    ]
     # opening = the bundled scenario's reconciled starting point
     return 600434.60, lines, "bundled fallback CSV (LIVE PULL UNAVAILABLE)"
 
@@ -85,10 +99,15 @@ def _load_bank() -> tuple[list[dict[str, Any]], str]:
     out = []
     for r in rows:
         low = {k.lower().strip(): v for k, v in r.items()}
-        out.append({"date": low.get("date", ""), "amount": _bank_row_amount(r),
-                    "desc": low.get("description") or low.get("desc") or low.get("memo", ""),
-                    "ref": low.get("bank_ref") or low.get("ref") or low.get("id", ""),
-                    "matched": False})
+        out.append(
+            {
+                "date": low.get("date", ""),
+                "amount": _bank_row_amount(r),
+                "desc": low.get("description") or low.get("desc") or low.get("memo", ""),
+                "ref": low.get("bank_ref") or low.get("ref") or low.get("id", ""),
+                "matched": False,
+            }
+        )
     return out, source
 
 
@@ -113,10 +132,10 @@ def build_bank_reconciliation() -> dict[str, Any]:
     unrec_credits = [b for b in bank if not b["matched"] and b["amount"] > 0]
     unrec_debits = [b for b in bank if not b["matched"] and b["amount"] < 0]
 
-    oc_total = _r(sum(g["amount"] for g in outstanding))   # negative
-    dit_total = _r(sum(g["amount"] for g in in_transit))    # positive
+    oc_total = _r(sum(g["amount"] for g in outstanding))  # negative
+    dit_total = _r(sum(g["amount"] for g in in_transit))  # positive
     cr_total = _r(sum(b["amount"] for b in unrec_credits))  # positive
-    db_total = _r(sum(b["amount"] for b in unrec_debits))   # negative
+    db_total = _r(sum(b["amount"] for b in unrec_debits))  # negative
 
     adjusted_bank = _r(bank_end + dit_total + oc_total)
     adjusted_book = _r(book_end + cr_total + db_total)
@@ -124,26 +143,59 @@ def build_bank_reconciliation() -> dict[str, Any]:
     ties_out = difference == 0.0
 
     reconciling_items = [
-        {"label": "Deposits in transit", "type": "deposit_in_transit", "amount": dit_total,
-         "side": "bank", "detail": [{"ref": g["ref"], "date": g["date"], "memo": g["memo"],
-                                     "amount": g["amount"]} for g in in_transit]},
-        {"label": "Outstanding checks not yet cleared", "type": "outstanding_check", "amount": oc_total,
-         "side": "bank", "detail": [{"ref": g["ref"], "date": g["date"], "memo": g["memo"],
-                                     "amount": g["amount"]} for g in outstanding]},
+        {
+            "label": "Deposits in transit",
+            "type": "deposit_in_transit",
+            "amount": dit_total,
+            "side": "bank",
+            "detail": [
+                {"ref": g["ref"], "date": g["date"], "memo": g["memo"], "amount": g["amount"]}
+                for g in in_transit
+            ],
+        },
+        {
+            "label": "Outstanding checks not yet cleared",
+            "type": "outstanding_check",
+            "amount": oc_total,
+            "side": "bank",
+            "detail": [
+                {"ref": g["ref"], "date": g["date"], "memo": g["memo"], "amount": g["amount"]}
+                for g in outstanding
+            ],
+        },
     ]
 
     # Book-side items that need an actual entry (the reconciling CHANGE).
-    unrecorded = (
-        [{"ref": b["ref"], "date": b["date"], "memo": b["desc"], "amount": b["amount"], "kind": "deposit"} for b in unrec_credits]
-        + [{"ref": b["ref"], "date": b["date"], "memo": b["desc"], "amount": b["amount"], "kind": "charge"} for b in unrec_debits]
-    )
+    unrecorded = [
+        {
+            "ref": b["ref"],
+            "date": b["date"],
+            "memo": b["desc"],
+            "amount": b["amount"],
+            "kind": "deposit",
+        }
+        for b in unrec_credits
+    ] + [
+        {
+            "ref": b["ref"],
+            "date": b["date"],
+            "memo": b["desc"],
+            "amount": b["amount"],
+            "kind": "charge",
+        }
+        for b in unrec_debits
+    ]
     net_entry = _r(cr_total + db_total)
     je = None
     if net_entry != 0.0:
         if net_entry > 0:
             je_lines = [
                 {"account": "1000 Operating Checking", "debit": abs(net_entry), "credit": 0.0},
-                {"account": "Undeposited / Unapplied Cash (reviewer reassigns)", "debit": 0.0, "credit": abs(net_entry)},
+                {
+                    "account": "Undeposited / Unapplied Cash (reviewer reassigns)",
+                    "debit": 0.0,
+                    "credit": abs(net_entry),
+                },
             ]
         else:
             je_lines = [
@@ -159,20 +211,40 @@ def build_bank_reconciliation() -> dict[str, Any]:
 
     findings = []
     if not ties_out:
-        findings.append({"severity": "high", "account": ACCOUNT,
-                         "message": f"Reconciliation does not tie: adjusted book {adjusted_book} "
-                                    f"vs adjusted bank {adjusted_bank} (diff {difference})."})
+        findings.append(
+            {
+                "severity": "high",
+                "account": ACCOUNT,
+                "message": f"Reconciliation does not tie: adjusted book {adjusted_book} "
+                f"vs adjusted bank {adjusted_bank} (diff {difference}).",
+            }
+        )
     if unrecorded and je is None:
-        findings.append({"severity": "medium", "account": ACCOUNT,
-                         "message": "Unrecorded bank items found but no adjusting entry drafted."})
+        findings.append(
+            {
+                "severity": "medium",
+                "account": ACCOUNT,
+                "message": "Unrecorded bank items found but no adjusting entry drafted.",
+            }
+        )
     if "fallback" in bank_source:
-        findings.append({"severity": "medium", "account": ACCOUNT,
-                         "message": "No bank statement was provided — used the bundled fallback. "
-                                    "Ask the user to upload the period's bank statement (SKILL.md Step 2)."})
+        findings.append(
+            {
+                "severity": "medium",
+                "account": ACCOUNT,
+                "message": "No bank statement was provided — used the bundled fallback. "
+                "Ask the user to upload the period's bank statement (SKILL.md Step 2).",
+            }
+        )
     if "fallback" in gl_source:
-        findings.append({"severity": "medium", "account": ACCOUNT,
-                         "message": "Live QuickBooks pull unavailable — used the bundled ledger. "
-                                    "Recover the quickbooks-sandbox session and re-pull."})
+        findings.append(
+            {
+                "severity": "medium",
+                "account": ACCOUNT,
+                "message": "Live QuickBooks pull unavailable — used the bundled ledger. "
+                "Recover the quickbooks-sandbox session and re-pull.",
+            }
+        )
 
     return {
         "workpaper": "Bank Reconciliation",

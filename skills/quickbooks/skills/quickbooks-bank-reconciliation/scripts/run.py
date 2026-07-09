@@ -4,6 +4,7 @@ No stdin. Emits a single JSON object on stdout, shaped for the `reconciliation-v
 component. Reads the live GL the agent pulled to `/workspace/gl_lines.json` (or the bundled
 fallback CSV), plus the bank statement in `assets/acme-plumbing/`.
 """
+
 from __future__ import annotations
 
 import json

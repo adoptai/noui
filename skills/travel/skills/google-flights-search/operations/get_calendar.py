@@ -80,8 +80,7 @@ async def execute(
         body_parts["at"] = csrf_token
     body = urllib.parse.urlencode(body_parts)
     path = (
-        "/_/FlightsFrontendUi/data/travel.frontend.flights."
-        "FlightsFrontendService/GetCalendarPicker"
+        "/_/FlightsFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetCalendarPicker"
     )
     url = f"{BASE_URL}{path}?{urllib.parse.urlencode(_QS)}"
 
