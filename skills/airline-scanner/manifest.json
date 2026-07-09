@@ -1,0 +1,46 @@
+{
+  "schema_version": "1",
+  "plugin_id": "airline-scanner",
+  "type": "plugin",
+  "app": {
+    "name": "Airline Scanner",
+    "slug": "airline-scanner"
+  },
+  "runtime": {
+    "type": "claude-code-plugin",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "sub_skills": [
+    { "slug": "air-canada",         "path": "airlines/air-canada",         "requires_tabby": false },
+    { "slug": "airasia",            "path": "airlines/airasia",            "requires_tabby": true  },
+    { "slug": "alaska",             "path": "airlines/alaska",             "requires_tabby": true  },
+    { "slug": "american-airlines",  "path": "airlines/american-airlines",  "requires_tabby": true  },
+    { "slug": "british-airways",    "path": "airlines/british-airways",    "requires_tabby": false },
+    { "slug": "cathay-pacific",     "path": "airlines/cathay-pacific",     "requires_tabby": true  },
+    { "slug": "delta",              "path": "airlines/delta",              "requires_tabby": true  },
+    { "slug": "easyjet",            "path": "airlines/easyjet",            "requires_tabby": false },
+    { "slug": "emirates",           "path": "airlines/emirates",           "requires_tabby": true  },
+    { "slug": "finnair",            "path": "airlines/finnair",            "requires_tabby": true  },
+    { "slug": "hawaiian-airlines",  "path": "airlines/hawaiian-airlines",  "requires_tabby": true  },
+    { "slug": "indigo",             "path": "airlines/indigo",             "requires_tabby": true  },
+    { "slug": "jetblue",            "path": "airlines/jetblue",            "requires_tabby": false },
+    { "slug": "klm",                "path": "airlines/klm",                "requires_tabby": true  },
+    { "slug": "lufthansa",          "path": "airlines/lufthansa",          "requires_tabby": true  },
+    { "slug": "qatar-airways",      "path": "airlines/qatar-airways",      "requires_tabby": true  },
+    { "slug": "ryanair",            "path": "airlines/ryanair",            "requires_tabby": false },
+    { "slug": "singapore-airlines", "path": "airlines/singapore-airlines", "requires_tabby": true  },
+    { "slug": "southwest",          "path": "airlines/southwest",          "requires_tabby": true  },
+    { "slug": "swiss",              "path": "airlines/swiss",              "requires_tabby": true  },
+    { "slug": "turkish-airlines",   "path": "airlines/turkish-airlines",   "requires_tabby": true  },
+    { "slug": "united",             "path": "airlines/united",             "requires_tabby": true  },
+    { "slug": "volaris",            "path": "airlines/volaris",            "requires_tabby": true  },
+    { "slug": "westjet",            "path": "airlines/westjet",            "requires_tabby": true  },
+    { "slug": "wizz-air",           "path": "airlines/wizz-air",           "requires_tabby": true  }
+  ],
+  "generation": {
+    "generated_at": "2026-07-09",
+    "generator": "manual"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "schema_version": "1",
+  "skill_id": "easyjet-search",
+  "app": {
+    "name": "EasyJet Search",
+    "slug": "easyjet-search"
+  },
+  "workflow": {
+    "id": "easyjet-search",
+    "name": "EasyJet Search",
+    "workflow_session_id": "5ecaf023-ab79-4172-b1a3-4daaefaa9769",
+    "start_url": "https://www.easyjet.com"
+  },
+  "auth": {
+    "requires_auth": false,
+    "profile_slug": null,
+    "profile_db_id": null,
+    "strategy": "none",
+    "execution_strategy": "none",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "get_homepage_api_availability",
+      "description": "Search EasyJet flights for a given route and date. Returns available flights with prices.",
+      "module": "operations/get_homepage_api_availability.py",
+      "entry": "execute",
+      "method": "GET",
+      "path": "/homepage/api/availability",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Departure IATA airport code, e.g. \"LGW\" or \"LTN\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Arrival IATA airport code, e.g. \"AMS\" or \"BCN\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Outbound date in YYYY-MM-DD format."
+        },
+        {
+          "name": "currency",
+          "type": "string",
+          "required": false,
+          "description": "Currency code for prices (default: GBP)."
+        },
+        {
+          "name": "round-trip",
+          "type": "boolean",
+          "required": false,
+          "description": "Search for a return flight (flag, default: false)."
+        },
+        {
+          "name": "date-in",
+          "type": "string",
+          "required": false,
+          "description": "Return date in YYYY-MM-DD format (used with --round-trip)."
+        }
+      ]
+    }
+  ]
+}

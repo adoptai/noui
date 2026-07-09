@@ -1,0 +1,17 @@
+{
+  "skill_id": "klm-search",
+  "app": {"name": "KLM Royal Dutch Airlines", "slug": "klm-search"},
+  "workflow": {"session_id": "11af049e-c322-4759-906a-29d0fb82ac1e", "start_url": "https://www.klm.com"},
+  "tabby": {"profile_slug": "klm-search", "profile_db_id": "e1cfe11c-f162-4eda-98e7-d22aeeadaf58"},
+  "operations": [{
+    "name": "search_flights",
+    "description": "Search KLM for available one-way flights via AFKL GraphQL. Navigates Tabby browser, fills the search form, and intercepts the GQL response.",
+    "args": [
+      {"name": "origin", "type": "string", "required": true, "description": "City name or IATA code (e.g. 'Amsterdam' or 'AMS')"},
+      {"name": "destination", "type": "string", "required": true, "description": "City name or IATA code (e.g. 'New York' or 'JFK')"},
+      {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+      {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY"},
+      {"name": "adults", "type": "integer", "required": false, "default": 1}
+    ]
+  }]
+}

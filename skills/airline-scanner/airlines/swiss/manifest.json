@@ -1,0 +1,17 @@
+{
+  "skill_id": "swiss-search",
+  "app": {"name": "Swiss International", "slug": "swiss-search"},
+  "workflow": {"session_id": "4bd991a6-09f1-404d-a376-50897a6d651e", "start_url": "https://www.swiss.com"},
+  "tabby": {"profile_slug": "swiss-search", "profile_db_id": "4ddbbb4c-49f2-438c-86db-c601184b36f6"},
+  "operations": [{
+    "name": "search_flights",
+    "description": "Search Swiss International for available one-way flights on a given route and date.",
+    "args": [
+      {"name": "origin", "type": "string", "required": true, "description": "Departure IATA code (e.g. ZRH, GVA, LHR)"},
+      {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA code (e.g. JFK, NYC, LHR)"},
+      {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+      {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY", "description": "ECONOMY, BUSINESS, or FIRST"},
+      {"name": "adults", "type": "integer", "required": false, "default": 1}
+    ]
+  }]
+}

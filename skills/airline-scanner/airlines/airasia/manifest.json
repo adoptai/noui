@@ -1,0 +1,82 @@
+{
+  "schema_version": "1",
+  "skill_id": "airasia-search",
+  "app": {
+    "name": "AirAsia Search",
+    "slug": "airasia-search"
+  },
+  "workflow": {
+    "id": "airasia-search",
+    "name": "AirAsia Search",
+    "workflow_session_id": "e65a4186-d06e-4c0c-a789-1865162f866d",
+    "start_url": "https://www.airasia.com"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "airasia-search",
+    "profile_db_id": "efee0865-a19b-447b-9cfe-1c14bb31e673",
+    "strategy": "tabby_credentials",
+    "execution_strategy": "cdp_browser_session",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "create_flight_search",
+      "description": "Search AirAsia for available flights on a given route and date. Returns flight options with departure/arrival times, durations, stops, fares, and airline codes.",
+      "module": "operations/create_flight_search.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/web/fp/search/flights/v5/aggregated-results",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Departure IATA airport code, e.g. \"KUL\", \"SIN\", \"BKK\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Arrival IATA airport code, e.g. \"SIN\", \"KUL\", \"BKK\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Departure date in YYYY-MM-DD format."
+        },
+        {
+          "name": "adults",
+          "type": "integer",
+          "required": false,
+          "description": "Number of adult travelers (default: 1)."
+        },
+        {
+          "name": "children",
+          "type": "integer",
+          "required": false,
+          "description": "Number of child travelers (default: 0)."
+        },
+        {
+          "name": "infants",
+          "type": "integer",
+          "required": false,
+          "description": "Number of infant travelers (default: 0)."
+        },
+        {
+          "name": "currency",
+          "type": "string",
+          "required": false,
+          "description": "Currency code for displayed prices (default: USD)."
+        }
+      ]
+    }
+  ]
+}

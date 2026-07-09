@@ -1,0 +1,30 @@
+{
+  "skill_id": "indigo-search",
+  "app": {
+    "name": "IndiGo",
+    "slug": "indigo-search"
+  },
+  "workflow": {
+    "session_id": "554ac19a-ce1f-4aac-9afa-1e8bc9b1a911",
+    "start_url": "https://www.goindigo.in"
+  },
+  "tabby": {
+    "profile_slug": "indigo-search",
+    "profile_db_id": "8c43b4d9-3216-4750-88b6-f59317155fa0"
+  },
+  "operations": [
+    {
+      "name": "search_flights",
+      "description": "Search IndiGo for available one-way flights on a given route and date.",
+      "args": [
+        {"name": "origin", "type": "string", "required": true, "description": "Departure IATA airport code (e.g. DEL, BOM, BLR)"},
+        {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA airport code (e.g. BOM, DEL, HYD)"},
+        {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+        {"name": "adults", "type": "integer", "required": false, "default": 1, "description": "Number of adult travelers"},
+        {"name": "children", "type": "integer", "required": false, "default": 0, "description": "Number of child travelers (2-11 years)"},
+        {"name": "infants", "type": "integer", "required": false, "default": 0, "description": "Number of infant travelers (under 2)"},
+        {"name": "currency", "type": "string", "required": false, "default": "INR", "description": "Currency code for prices"}
+      ]
+    }
+  ]
+}

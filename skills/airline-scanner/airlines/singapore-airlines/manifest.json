@@ -1,0 +1,27 @@
+{
+  "skill_id": "singapore-airlines-search",
+  "app": {
+    "name": "Singapore Airlines",
+    "slug": "singapore-airlines-search"
+  },
+  "workflow": {
+    "session_id": "296323cf-27e9-4c93-a5f0-aa939845ee98",
+    "start_url": "https://www.singaporeair.com"
+  },
+  "tabby": {
+    "profile_slug": "singapore-airlines-search",
+    "profile_db_id": "35883e9e-aa78-4d02-b11a-a993f2c5197e"
+  },
+  "operations": [
+    {
+      "name": "search_flights",
+      "description": "Search Singapore Airlines for fare prices on a given route and date. Returns a 15-day fare window centred on the requested date.",
+      "args": [
+        {"name": "origin", "type": "string", "required": true, "description": "Departure IATA airport code (e.g. SIN, LHR, JFK)"},
+        {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA airport code (e.g. LHR, SIN, SYD)"},
+        {"name": "date", "type": "string", "required": true, "description": "Target departure date in YYYY-MM-DD format"},
+        {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY", "description": "Cabin class: ECONOMY, PREMIUM ECONOMY, BUSINESS, or FIRST"}
+      ]
+    }
+  ]
+}
