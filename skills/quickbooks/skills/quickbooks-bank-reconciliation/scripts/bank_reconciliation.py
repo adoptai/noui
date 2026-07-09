@@ -39,7 +39,8 @@ def _r(x: float) -> float:
 def _load_gl() -> tuple[float, list[dict[str, Any]], str]:
     """Return (opening_balance, signed lines, source_label). Prefer the live pull."""
     if os.path.exists(_LIVE_GL):
-        data = json.load(open(_LIVE_GL, encoding="utf-8"))
+        with open(_LIVE_GL, encoding="utf-8") as f:
+            data = json.load(f)
         opening = float(data.get("opening_balance", 0.0))
         lines = []
         for ln in data["lines"]:
@@ -52,7 +53,8 @@ def _load_gl() -> tuple[float, list[dict[str, Any]], str]:
                           "ref": ln.get("ref", ln.get("txn_id", "")), "matched": False})
         return opening, lines, "QuickBooks (live pull via Tabby execute/fetch)"
     # fallback
-    rows = list(csv.DictReader(open(_FALLBACK_GL, newline="", encoding="utf-8")))
+    with open(_FALLBACK_GL, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
     lines = [{"date": r["date"], "amount": _r(r["amount"]),
               "memo": r.get("payee_or_source", ""), "ref": r.get("txn_id", ""), "matched": False}
              for r in rows]
@@ -78,7 +80,8 @@ def _load_bank() -> tuple[list[dict[str, Any]], str]:
         path, source = _USER_BANK, "user-provided bank statement"
     else:
         path, source = _FALLBACK_BANK, "bundled fallback bank statement (USER DID NOT PROVIDE ONE)"
-    rows = list(csv.DictReader(open(path, newline="", encoding="utf-8")))
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
     out = []
     for r in rows:
         low = {k.lower().strip(): v for k, v in r.items()}
@@ -93,7 +96,7 @@ def build_bank_reconciliation() -> dict[str, Any]:
     opening, gl, gl_source = _load_gl()
     bank, bank_source = _load_bank()
 
-    book_end = _r(opening + sum(l["amount"] for l in gl))
+    book_end = _r(opening + sum(line["amount"] for line in gl))
     bank_end = _r(opening + sum(b["amount"] for b in bank))
 
     # Match cleared items one-to-one on equal signed amount.
