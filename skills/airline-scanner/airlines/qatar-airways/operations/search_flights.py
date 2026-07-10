@@ -2,9 +2,8 @@
 """Search Qatar Airways for available flights on a given route and date.
 
 Qatar Airways uses Akamai bot protection — direct Python requests fail.
-Requests run inside Tabby's browser via cdp_fetch (same-origin API).
-Auth: static nbx_fs_api_key + X-AssignedDeviceID from localStorage
-     + a fresh session-id UUID per call.
+Requests run inside Tabby's browser session via execute_fetch (POST /execute/fetch).
+Auth: static nbx_fs_api_key + a fresh session-id and device-id UUID per call.
 """
 
 from __future__ import annotations
@@ -17,29 +16,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-_SKILL_ROOT = Path(__file__).resolve().parent.parent
-if str(_SKILL_ROOT) not in sys.path:
-    sys.path.insert(0, str(_SKILL_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from noui_runtime.cdp import cdp_eval, cdp_fetch, find_page  # noqa: E402
+from noui_runtime.execute import execute_fetch  # noqa: E402
 
-CDP_HOST_MATCH = "qatarairways.com"
+_PROFILE_ID = "qatar-airways"
 _SEARCH_URL = "https://www.qatarairways.com/dapi/public/bff/web/flight-search/flight-offers"
 _API_KEY = "74f2474702784207a9785eb3ef8ae4e4"
-_DEVICE_ID_KEY = "booking-widget.device.id"
-
-
-async def _get_device_id(ws_url: str) -> str:
-    """Read the device ID from localStorage (set by QR booking widget on first visit)."""
-    device_id = await cdp_eval(
-        ws_url, f"JSON.stringify(localStorage.getItem({json.dumps(_DEVICE_ID_KEY)}))"
-    )
-    if not device_id:
-        raise RuntimeError(
-            "booking-widget.device.id not found in localStorage. "
-            "Make sure the Tabby session has visited qatarairways.com at least once."
-        )
-    return device_id
 
 
 async def execute(
@@ -50,26 +33,10 @@ async def execute(
     adults: int = 1,
     children: int = 0,
     infants: int = 0,
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
-    """Search Qatar Airways for available one-way flights on a given route and date.
-
-    Args:
-        origin: Departure IATA airport code (e.g. "DOH", "LHR", "JFK").
-        destination: Arrival IATA airport code (e.g. "LHR", "DOH", "DXB").
-        date: Departure date in YYYY-MM-DD format.
-        cabin_class: Cabin class — ECONOMY, BUSINESS, or FIRST.
-        adults: Number of adult travelers.
-        children: Number of child travelers (2-11 years).
-        infants: Number of infant travelers (under 2).
-    """
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile qatar-airways-search"
-        )
-
-    device_id = await _get_device_id(ws_url)
+    """Search Qatar Airways for available one-way flights on a given route and date."""
+    profile_id = profile_slug or _PROFILE_ID
 
     passengers: list[dict[str, Any]] = [{"type": "ADT", "count": adults}]
     if children:
@@ -92,8 +59,8 @@ async def execute(
         "passengers": passengers,
     }
 
-    return await cdp_fetch(
-        ws_url,
+    return await execute_fetch(
+        profile_id,
         _SEARCH_URL,
         method="POST",
         body=body,
@@ -103,7 +70,7 @@ async def execute(
             "nbx_fs_api_key": _API_KEY,
             "qr-lang": "en",
             "session-id": str(uuid.uuid4()),
-            "X-AssignedDeviceID": device_id,
+            "X-AssignedDeviceID": str(uuid.uuid4()),
             "Origin": "https://www.qatarairways.com",
             "Referer": "https://www.qatarairways.com/",
         },
@@ -127,6 +94,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--adults", type=int, default=1, help="Number of adult travelers.")
     parser.add_argument("--children", type=int, default=0, help="Number of child travelers.")
     parser.add_argument("--infants", type=int, default=0, help="Number of infant travelers.")
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -142,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
                 adults=args.adults,
                 children=args.children,
                 infants=args.infants,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

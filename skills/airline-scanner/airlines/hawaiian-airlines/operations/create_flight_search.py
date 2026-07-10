@@ -6,6 +6,7 @@ Path: /search/api/shoulderDates
 Hawaiian Airlines runs on the same booking platform as Alaska Airlines (Kasada
 bot protection). Returns lowest available fares on and around the requested date
 (price calendar / shoulder dates), one entry per day.
+Requests run inside Tabby's browser session via execute_fetch.
 """
 
 from __future__ import annotations
@@ -21,10 +22,10 @@ _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_fetch, find_page  # noqa: E402
+from noui_runtime.execute import execute_fetch  # noqa: E402
 
-BASE_URL = "https://www.hawaiianairlines.com"
-CDP_HOST_MATCH = "hawaiianairlines.com"
+_PROFILE_ID = "hawaiian-airlines"
+_SEARCH_URL = "https://www.hawaiianairlines.com/search/api/shoulderDates"
 
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -38,6 +39,7 @@ async def execute(
     destination: str = "OGG",
     date: str = "2026-08-20",
     adults: int = 1,
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search Hawaiian Airlines for lowest fares on and around a given date.
 
@@ -47,14 +49,7 @@ async def execute(
         date: Target departure date in YYYY-MM-DD format.
         adults: Number of adult travelers.
     """
-    url = f"{BASE_URL}/search/api/shoulderDates"
-
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile hawaiian-airlines-search"
-        )
+    profile_id = profile_slug or _PROFILE_ID
 
     body = {
         "origins": [origin],
@@ -85,19 +80,23 @@ async def execute(
         },
     }
 
-    headers = {
-        "User-Agent": _UA,
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Origin": BASE_URL,
-        "Referer": f"{BASE_URL}/search/results",
-        "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Dest": "empty",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-
-    return await cdp_fetch(ws_url, url, method="POST", body=body, headers=headers)
+    return await execute_fetch(
+        profile_id,
+        _SEARCH_URL,
+        method="POST",
+        body=body,
+        headers={
+            "User-Agent": _UA,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Origin": "https://www.hawaiianairlines.com",
+            "Referer": "https://www.hawaiianairlines.com/search/results",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -109,6 +108,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--destination", required=True, help='Arrival IATA code, e.g. "OGG".')
     parser.add_argument("--date", required=True, help="Target date in YYYY-MM-DD format.")
     parser.add_argument("--adults", type=int, default=1, help="Number of adult travelers.")
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -121,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                 destination=args.destination,
                 date=args.date,
                 adults=args.adults,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

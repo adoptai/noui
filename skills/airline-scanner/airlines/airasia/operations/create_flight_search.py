@@ -3,12 +3,10 @@
 Method: POST
 Path: /web/fp/search/flights/v5/aggregated-results
 
-AirAsia uses Cloudflare Bot Management on the flights API, so all requests must
-be made from inside Tabby's real Chrome browser (via CDP eval + fetch) rather
-than direct HTTP calls. The skill:
-  1. Gets a short-lived JWT by POSTing to /fp/authentication/auth/login
-     (hardcoded web-client credentials — not user credentials)
-  2. Calls the aggregated-results search endpoint with that JWT
+AirAsia uses Cloudflare Bot Management on the flights API. Requests run inside
+Tabby's browser session via execute_fetch (POST /execute/fetch):
+  1. POST to /fp/authentication/auth/login with anonymous web-client credentials to get JWT.
+  2. POST to /web/fp/search/flights/v5/aggregated-results with that JWT.
 """
 
 from __future__ import annotations
@@ -24,14 +22,13 @@ _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_eval, find_page  # noqa: E402
+from noui_runtime.execute import execute_fetch  # noqa: E402
 
-BASE_URL = "https://flights.airasia.com"
-CDP_HOST_MATCH = "airasia.com"
-
+_PROFILE_ID = "airasia"
+_BASE_URL = "https://flights.airasia.com"
+_LOGIN_URL = f"{_BASE_URL}/fp/authentication/auth/login"
 _CHANNEL_HASH = "c5e9028b4295dcf4d7c239af8231823b520c3cc15b99ab04cde71d0ab18d65bc"
 
-# Static anonymous SSO tokens for unauthenticated searches (all-zeros userId)
 _ANON_ACCESS_TOKEN = (
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
     ".eyJ0eXBlIjoiQUNDRVNTX1RPS0VOIiwidXNlcklkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAwIiwiaWF0IjoxNzE1MDY5MzExLCJleHAiOjI3MTUwNjkzMTF9"
@@ -55,26 +52,6 @@ _SEARCH_QUERY_PARAMS = (
 )
 
 
-async def _cdp_post(ws_url: str, url: str, body: Any, headers: dict[str, str]) -> Any:
-    """Run a CORS fetch (no credentials) inside the browser and return parsed JSON body."""
-    init = {
-        "method": "POST",
-        "mode": "cors",
-        "headers": headers,
-        "body": json.dumps(body),
-    }
-    js = (
-        f"fetch({json.dumps(url)}, {json.dumps(init)})"
-        ".then(r => r.text().then(t => JSON.stringify({status: r.status, body: t})))"
-    )
-    raw = await cdp_eval(ws_url, js)
-    status = raw.get("status")
-    body_str = raw.get("body", "")
-    if not (isinstance(status, int) and 200 <= status < 300):
-        raise RuntimeError(f"POST {url} -> {status}: {body_str[:300]}")
-    return json.loads(body_str) if body_str else {}
-
-
 async def execute(
     origin: str = "KUL",
     destination: str = "SIN",
@@ -83,6 +60,7 @@ async def execute(
     children: int = 0,
     infants: int = 0,
     currency: str = "USD",
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search AirAsia for available flights on a given route and date.
 
@@ -95,23 +73,19 @@ async def execute(
         infants: Number of infant travelers.
         currency: Currency code for displayed prices (default: USD).
     """
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile airasia-search"
-        )
+    profile_id = profile_slug or _PROFILE_ID
 
     # Convert YYYY-MM-DD → DD/MM/YYYY (AirAsia's expected format)
     year, month, day = date.split("-")
     depart_date = f"{day}/{month}/{year}"
 
     # Step 1: Get a short-lived JWT (web-client anonymous auth)
-    login_data = await _cdp_post(
-        ws_url,
-        f"{BASE_URL}/fp/authentication/auth/login",
-        {"username": "flightsweb", "password": "6x6jF7bYrrkVqV2Y"},
-        {
+    login_data = await execute_fetch(
+        profile_id,
+        _LOGIN_URL,
+        method="POST",
+        body={"username": "flightsweb", "password": "6x6jF7bYrrkVqV2Y"},
+        headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
             "channel_hash": _CHANNEL_HASH,
@@ -122,7 +96,7 @@ async def execute(
         raise RuntimeError(f"Login did not return a JWT. Got: {list(login_data.keys())}")
 
     # Step 2: Search flights
-    search_url = f"{BASE_URL}/web/fp/search/flights/v5/aggregated-results{_SEARCH_QUERY_PARAMS}"
+    search_url = f"{_BASE_URL}/web/fp/search/flights/v5/aggregated-results{_SEARCH_QUERY_PARAMS}"
     search_body: dict[str, Any] = {
         "consumerId": "Website",
         "flightJourney": {
@@ -171,11 +145,12 @@ async def execute(
         "selectedDepartFlight": None,
     }
 
-    return await _cdp_post(
-        ws_url,
+    return await execute_fetch(
+        profile_id,
         search_url,
-        search_body,
-        {
+        method="POST",
+        body=search_body,
+        headers={
             "Authorization": f"Bearer {jwt}",
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -197,6 +172,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--children", type=int, default=0, help="Number of child travelers.")
     parser.add_argument("--infants", type=int, default=0, help="Number of infant travelers.")
     parser.add_argument("--currency", default="USD", help="Currency code (default: USD).")
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -212,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                 children=args.children,
                 infants=args.infants,
                 currency=args.currency,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

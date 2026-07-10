@@ -3,8 +3,7 @@
 
 Delta uses a GraphQL endpoint at offer-api-prd.delta.com with Authorization: GUEST
 (no real auth needed), but Akamai blocks direct Python calls. Requests run inside
-Tabby's www.delta.com browser session via cdp_fetch (cross-origin to offer-api-prd
-works because Akamai cookies are valid from the browser).
+Tabby's www.delta.com browser session via execute_fetch (POST /execute/fetch).
 """
 
 from __future__ import annotations
@@ -22,9 +21,9 @@ _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_fetch, find_page  # noqa: E402
+from noui_runtime.execute import execute_fetch  # noqa: E402
 
-CDP_HOST_MATCH = "delta.com"
+_PROFILE_ID = "delta"
 _GQL_URL = "https://offer-api-prd.delta.com/prd/rm-offer-gql"
 
 _GQL_QUERY = """query ($offerSearchCriteria: OfferSearchCriteriaInput!) {
@@ -82,6 +81,7 @@ async def execute(
     date: str = "2026-08-20",
     cabin_class: str = "ECONOMY",
     adults: int = 1,
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search Delta Air Lines for available one-way flights on a given route and date.
 
@@ -92,13 +92,7 @@ async def execute(
         cabin_class: Cabin class — ECONOMY, BUSINESS, or FIRST.
         adults: Number of adult travelers.
     """
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile delta-search"
-        )
-
+    profile_id = profile_slug or _PROFILE_ID
     brand = _CABIN_BRAND.get(cabin_class.upper(), "MAIN")
     txn_id = f"{uuid.uuid4()}_{int(time.time() * 1000)}"
 
@@ -139,8 +133,8 @@ async def execute(
         "query": _GQL_QUERY,
     }
 
-    return await cdp_fetch(
-        ws_url,
+    return await execute_fetch(
+        profile_id,
         _GQL_URL,
         method="POST",
         body=body,
@@ -175,6 +169,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cabin class (default: ECONOMY).",
     )
     parser.add_argument("--adults", type=int, default=1)
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -188,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
                 date=args.date,
                 cabin_class=args.cabin_class,
                 adults=args.adults,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

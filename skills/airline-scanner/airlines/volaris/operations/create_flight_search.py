@@ -3,10 +3,10 @@
 Method: POST
 Path: /prod/api/v3/availability/search
 
-Volaris uses AWS WAF bot detection on their API gateway — direct Python HTTP
-calls return 406. Requests must be made from inside Tabby's real Chrome browser
-via CDP eval. The DotRez anonymous session JWT is read from the browser's
-sessionStorage (set on page load by the Angular app at /prod/api/v1/session).
+Volaris uses AWS WAF bot detection. This skill runs requests inside Tabby's
+browser session via execute_fetch (POST /execute/fetch):
+  1. GET /prod/api/v1/session → fresh anonymous DotRez JWT.
+  2. POST /prod/api/v3/availability/search with that JWT.
 """
 
 from __future__ import annotations
@@ -23,9 +23,9 @@ _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_eval, find_page  # noqa: E402
+from noui_runtime.execute import execute_fetch  # noqa: E402
 
-CDP_HOST_MATCH = "volaris.com"
+_PROFILE_ID = "volaris"
 _SEARCH_URL = "https://apigw.volaris.com/prod/api/v3/availability/search"
 _SESSION_URL = "https://apigw.volaris.com/prod/api/v1/session"
 
@@ -49,6 +49,7 @@ async def execute(
     children: int = 0,
     infants: int = 0,
     currency: str = "MXN",
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search Volaris for available flights on a given route and date.
 
@@ -61,12 +62,18 @@ async def execute(
         infants: Number of infant travelers (under 2).
         currency: Currency code for prices (default: MXN).
     """
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile volaris-search"
-        )
+    profile_id = profile_slug or _PROFILE_ID
+
+    # Step 1: Get a fresh anonymous session JWT
+    session_data = await execute_fetch(
+        profile_id,
+        _SESSION_URL,
+        method="GET",
+        headers={"Accept": "application/json"},
+    )
+    jwt = session_data.get("token", "")
+    if not jwt:
+        raise RuntimeError(f"Volaris session did not return a token. Got: {list(session_data.keys())}")
 
     begin_date = _format_date(date)
 
@@ -98,46 +105,21 @@ async def execute(
         "shouldIncludeTua": True,
     }
 
-    def _get_token_js() -> str:
-        """Return a JS expression (Promise<string>) that resolves to a fresh JWT."""
-        return f"""(function() {{
-            const raw = sessionStorage.getItem('UserToken');
-            const needsRefresh = !raw || (() => {{
-                try {{
-                    const exp = new Date(JSON.parse(raw).expirationDate).getTime();
-                    return exp - Date.now() < 30000;
-                }} catch (e) {{ return true; }}
-            }})();
-            if (needsRefresh) {{
-                return fetch({json.dumps(_SESSION_URL)}, {{
-                    mode: 'cors',
-                    headers: {{'Accept': 'application/json'}}
-                }})
-                .then(r => r.json())
-                .then(sess => {{
-                    sessionStorage.setItem('UserToken', JSON.stringify(sess));
-                    return sess.token;
-                }});
-            }}
-            return Promise.resolve(JSON.parse(raw).token);
-        }})()"""
-
-    search_js = (
-        f"({_get_token_js()})"
-        f".then(jwt => fetch({json.dumps(_SEARCH_URL)}, {{"
-        f"  method: 'POST', mode: 'cors',"
-        f"  headers: {{'Content-Type': 'application/json', 'Accept': 'application/json',"
-        f"             'Authorization': jwt, 'Flow': 'MBS', 'Frontend': 'WEB'}},"
-        f"  body: JSON.stringify({json.dumps(body)})"
-        f"}}))"
-        f".then(r => r.text().then(t => JSON.stringify({{status: r.status, body: t}})))"
+    return await execute_fetch(
+        profile_id,
+        _SEARCH_URL,
+        method="POST",
+        body=body,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": jwt,
+            "Flow": "MBS",
+            "Frontend": "WEB",
+            "Origin": "https://www.volaris.com",
+            "Referer": "https://www.volaris.com/",
+        },
     )
-    raw = await cdp_eval(ws_url, search_js)
-    status = raw.get("status")
-    body_str = raw.get("body", "")
-    if not (isinstance(status, int) and 200 <= status < 300):
-        raise RuntimeError(f"POST {_SEARCH_URL} -> {status}: {body_str[:300]}")
-    return json.loads(body_str) if body_str else {}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -152,6 +134,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--children", type=int, default=0, help="Number of child travelers.")
     parser.add_argument("--infants", type=int, default=0, help="Number of infant travelers.")
     parser.add_argument("--currency", default="MXN", help="Currency code (default: MXN).")
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -167,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
                 children=args.children,
                 infants=args.infants,
                 currency=args.currency,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

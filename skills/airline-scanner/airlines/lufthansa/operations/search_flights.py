@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Search Lufthansa for available flights on a given route and date.
 
-Two-step flow:
+Two-step flow via Tabby execute_fetch (POST /execute/fetch):
 1. POST api.shop.lufthansa.com/one-booking/v2/auth/token with static
    client_id/client_secret → get Bearer JWT.
 2. POST api.shop.lufthansa.com/one-booking/v2/search/air-bounds with the
    JWT → get flight availability (air bounds).
 
-Both endpoints sit behind Cloudflare — direct Python calls return 403.
-Requests run inside Tabby's shop.lufthansa.com browser session via cdp_eval.
-The ama-client-facts header is a trivial unsigned JWT encoding the cabin class.
+Both endpoints sit behind Cloudflare. execute_fetch runs inside Tabby's
+browser session with real cookies and TLS fingerprint.
 """
 
 from __future__ import annotations
@@ -27,9 +26,9 @@ _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_eval, find_page  # noqa: E402
+from noui_runtime.execute import execute_fetch  # noqa: E402
 
-CDP_HOST_MATCH = "lufthansa"
+_PROFILE_ID = "lufthansa"
 _AUTH_URL = "https://api.shop.lufthansa.com/one-booking/v2/auth/token"
 _SEARCH_URL = "https://api.shop.lufthansa.com/one-booking/v2/search/air-bounds"
 _CLIENT_ID = "onebooking-ui-lh"
@@ -43,7 +42,6 @@ _CABIN_CODES = {"ECONOMY": "ECONOMY", "BUSINESS": "BUSINESS", "FIRST": "FIRST"}
 
 
 def _ama_client_facts(cabin: str) -> str:
-    """Build the unsigned JWT metadata header expected by the Lufthansa API."""
     header = (
         base64.b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode()).rstrip(b"=").decode()
     )
@@ -59,6 +57,7 @@ async def execute(
     date: str = "2026-08-20",
     cabin_class: str = "ECONOMY",
     adults: int = 1,
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search Lufthansa for available one-way flights on a given route and date.
 
@@ -69,17 +68,29 @@ async def execute(
         cabin_class: Cabin class — ECONOMY, BUSINESS, or FIRST.
         adults: Number of adult travelers.
     """
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile lufthansa-search"
-        )
-
+    profile_id = profile_slug or _PROFILE_ID
     cabin = _CABIN_CODES.get(cabin_class.upper(), "ECONOMY")
     call_id = str(uuid.uuid4())
     ama_facts = _ama_client_facts(cabin)
 
+    # Step 1: Authenticate to get Bearer token
+    auth_data = await execute_fetch(
+        profile_id,
+        _AUTH_URL,
+        method="POST",
+        body=_AUTH_BODY,  # URL-encoded string passed as-is
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "callid": call_id,
+            "traceparent": f"00-{call_id.replace('-', '')}-0000000000000000-00",
+        },
+    )
+    token = auth_data.get("access_token", "")
+    if not token:
+        raise RuntimeError(f"Lufthansa auth did not return access_token. Got: {list(auth_data.keys())}")
+
+    # Step 2: Search air bounds
     search_body = {
         "commercialFareFamilies": ["DEMALLFPP"],
         "itineraries": [
@@ -94,42 +105,21 @@ async def execute(
         "searchPreferences": {"showSoldOut": False, "showMilesPrice": False},
     }
 
-    js = f"""(function() {{
-        var callId = {json.dumps(call_id)};
-        var traceparent = '00-' + callId.replace(/-/g,'') + '-0000000000000000-00';
-        return fetch({json.dumps(_AUTH_URL)}, {{
-            method: 'POST', credentials: 'include',
-            headers: {{'Content-Type': 'application/x-www-form-urlencoded',
-                      'Accept': 'application/json',
-                      'callid': callId, 'traceparent': traceparent}},
-            body: {json.dumps(_AUTH_BODY)}
-        }})
-        .then(r => r.json())
-        .then(auth => {{
-            var token = auth.access_token;
-            return fetch({json.dumps(_SEARCH_URL)}, {{
-                method: 'POST', credentials: 'include',
-                headers: {{'Content-Type': 'application/json', 'Accept': 'application/json',
-                          'authorization': 'Bearer ' + token,
-                          'ama-client-ref': callId + ':1',
-                          'ama-client-facts': {json.dumps(ama_facts)},
-                          'callid': callId + ':1',
-                          'traceparent': '00-' + callId.replace(/-/g,'') + '-0000000000000002-00'}},
-                body: JSON.stringify({json.dumps(search_body)})
-            }});
-        }})
-        .then(r => r.text().then(t => JSON.stringify({{status: r.status, body: t}})))
-        .catch(e => JSON.stringify({{error: e.message}}));
-    }})()"""
-
-    raw = await cdp_eval(ws_url, js)
-    if "error" in raw:
-        raise RuntimeError(f"Lufthansa search failed: {raw['error']}")
-    status = raw.get("status")
-    body_str = raw.get("body", "")
-    if not (isinstance(status, int) and 200 <= status < 300):
-        raise RuntimeError(f"POST {_SEARCH_URL} -> {status}: {body_str[:300]}")
-    return json.loads(body_str) if body_str else {}
+    return await execute_fetch(
+        profile_id,
+        _SEARCH_URL,
+        method="POST",
+        body=search_body,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "authorization": f"Bearer {token}",
+            "ama-client-ref": f"{call_id}:1",
+            "ama-client-facts": ama_facts,
+            "callid": f"{call_id}:1",
+            "traceparent": f"00-{call_id.replace('-', '')}-0000000000000002-00",
+        },
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -147,6 +137,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cabin class (default: ECONOMY).",
     )
     parser.add_argument("--adults", type=int, default=1, help="Number of adult travelers.")
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -160,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
                 date=args.date,
                 cabin_class=args.cabin_class,
                 adults=args.adults,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

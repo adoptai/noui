@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Search Cathay Pacific for available flights on a given route and date.
 
-Cathay Pacific uses Akamai Bot Manager. This skill submits the booking form
-on the CX homepage with the desired search parameters (all hidden fields —
-no Vue/Angular interaction needed). The server processes the POST and
-redirects to book.cathaypacific.com/CathayPacificV3/dyn/air/booking/owdAvail,
-which renders flight options in the DOM. The skill waits for Angular to finish
-rendering, then parses the page text for departure/arrival times, durations,
-flight numbers, and fares.
+Cathay Pacific uses Akamai Bot Manager. The booking form POST triggers an SSR
+redirect to book.cathaypacific.com/CathayPacificV3/dyn/air/booking/owdAvail.
+This skill uses execute_fetch to submit the form from inside Tabby's browser
+session, then uses execute_browser HAR capture to navigate to the results URL
+and collect flight data from the Angular page's internal API calls.
 """
 
 from __future__ import annotations
@@ -19,17 +17,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import websockets
-
 _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_eval, find_page  # noqa: E402
+from noui_runtime.execute import execute_browser, execute_fetch  # noqa: E402
 
-CDP_HOST_MATCH = "cathaypacific.com"
+_PROFILE_ID = "cathay-pacific"
 _HOMEPAGE = "https://www.cathaypacific.com/cx/en_US.html"
-_FORM_ID = "book-trip-flight"
+_FORM_ACTION = "https://www.cathaypacific.com/cx/en_US.html"
 
 _CABIN_CODES = {
     "ECONOMY": "Y",
@@ -38,102 +34,15 @@ _CABIN_CODES = {
     "FIRST": "F",
 }
 
-_PARSE_JS = r"""(function() {
-    var text = document.body.innerText;
-    var countMatch = text.match(/(\d+) flights? found/);
-    var flightCount = countMatch ? parseInt(countMatch[1]) : 0;
-
-    var datePrices = [];
-    var dateRe = /(\w{3} \d+ \w{3})\s+From HKD\s*\$?\s*([\d,]+)/g;
-    var dm;
-    while ((dm = dateRe.exec(text)) !== null) {
-        datePrices.push({date: dm[1], priceHKD: parseInt(dm[2].replace(/,/g,''))});
-    }
-
-    var flights = [];
-    var fRe = /depart on\s+(\d{2}:\d{2})\s+from\s+(\w{3})\s+Duration\s+([\dhm ]+?)\s+(?:Connect at[\s\S]*?)?Arrives on\s+(\d{2}:\d{2})(?:\s+\+\d)?\s+at\s+(\w{3})\s+Flight\s+([\w ]+?)(?:\s+to\s+Flight\s+([\w ]+?))?\s+View/g;
-    var fm;
-    while ((fm = fRe.exec(text)) !== null) {
-        flights.push({
-            departure: fm[1], origin: fm[2],
-            duration: fm[3].trim(), arrival: fm[4], destination: fm[5],
-            flightNumber: fm[6].trim(),
-            connectingFlight: fm[7] ? fm[7].trim() : null
-        });
-    }
-
-    return JSON.stringify({flightCount: flightCount, datePrices: datePrices, flights: flights});
-})()"""
-
-
-async def _navigate_to_homepage(ws_url: str) -> None:
-    async with websockets.connect(ws_url, max_size=None) as ws:
-        await ws.send(
-            json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": _HOMEPAGE}})
-        )
-        deadline = asyncio.get_event_loop().time() + 20
-        while asyncio.get_event_loop().time() < deadline:
-            try:
-                msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=3))
-                if msg.get("method") == "Page.loadEventFired":
-                    break
-            except TimeoutError:
-                break
-
-
-async def _submit_search(
-    ws_url: str, origin: str, destination: str, date: str, cabin_code: str
-) -> None:
-    """Fill hidden form fields and submit to IBEFacade."""
-    date_compact = date.replace("-", "")
-    set_js = f"""(function() {{
-        var form = document.getElementById({json.dumps(_FORM_ID)});
-        if (!form) return 'no form';
-        function set(name, value) {{
-            var el = form.querySelector('[name="' + name + '"]');
-            if (el) el.value = value;
-        }}
-        set('ORIGIN', {json.dumps(origin)});
-        set('DESTINATION', {json.dumps(destination)});
-        set('DEPARTUREDATE', {json.dumps(date_compact)});
-        set('TRIPTYPE', 'O');
-        set('CABINCLASS', {json.dumps(cabin_code)});
-        set('ADULT', '1');
-        set('YOUNGADULT', '0');
-        set('CHILD', '0');
-        form.submit();
-        return 'submitted';
-    }})()"""
-    try:
-        await cdp_eval(ws_url, set_js)
-    except (RuntimeError, Exception):
-        # form.submit() navigates the page — execution context destruction is expected
-        pass
-
-
-async def _wait_for_owdavail(ws_url: str, timeout: float = 30.0) -> str:
-    """Poll until the browser lands on the owdAvail flight results page."""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
-        ws_url2 = await find_page(CDP_HOST_MATCH)
-        if ws_url2:
-            current = await cdp_eval(ws_url2, "JSON.stringify(window.location.href)")
-            if "owdAvail" in current or "Choose flights" in current:
-                return ws_url2
-        await asyncio.sleep(2)
-    raise RuntimeError("Timed out waiting for owdAvail flight results page.")
-
 
 async def execute(
     origin: str = "HKG",
     destination: str = "LHR",
     date: str = "2026-08-20",
     cabin_class: str = "ECONOMY",
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search Cathay Pacific for available one-way flights on a given route and date.
-
-    Returns all available flights with departure/arrival times, flight numbers,
-    durations, and a 7-day fare calendar in HKD. Uses IATA airport codes.
 
     Args:
         origin: Departure IATA airport code (e.g. "HKG", "LHR", "JFK").
@@ -141,35 +50,63 @@ async def execute(
         date: Departure date in YYYY-MM-DD format.
         cabin_class: Cabin class — ECONOMY, PREMIUM ECONOMY, BUSINESS, or FIRST.
     """
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile cathay-pacific-search"
-        )
-
+    profile_id = profile_slug or _PROFILE_ID
     cabin_code = _CABIN_CODES.get(cabin_class.upper(), "Y")
+    date_compact = date.replace("-", "")
 
-    await _navigate_to_homepage(ws_url)
-    await asyncio.sleep(4)
+    # Build the form body that the CX booking widget POSTs to IBEFacade
+    form_body = "&".join(
+        [
+            f"ORIGIN={origin}",
+            f"DESTINATION={destination}",
+            f"DEPARTUREDATE={date_compact}",
+            "TRIPTYPE=O",
+            f"CABINCLASS={cabin_code}",
+            "ADULT=1",
+            "YOUNGADULT=0",
+            "CHILD=0",
+        ]
+    )
 
-    ws_url2 = await find_page(CDP_HOST_MATCH) or ws_url
-    await _submit_search(ws_url2, origin, destination, date, cabin_code)
+    # Navigate to homepage first to establish session cookies, then capture form results
+    await execute_browser(profile_id, "har_start")
+    await execute_browser(profile_id, "navigate", {"url": _HOMEPAGE}, timeout_ms=30_000)
 
-    ws_url3 = await _wait_for_owdavail(ws_url2, timeout=30)
-    await asyncio.sleep(5)  # Wait for Angular to render flights
+    # Submit form via execute_fetch (browser cookies satisfy Akamai)
+    try:
+        await execute_fetch(
+            profile_id,
+            _FORM_ACTION,
+            method="POST",
+            body=form_body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout_ms=30_000,
+        )
+    except Exception:
+        pass  # Form submit may trigger redirect; execute_fetch may error on non-JSON response
 
-    ws_url4 = await find_page(CDP_HOST_MATCH) or ws_url3
-    result = await cdp_eval(ws_url4, _PARSE_JS)
+    har_data = await execute_browser(profile_id, "har_stop")
 
+    entries = (har_data or {}).get("har", {}).get("log", {}).get("entries", [])
+    for entry in entries:
+        url = entry.get("request", {}).get("url", "")
+        if any(k in url for k in ("owdAvail", "availableFlight", "flight-search", "IBEFacade")):
+            response = entry.get("response", {})
+            content = response.get("content", {})
+            text = content.get("text", "")
+            if text:
+                try:
+                    return {"source": "har", "url": url, "data": json.loads(text)}
+                except (ValueError, TypeError):
+                    continue
+
+    summary = await execute_browser(profile_id, "get_page_summary")
     return {
         "origin": origin,
         "destination": destination,
         "date": date,
         "cabinClass": cabin_class,
-        "flightCount": result.get("flightCount", 0),
-        "flights": result.get("flights", []),
-        "datePrices": result.get("datePrices", []),
+        "pageSummary": summary,
     }
 
 
@@ -187,6 +124,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["ECONOMY", "PREMIUM ECONOMY", "BUSINESS", "FIRST"],
         help="Cabin class (default: ECONOMY).",
     )
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -199,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
                 destination=args.destination,
                 date=args.date,
                 cabin_class=args.cabin_class,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

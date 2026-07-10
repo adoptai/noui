@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Skill operation: create_air_booking_shopping (PATCHED)
+"""Skill operation: create_air_booking_shopping
 Method: POST
 Path: /api/air-booking/v1/air-booking/page/air/booking/shopping
 
-Patched manually after auto-generation:
-  - Accepts --origin, --destination, --date, --adults, --round-trip, --date-in CLI args
-  - Drops stale EE30zvQLWf-* Akamai sensor headers — Akamai's JS intercepts fetch()
-    inside the real browser and adds them automatically via cdp_fetch
-  - Generates a fresh X-User-Experience-ID UUID per request
-  - Requires Tabby with an active southwest-search session (Akamai bot protection)
+Southwest uses Akamai bot protection. Akamai's JS intercepts fetch() inside the
+real browser and adds sensor headers automatically — that's why we run requests
+inside Tabby's browser session via execute_fetch.
 """
 
 from __future__ import annotations
@@ -25,10 +22,10 @@ _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_fetch, find_page  # noqa: E402
+from noui_runtime.execute import execute_fetch  # noqa: E402
 
-BASE_URL = "https://www.southwest.com"
-CDP_HOST_MATCH = "www.southwest.com"
+_PROFILE_ID = "southwest"
+_SEARCH_URL = "https://www.southwest.com/api/air-booking/v1/air-booking/page/air/booking/shopping"
 
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -45,6 +42,7 @@ async def execute(
     adults: int = 1,
     round_trip: bool = False,
     date_in: str = "",
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search Southwest flights for a given route and date.
 
@@ -56,14 +54,7 @@ async def execute(
         round_trip: Whether to search for a return flight.
         date_in: Return date in YYYY-MM-DD format (used when round_trip=True).
     """
-    url = f"{BASE_URL}/api/air-booking/v1/air-booking/page/air/booking/shopping"
-
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile southwest-search"
-        )
+    profile_id = profile_slug or _PROFILE_ID
 
     body = {
         "adultPassengersCount": str(adults),
@@ -83,26 +74,30 @@ async def execute(
         "site": "southwest",
     }
 
-    headers = {
-        "User-Agent": _UA,
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/json",
-        "X-API-Key": _API_KEY,
-        "X-App-ID": "air-booking",
-        "X-Channel-ID": "southwest",
-        "X-User-Experience-ID": str(uuid.uuid4()),
-        "sec-ch-ua": '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"macOS"',
-        "Origin": "https://www.southwest.com",
-        "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Dest": "empty",
-        "Referer": "https://www.southwest.com/air/booking/",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-
-    return await cdp_fetch(ws_url, url, method="POST", body=body, headers=headers)
+    return await execute_fetch(
+        profile_id,
+        _SEARCH_URL,
+        method="POST",
+        body=body,
+        headers={
+            "User-Agent": _UA,
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/json",
+            "X-API-Key": _API_KEY,
+            "X-App-ID": "air-booking",
+            "X-Channel-ID": "southwest",
+            "X-User-Experience-ID": str(uuid.uuid4()),
+            "sec-ch-ua": '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+            "Origin": "https://www.southwest.com",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+            "Referer": "https://www.southwest.com/air/booking/",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -116,6 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--adults", type=int, default=1, help="Number of adult travelers.")
     parser.add_argument("--round-trip", action="store_true", help="Search for a return flight.")
     parser.add_argument("--date-in", default="", help="Return date in YYYY-MM-DD format.")
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -130,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
                 adults=args.adults,
                 round_trip=args.round_trip,
                 date_in=args.date_in,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

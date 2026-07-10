@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""Skill operation: create_current_api_airbounds (PATCHED)
+"""Skill operation: create_current_api_airbounds
 Method: POST
 Path: /d/fcom/offers-prod/current/api/airBounds
 
-Patched manually after auto-generation:
-  - Accepts --origin, --destination, --date, --adults, --children, --infants CLI args
-  - Fixed CDP_HOST_MATCH: browser is on www.finnair.com, not api.finnair.com
-  - Generates a fresh X-Session-Id UUID per request (recording used a stale one)
-  - Requires Tabby with an active finnair-search session (Akamai bot protection)
+Finnair uses Akamai bot protection — requests run inside Tabby's browser session
+via execute_fetch (POST /execute/fetch).
 """
 
 from __future__ import annotations
@@ -24,10 +21,10 @@ _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_fetch, find_page  # noqa: E402
+from noui_runtime.execute import execute_fetch  # noqa: E402
 
-BASE_URL = "https://api.finnair.com"
-CDP_HOST_MATCH = "finnair.com"
+_PROFILE_ID = "finnair"
+_SEARCH_URL = "https://api.finnair.com/d/fcom/offers-prod/current/api/airBounds"
 
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -43,6 +40,7 @@ async def execute(
     adults: int = 1,
     children: int = 0,
     infants: int = 0,
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search Finnair flights for a given route and date.
 
@@ -54,14 +52,7 @@ async def execute(
         children: Number of child travelers.
         infants: Number of infant travelers.
     """
-    url = f"{BASE_URL}/d/fcom/offers-prod/current/api/airBounds"
-
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile finnair-search"
-        )
+    profile_id = profile_slug or _PROFILE_ID
 
     body = {
         "locale": "en_US",
@@ -83,25 +74,29 @@ async def execute(
         ],
     }
 
-    headers = {
-        "User-Agent": _UA,
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "X-Client-Id": "FCOM",
-        "X-Session-Id": str(uuid.uuid4()),
-        "x-dd-flow-type": "flight",
-        "sec-ch-ua": '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"macOS"',
-        "Origin": "https://www.finnair.com",
-        "Sec-Fetch-Site": "same-site",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Dest": "empty",
-        "Referer": "https://www.finnair.com/",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-
-    return await cdp_fetch(ws_url, url, method="POST", body=body, headers=headers)
+    return await execute_fetch(
+        profile_id,
+        _SEARCH_URL,
+        method="POST",
+        body=body,
+        headers={
+            "User-Agent": _UA,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Client-Id": "FCOM",
+            "X-Session-Id": str(uuid.uuid4()),
+            "x-dd-flow-type": "flight",
+            "sec-ch-ua": '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+            "Origin": "https://www.finnair.com",
+            "Sec-Fetch-Site": "same-site",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+            "Referer": "https://www.finnair.com/",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -115,6 +110,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--adults", type=int, default=1, help="Number of adult travelers.")
     parser.add_argument("--children", type=int, default=0, help="Number of child travelers.")
     parser.add_argument("--infants", type=int, default=0, help="Number of infant travelers.")
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -129,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                 adults=args.adults,
                 children=args.children,
                 infants=args.infants,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

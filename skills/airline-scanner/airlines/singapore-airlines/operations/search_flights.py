@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 """Search Singapore Airlines for available flights on a given route and date.
 
-SIA's booking form is protected by Akamai Bot Manager and uses server-side
-session state (VSSESSION), making programmatic form submission unreliable.
-Instead this skill calls the getHistogram.form API directly from inside
-Tabby's browser, which returns fare prices for a 15-day window around the
-requested date. The response includes total fare and tax per departure date,
-and the lowest available cabin class for that date.
-
-For full flight schedules (flight numbers, departure times), the SSR results
-page at /flightsearch/searchFlight.form must be loaded via the booking form
-workflow — which requires a human-initiated search session.
+SIA's booking API is protected by Akamai Bot Manager. This skill calls the
+getHistogram.form API from inside Tabby's browser session via execute_fetch,
+which returns fare prices for a 15-day window around the requested date.
 """
 
 from __future__ import annotations
@@ -26,9 +19,9 @@ _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_eval, find_page  # noqa: E402
+from noui_runtime.execute import execute_fetch  # noqa: E402
 
-CDP_HOST_MATCH = "singaporeair.com"
+_PROFILE_ID = "singapore-airlines"
 _HISTOGRAM_URL = "https://www.singaporeair.com/home/getHistogram.form"
 
 _CABIN_CODES = {
@@ -44,12 +37,11 @@ async def execute(
     destination: str = "LHR",
     date: str = "2026-08-20",
     cabin_class: str = "ECONOMY",
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search Singapore Airlines for available flights on a given route and date.
 
     Returns fare prices for a 15-day window centred around the requested date.
-    Each entry includes the departure date, base fare, tax, and total amount in
-    the browser's currency (defaults to SGD for SIN-origin routes).
 
     Args:
         origin: Departure IATA airport code (e.g. "SIN", "LHR", "JFK").
@@ -57,13 +49,7 @@ async def execute(
         date: Target departure date in YYYY-MM-DD format.
         cabin_class: Cabin class — ECONOMY, PREMIUM ECONOMY, BUSINESS, or FIRST.
     """
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile singapore-airlines-search"
-        )
-
+    profile_id = profile_slug or _PROFILE_ID
     cabin_code = _CABIN_CODES.get(cabin_class.upper(), "Y")
 
     body = {
@@ -77,23 +63,19 @@ async def execute(
         }
     }
 
-    js = (
-        f"fetch({json.dumps(_HISTOGRAM_URL)}, {{"
-        f"  method: 'POST',"
-        f"  headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},"
-        f"  body: JSON.stringify({json.dumps(body)})"
-        f"}}).then(r => r.text().then(t => JSON.stringify({{status: r.status, body: t}})))"
+    response_data = await execute_fetch(
+        profile_id,
+        _HISTOGRAM_URL,
+        method="POST",
+        body=body,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Origin": "https://www.singaporeair.com",
+            "Referer": "https://www.singaporeair.com/",
+        },
     )
 
-    raw = await cdp_eval(ws_url, js)
-    status = raw.get("status")
-    body_str = raw.get("body", "")
-    if not (isinstance(status, int) and 200 <= status < 300):
-        raise RuntimeError(f"POST {_HISTOGRAM_URL} -> {status}: {body_str[:300]}")
-
-    response_data = json.loads(body_str) if body_str else {}
-
-    # Find the specific requested date's fare in the histogram window
     fares = response_data.get("histogramResponse", {}).get("fares", [])
     target_fare = next((f for f in fares if f.get("departureDate") == date), None)
 
@@ -121,6 +103,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["ECONOMY", "PREMIUM ECONOMY", "BUSINESS", "FIRST"],
         help="Cabin class (default: ECONOMY).",
     )
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -133,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
                 destination=args.destination,
                 date=args.date,
                 cabin_class=args.cabin_class,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:

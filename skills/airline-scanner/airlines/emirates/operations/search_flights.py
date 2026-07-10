@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 """Search Emirates for available flights on a given route and date.
 
-Emirates uses an SSR Next.js SRP (Search Results Page) with Akamai bot
-protection and ESI fragments. Flight data is loaded into the browser's Redux
-store (window.__NEXT_REDUX_STORE__) after the page hydrates.
-
-Flow:
-  1. POST the search form from inside the browser (gets session cookies set).
-  2. Extract the ttid (search-session token) from the SSR HTML response.
-  3. Navigate the browser to the search results URL with the ttid.
-  4. Poll until api.brandedFares is populated in the Redux store.
-  5. Return the full brandedFares payload (flights, fares, prices).
+Emirates uses an SSR Next.js SRP with Akamai bot protection. Flow via Tabby:
+  1. execute_fetch: POST the search form to get the ttid (search-session token).
+  2. execute_browser HAR capture: navigate to the results URL with the ttid;
+     the page fires brandedFares API calls which appear in the HAR.
 """
 
 from __future__ import annotations
@@ -25,25 +19,20 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-import websockets
-
 _SKILL_ROOT = Path(__file__).resolve().parent.parent
 if str(_SKILL_ROOT) not in sys.path:
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from noui_runtime.cdp import cdp_eval, find_page  # noqa: E402
+from noui_runtime.execute import execute_browser, execute_fetch  # noqa: E402
 
-CDP_HOST_MATCH = "emirates.com"
+_PROFILE_ID = "emirates"
 _SEARCH_POST_URL = (
     "https://www.emirates.com/booking/search-results/?pageurl=/IBE&pub=/us/english&j=f&section=IBE"
 )
 _RESULTS_BASE_URL = "https://www.emirates.com/booking/search-results/?pub=%2Fus%2Fenglish"
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-
-# Cabin class codes: 0=Economy, 1=Business, 2=First
 _CABIN_CODES = {"ECONOMY": "0", "BUSINESS": "1", "FIRST": "2"}
-_CABIN_KEYS = {"ECONOMY": "Y", "BUSINESS": "J", "FIRST": "F"}
 
 
 def _build_form(origin: str, destination: str, date: str, adults: int, cabin: str) -> str:
@@ -78,72 +67,13 @@ def _build_form(origin: str, destination: str, date: str, adults: int, cabin: st
     )
 
 
-async def _post_and_get_ttid(ws_url: str, form_body: str) -> str:
-    """POST the search form inside the browser and extract the ttid from the SSR response."""
-    js = (
-        f"fetch({json.dumps(_SEARCH_POST_URL)}, {{"
-        f"  method: 'POST',"
-        f"  headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},"
-        f"  body: {json.dumps(form_body)}"
-        f"}}).then(function(r) {{ return r.text(); }})"
-        f".then(function(html) {{"
-        f'  var m = html.match(/"ttid":"([^"]+)"/);'
-        f"  return JSON.stringify(m ? m[1] : null);"
-        f"}})"
-    )
-    ttid = await cdp_eval(ws_url, js)
-    if not ttid:
-        raise RuntimeError(
-            "Emirates search POST did not return a ttid. Bot protection may have triggered."
-        )
-    return ttid
-
-
-async def _navigate_to_results(ws_url: str, ttid: str) -> None:
-    """Navigate the browser to the search results page."""
-    results_url = f"{_RESULTS_BASE_URL}&refreshId={uuid.uuid4().hex[:8]}&ttid={ttid}"
-    async with websockets.connect(ws_url) as ws:
-        await ws.send(
-            json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": results_url}})
-        )
-        deadline = asyncio.get_event_loop().time() + 15
-        while asyncio.get_event_loop().time() < deadline:
-            try:
-                msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=3))
-                if msg.get("method") == "Page.loadEventFired":
-                    break
-            except TimeoutError:
-                break
-
-
-async def _wait_for_branded_fares(ws_url: str, timeout: float = 30.0) -> dict[str, Any]:
-    """Poll the Redux store until brandedFares is populated."""
-    js = """(function() {
-        var store = window.__NEXT_REDUX_STORE__;
-        if (!store) return JSON.stringify({ready: false, error: 'no store'});
-        var bf = store.getState().api.brandedFares;
-        var key = '1-1';
-        if (bf && bf.data && bf.data[key] && bf.data[key].bounds) {
-            return JSON.stringify({ready: true, data: bf.data[key]});
-        }
-        var fetching = bf && bf.fetching && bf.fetching[key];
-        return JSON.stringify({ready: false, fetching: !!fetching});
-    })()"""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
-        result = await cdp_eval(ws_url, js)
-        if result.get("ready"):
-            return result["data"]
-        await asyncio.sleep(2)
-    raise RuntimeError(f"Emirates brandedFares did not populate within {timeout}s.")
-
-
 async def execute(
     origin: str = "DXB",
     destination: str = "LHR",
     date: str = "2026-08-20",
     cabin_class: str = "ECONOMY",
     adults: int = 1,
+    profile_slug: str | None = None,
 ) -> dict[str, Any]:
     """Search Emirates for available one-way flights on a given route and date.
 
@@ -154,20 +84,69 @@ async def execute(
         cabin_class: Cabin class — ECONOMY, BUSINESS, or FIRST.
         adults: Number of adult travelers.
     """
-    ws_url = await find_page(CDP_HOST_MATCH)
-    if not ws_url:
-        raise RuntimeError(
-            f"No Tabby page matching {CDP_HOST_MATCH!r}. "
-            "Run: tabby session ensure --profile emirates-search"
-        )
+    profile_id = profile_slug or _PROFILE_ID
 
     form_body = _build_form(origin, destination, date, adults, cabin_class)
-    ttid = await _post_and_get_ttid(ws_url, form_body)
-    await _navigate_to_results(ws_url, ttid)
-    await asyncio.sleep(5)
 
-    ws_url2 = await find_page(CDP_HOST_MATCH)
-    return await _wait_for_branded_fares(ws_url2)
+    # Step 1: POST form to get the ttid (search session token)
+    raw_html = await execute_fetch(
+        profile_id,
+        _SEARCH_POST_URL,
+        method="POST",
+        body=form_body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout_ms=30_000,
+    )
+    # execute_fetch returns parsed JSON but this endpoint returns HTML
+    # Extract ttid from whatever we got back
+    html_str = raw_html if isinstance(raw_html, str) else json.dumps(raw_html)
+    import re
+    m = re.search(r'"ttid":"([^"]+)"', html_str)
+    if not m:
+        raise RuntimeError(
+            "Emirates search POST did not return a ttid. Bot protection may have triggered."
+        )
+    ttid = m.group(1)
+
+    # Step 2: Navigate to results URL, capture brandedFares API calls via HAR
+    results_url = f"{_RESULTS_BASE_URL}&refreshId={uuid.uuid4().hex[:8]}&ttid={ttid}"
+
+    await execute_browser(profile_id, "har_start")
+    await execute_browser(profile_id, "navigate", {"url": results_url}, timeout_ms=45_000)
+    try:
+        await execute_browser(
+            profile_id,
+            "wait_for_selector",
+            {"selector": "[class*='flight-card'], [class*='results-list'], [class*='branded-fares']"},
+            timeout_ms=20_000,
+        )
+    except Exception:
+        pass
+
+    har_data = await execute_browser(profile_id, "har_stop")
+
+    entries = (har_data or {}).get("har", {}).get("log", {}).get("entries", [])
+    for entry in entries:
+        url = entry.get("request", {}).get("url", "")
+        if "brandedFares" in url or "branded-fares" in url or "flight-search" in url:
+            response = entry.get("response", {})
+            content = response.get("content", {})
+            text = content.get("text", "")
+            if text:
+                try:
+                    return {"source": "har", "ttid": ttid, "url": url, "data": json.loads(text)}
+                except (ValueError, TypeError):
+                    continue
+
+    summary = await execute_browser(profile_id, "get_page_summary")
+    return {
+        "origin": origin,
+        "destination": destination,
+        "date": date,
+        "cabinClass": cabin_class,
+        "ttid": ttid,
+        "pageSummary": summary,
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -185,6 +164,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cabin class (default: ECONOMY).",
     )
     parser.add_argument("--adults", type=int, default=1, help="Number of adult travelers.")
+    parser.add_argument("--profile-slug", dest="profile_slug", default=None)
     return parser
 
 
@@ -198,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
                 date=args.date,
                 cabin_class=args.cabin_class,
                 adults=args.adults,
+                profile_slug=args.profile_slug,
             )
         )
     except Exception as exc:
