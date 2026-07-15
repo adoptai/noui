@@ -1,0 +1,93 @@
+name: Deploy NoUI Skill
+
+# Publishes the NoUI harness skill to the platform default ("Built-in") tier.
+#
+#   push to `dev`  -> deploys to the `dev`  GitHub Environment  (dev webui)
+#   push to `prod` -> deploys to the `prod` GitHub Environment  (api.adopt.ai)
+#
+# Each environment supplies its own base URL + service-account PAT, so the
+# workflow itself is environment-agnostic. `workflow_dispatch` allows a manual
+# deploy to either environment.
+#
+# Required per-environment config (Settings > Environments > dev|prod):
+#   var    ADOPT_BASE_URL       e.g. https://api.adopt.ai
+#   secret ADOPT_CLIENT_ID      Adopt @adopt.ai service-account PAT client id
+#   secret ADOPT_CLIENT_SECRET  matching PAT secret
+# (Add a required-reviewer protection rule on `prod` to gate production deploys.)
+
+on:
+  pull_request:
+    paths:
+      - "skills/noui-harness/**"
+      - "skills/noui/**"
+      - ".github/workflows/deploy-skill.yml"
+  push:
+    branches: [dev, prod]
+    paths:
+      - "skills/noui-harness/**"
+      - "skills/noui/**"
+      - ".github/workflows/deploy-skill.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options: [dev, prod]
+        required: true
+
+# Serialize deploys to the same environment so two pushes can't race the
+# content-pointer flip.
+concurrency:
+  group: deploy-skill-${{ github.event.inputs.environment || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  # PR-time check: build the bundle and validate the publish payload assembles
+  # (frontmatter, non-empty aux) without minting a token or publishing. No
+  # environment / secrets needed, so it runs on every PR.
+  dry-run:
+    name: dry-run (validate publish payload)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build bundle
+        run: python skills/noui-harness/build_bundle.py
+
+      - name: Dry-run deploy (no publish)
+        env:
+          DRY_RUN: "1"
+          SKILL_NAME: noui
+          BUNDLE_VERSION: ${{ github.sha }}
+          MIN_PLATFORM_CONTRACT: "1"
+        run: python skills/noui-harness/deploy_default_skill.py
+
+  deploy:
+    name: deploy
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build bundle
+        run: python skills/noui-harness/build_bundle.py
+
+      - name: Deploy default skill
+        env:
+          ADOPT_BASE_URL: ${{ vars.ADOPT_BASE_URL }}
+          ADOPT_CLIENT_ID: ${{ secrets.ADOPT_CLIENT_ID }}
+          ADOPT_CLIENT_SECRET: ${{ secrets.ADOPT_CLIENT_SECRET }}
+          SKILL_NAME: noui
+          BUNDLE_VERSION: ${{ github.sha }}
+          MIN_PLATFORM_CONTRACT: "1"
+        run: python skills/noui-harness/deploy_default_skill.py
