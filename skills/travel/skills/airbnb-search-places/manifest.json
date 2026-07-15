@@ -1,0 +1,86 @@
+{
+  "schema_version": "1",
+  "skill_id": "airbnb-search-places",
+  "app": {
+    "name": "Airbnb Search",
+    "slug": "airbnb-search-places"
+  },
+  "workflow": {
+    "id": "airbnb-search-places",
+    "name": "Airbnb Search Places",
+    "workflow_session_id": "3c17e8fa-86d6-4737-b816-6d4050538c50"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "airbnb",
+    "profile_db_id": null,
+    "strategy": "tabby_execute",
+    "auth_plan_file": "auth_plan.json"
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "transport": "execute",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "search_places",
+      "description": "Autocomplete Airbnb places via Tabby execute/fetch.",
+      "module": "operations/search_places.py",
+      "entry": "execute",
+      "method": "GET",
+      "path": "/api/v2/autocompletes-personalized",
+      "args": [
+        {"name": "query", "type": "string", "required": true},
+        {"name": "num_results", "type": "integer", "required": false, "default": 10},
+        {"name": "locale", "type": "string", "required": false, "default": "en"},
+        {"name": "currency", "type": "string", "required": false, "default": "USD"},
+        {"name": "profile_slug", "type": "string", "required": false, "default": "airbnb"}
+      ]
+    },
+    {
+      "name": "search_listings",
+      "description": "Search Airbnb stay listings via Tabby execute/fetch.",
+      "module": "operations/search_listings.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/api/v3/StaysSearch/{sha256Hash}",
+      "args": [
+        {"name": "place_id", "type": "string", "required": true},
+        {"name": "query", "type": "string", "required": true},
+        {"name": "checkin", "type": "string", "required": true},
+        {"name": "checkout", "type": "string", "required": true},
+        {"name": "adults", "type": "integer", "required": false, "default": 1},
+        {"name": "children", "type": "integer", "required": false, "default": 0},
+        {"name": "infants", "type": "integer", "required": false, "default": 0},
+        {"name": "pets", "type": "integer", "required": false, "default": 0},
+        {"name": "locale", "type": "string", "required": false, "default": "en"},
+        {"name": "currency", "type": "string", "required": false, "default": "USD"},
+        {"name": "profile_slug", "type": "string", "required": false, "default": "airbnb"}
+      ]
+    }
+  ],
+  "artifacts": {
+    "skill_file": "SKILL.md",
+    "files": [
+      "SKILL.md",
+      "API.md",
+      "manifest.json",
+      "auth_plan.json",
+      "operations/__init__.py",
+      "operations/search_places.py",
+      "operations/search_listings.py",
+      "noui_runtime/__init__.py",
+      "noui_runtime/auth.py",
+      "noui_runtime/execute.py"
+    ],
+    "api_docs_file": "API.md"
+  },
+  "generation": {
+    "generated_at": "2026-07-09T00:00:00Z",
+    "generator": "noui",
+    "generator_version": "v2-tabby-execute-plugin"
+  }
+}

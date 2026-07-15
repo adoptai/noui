@@ -1,0 +1,4 @@
+bank_ref,date,description,amount
+LSB-DEP-77120,2025-12-03,Deposit - customer receipts,258226.36
+LSB-ACH-887214,2025-12-29,"ACH credit -- inbound deposit, unidentified originator",1875.00
+LSB-WD-44190,2025-12-15,Withdrawals - vendor & payroll clearing,-220675.48

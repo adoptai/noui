@@ -1,0 +1,22 @@
+{
+  "profile_slug": "airbnb",
+  "profile_db_id": "",
+  "strategy": "tabby_credentials",
+  "target_domains": [
+    "www.airbnb.com",
+    "a0.muscache.com"
+  ],
+  "required_auth": {
+    "headers": [],
+    "cookies": []
+  },
+  "observed_workflow_headers": {},
+  "tabby_export": {
+    "credential_types": {
+      "headers": [],
+      "cookies": []
+    },
+    "runtime_identifier": "airbnb"
+  },
+  "fallbacks": []
+}

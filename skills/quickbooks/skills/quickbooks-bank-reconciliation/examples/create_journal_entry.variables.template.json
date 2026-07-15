@@ -1,0 +1,151 @@
+{
+  "input_0": {
+    "clientMutationId": "0",
+    "transactionsTransaction": {
+      "traits": {
+        "costEstimate": {},
+        "esignature": {},
+        "delivery": {
+          "correspondenceAddress": {},
+          "emailDeliveryInfo": {}
+        },
+        "shipping": {
+          "shipAddress": {},
+          "shipFromAddress": {},
+          "tax": {}
+        },
+        "discount": {
+          "taxable": true
+        },
+        "prePayment": {},
+        "balance": {
+          "dueDate": "2026-07-08"
+        },
+        "invoiceDeposit": null,
+        "payment": {
+          "paymentDetailsMessage": null,
+          "paymentMethod": {},
+          "processedPayment": {},
+          "qboAppData": {},
+          "creditCardInfo": {},
+          "checkInfo": {}
+        },
+        "expirationTrait": {},
+        "transfer": {
+          "fromAccount": {},
+          "toAccount": {}
+        },
+        "acceptStatus": {},
+        "gratuity": {
+          "account": {}
+        },
+        "tax": {
+          "taxType": "EXCLUSIVE"
+        },
+        "bankDeposit": {
+          "cashBackAccount": {}
+        },
+        "journal": {
+          "adjustmentEntry": false
+        }
+      },
+      "stageEntity": null,
+      "meta": {},
+      "qboAppData": {
+        "txnTypeId": "8",
+        "showAdjustingJournalEntry": false
+      },
+      "header": {
+        "projectId": "",
+        "convenienceFee": {
+          "ach": {}
+        },
+        "transactionType": "JOURNAL_ENTRY",
+        "txnDate": "{{TXN_DATE}}",
+        "currencyInfo": {
+          "symbol": "$",
+          "code": "USD",
+          "name": "United States Dollar"
+        },
+        "privateMemo": "{{MEMO}}",
+        "referenceNumber": "1",
+        "regionExtensions": {
+          "defaultTxnSubType": {}
+        },
+        "voided": false,
+        "account": {},
+        "tags": []
+      },
+      "id": "djQuMTo5MzQxNDU3NDI1MjE5MTE4OjgwMjcxZWRkOGE:-1",
+      "type": "JOURNAL_ENTRY",
+      "lines": {
+        "itemLines": [],
+        "accountLines": [
+          {
+            "description": "",
+            "amount": "{{AMOUNT}}",
+            "projectId": "",
+            "traits": {
+              "tax": {
+                "taxable": false,
+                "taxInclusiveAmount": "1875.00",
+                "taxGroup": {},
+                "totalTaxableAmount": "1875.00",
+                "taxDetails": {
+                  "taxRate": {}
+                }
+              },
+              "deposit": {},
+              "journal": {
+                "postingType": "DEBIT"
+              },
+              "billable": {},
+              "purchaseOrder": {},
+              "progressivelyBilled": {}
+            },
+            "id": "ACCOUNT_client_0",
+            "account": {
+              "id": "{{DEBIT_ACCOUNT_ID}}",
+              "accountSubType": "CHECKING",
+              "accountType": "BANK"
+            },
+            "class": {},
+            "department": {}
+          },
+          {
+            "description": "",
+            "amount": "{{AMOUNT}}",
+            "projectId": "",
+            "traits": {
+              "tax": {
+                "taxable": false,
+                "taxInclusiveAmount": "1875.00",
+                "taxGroup": {},
+                "totalTaxableAmount": "1875.00",
+                "taxDetails": {
+                  "taxRate": {}
+                }
+              },
+              "deposit": {},
+              "journal": {
+                "postingType": "CREDIT"
+              },
+              "billable": {},
+              "purchaseOrder": {},
+              "progressivelyBilled": {}
+            },
+            "id": "ACCOUNT_client_1",
+            "account": {
+              "id": "{{CREDIT_ACCOUNT_ID}}",
+              "accountSubType": "UNDEPOSITED_FUNDS",
+              "accountType": "OTHER CURRENT ASSET"
+            },
+            "class": {},
+            "department": {}
+          }
+        ]
+      },
+      "attachments": []
+    }
+  }
+}

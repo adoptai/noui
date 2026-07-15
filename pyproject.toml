@@ -83,9 +83,8 @@ python_version = "3.11"
 mypy_path = "skills/noui"
 exclude = [
     "skills/noui/workbench/",
-    "skills/airbnb-search-places/",
-    "skills/expedia-stay-search/",
-    "skills/flydubai-pricing/",
+    "skills/travel/",
+    "skills/quickbooks/",
     "mcp/",
     "tabby/",
 ]

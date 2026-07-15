@@ -1,0 +1,7 @@
+{
+  "with": "calculateTotals=false && status='all'",
+  "filterBy": "txnDate >= '2025-12-01' && txnDate < '2026-01-01'",
+  "orderBy": "txnDate desc",
+  "offset": 0,
+  "limit": 100
+}

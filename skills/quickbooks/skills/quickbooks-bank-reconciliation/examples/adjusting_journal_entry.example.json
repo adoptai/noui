@@ -1,0 +1,19 @@
+{
+  "_comment": "Model payload for the reconciling change written back to QuickBooks. Post via Tabby execute/browser (UI) or operations/create_journal_entry.py after HITL approval. See SKILL.md. This mirrors QuickBooks' JournalEntry shape.",
+  "TxnDate": "2025-12-31",
+  "PrivateNote": "Bank rec 2025-12-31: record ACH deposit not yet on the books",
+  "Line": [
+    {
+      "Amount": 1875.00,
+      "DetailType": "JournalEntryLineDetail",
+      "Description": "ACH deposit on bank, unrecorded",
+      "JournalEntryLineDetail": { "PostingType": "Debit", "AccountRef": { "name": "Operating Checking" } }
+    },
+    {
+      "Amount": 1875.00,
+      "DetailType": "JournalEntryLineDetail",
+      "Description": "Offset - reviewer reassigns (customer A/R, other income, or suspense)",
+      "JournalEntryLineDetail": { "PostingType": "Credit", "AccountRef": { "name": "Undeposited Funds" } }
+    }
+  ]
+}

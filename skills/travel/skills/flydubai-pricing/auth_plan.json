@@ -1,0 +1,22 @@
+{
+  "profile_slug": "flydubai",
+  "profile_db_id": "",
+  "strategy": "tabby_credentials",
+  "target_domains": [
+    "www.flydubai.com",
+    "flights2.flydubai.com"
+  ],
+  "required_auth": {
+    "headers": [],
+    "cookies": []
+  },
+  "observed_workflow_headers": {},
+  "tabby_export": {
+    "credential_types": {
+      "headers": [],
+      "cookies": []
+    },
+    "runtime_identifier": "flydubai"
+  },
+  "fallbacks": []
+}

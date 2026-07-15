@@ -1,0 +1,150 @@
+mutation UpdateTransactions_Transaction_qbo($input_0: UpdateTransactions_TransactionInput!) {
+  updateTransactions_Transaction(input: $input_0) {
+    clientMutationId
+    ...UpdateTxnFragment
+  }
+}
+
+fragment UpdateTxnFragment on UpdateTransactions_TransactionPayload {
+  transactionsTransaction {
+    id
+    entityVersion
+    header {
+      referenceNumber
+      isFundTransferTxn
+    }
+    qboAppData {
+      tparExpenseEnabled
+    }
+    traits {
+      acceptStatus {
+        acceptStatus
+      }
+      balance {
+        amountPaid
+        balance
+      }
+      invoiceDeposit {
+        depositAmount
+        depositToAccount {
+          id
+        }
+      }
+      approval {
+        status
+        statusDetail
+        lastChangedDate
+        lastChangedBy {
+          firstName
+          lastName
+        }
+      }
+      payment {
+        qboAppData {
+          masStateMnem
+          masErrorMessage
+          masErrorLongMessage
+          masGenDecline
+          masAutoRetry
+          masSystemError
+          masErrorHelpTopic
+          walletItemId
+          masCCTxnError
+          masGatewayError
+        }
+        remittance {
+          matchFieldName
+          remittanceId
+          remittanceType
+        }
+      }
+    }
+    attachments {
+      edges {
+        node {
+          tempDownloadURI
+          entityVersion
+          id
+          fileName
+          size
+          sendWithEmail
+          documentId
+        }
+      }
+    }
+    type
+    lines {
+      accountLines {
+        edges {
+          node {
+            id
+            amount
+            customExtensions {
+              extensionType
+              associatedValues {
+                key
+                value
+              }
+            }
+            links {
+              targets {
+                edges {
+                  node {
+                    id
+                    targetTxn {
+                      id
+                      type
+                    }
+                    sourceTxn {
+                      id
+                      type
+                    }
+                  }
+                }
+              }
+            }
+            traits {
+              progressivelyBilled {
+                closed
+                amountBilled
+              }
+            }
+          }
+        }
+      }
+      itemLines {
+        edges {
+          node {
+            id
+            customExtensions {
+              extensionType
+              associatedValues {
+                key
+                value
+              }
+            }
+            amount
+            links {
+              targets {
+                edges {
+                  node {
+                    id
+                    targetTxn {
+                      id
+                    }
+                  }
+                }
+              }
+            }
+            traits {
+              progressivelyBilled {
+                closed
+                amountBilled
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

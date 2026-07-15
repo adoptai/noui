@@ -1,0 +1,91 @@
+{
+  "schema_version": "1",
+  "skill_id": "google-flights-search",
+  "app": {
+    "name": "Google Flights Search",
+    "slug": "google-flights-search"
+  },
+  "workflow": {
+    "id": "google-flights-search",
+    "name": "Google Flights Search",
+    "start_url": "https://www.google.com/travel/flights"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "google-flights",
+    "profile_db_id": null,
+    "strategy": "tabby_execute",
+    "auth_plan_file": "auth_plan.json"
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "transport": "execute",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "search_airports",
+      "description": "Airport/city autocomplete via Google Flights batchexecute.",
+      "module": "operations/search_airports.py",
+      "entry": "execute",
+      "args": [
+        {"name": "query", "type": "string", "required": true},
+        {"name": "csrf_token", "type": "string", "required": false, "default": ""},
+        {"name": "profile_slug", "type": "string", "required": false, "default": "google-flights"}
+      ]
+    },
+    {
+      "name": "get_calendar",
+      "description": "Price calendar for a route across a date range.",
+      "module": "operations/get_calendar.py",
+      "entry": "execute",
+      "args": [
+        {"name": "origin_entity_id", "type": "string", "required": true},
+        {"name": "destination_entity_id", "type": "string", "required": true},
+        {"name": "calendar_start", "type": "string", "required": true},
+        {"name": "calendar_end", "type": "string", "required": true},
+        {"name": "csrf_token", "type": "string", "required": false, "default": ""},
+        {"name": "profile_slug", "type": "string", "required": false, "default": "google-flights"}
+      ]
+    },
+    {
+      "name": "search_flights",
+      "description": "Flight shopping results for specific dates.",
+      "module": "operations/search_flights.py",
+      "entry": "execute",
+      "args": [
+        {"name": "origin_entity_id", "type": "string", "required": true},
+        {"name": "destination_entity_id", "type": "string", "required": true},
+        {"name": "departure_date", "type": "string", "required": true},
+        {"name": "return_date", "type": "string", "required": false, "default": ""},
+        {"name": "adults", "type": "integer", "required": false, "default": 1},
+        {"name": "csrf_token", "type": "string", "required": false, "default": ""},
+        {"name": "profile_slug", "type": "string", "required": false, "default": "google-flights"}
+      ]
+    }
+  ],
+  "artifacts": {
+    "skill_file": "SKILL.md",
+    "files": [
+      "SKILL.md",
+      "API.md",
+      "manifest.json",
+      "auth_plan.json",
+      "operations/__init__.py",
+      "operations/search_airports.py",
+      "operations/get_calendar.py",
+      "operations/search_flights.py",
+      "noui_runtime/__init__.py",
+      "noui_runtime/auth.py",
+      "noui_runtime/execute.py"
+    ],
+    "api_docs_file": "API.md"
+  },
+  "generation": {
+    "generated_at": "2026-07-09T00:00:00Z",
+    "generator": "noui",
+    "generator_version": "v2-tabby-execute-plugin"
+  }
+}
