@@ -16,6 +16,11 @@ name: Deploy NoUI Skill
 # (Add a required-reviewer protection rule on `prod` to gate production deploys.)
 
 on:
+  pull_request:
+    paths:
+      - "skills/noui-harness/**"
+      - "skills/noui/**"
+      - ".github/workflows/deploy-skill.yml"
   push:
     branches: [dev, prod]
     paths:
@@ -37,8 +42,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # PR-time check: build the bundle and validate the publish payload assembles
+  # (frontmatter, non-empty aux) without minting a token or publishing. No
+  # environment / secrets needed, so it runs on every PR.
+  dry-run:
+    name: dry-run (validate publish payload)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build bundle
+        run: python skills/noui-harness/build_bundle.py
+
+      - name: Dry-run deploy (no publish)
+        env:
+          DRY_RUN: "1"
+          SKILL_NAME: noui
+          BUNDLE_VERSION: ${{ github.sha }}
+          MIN_PLATFORM_CONTRACT: "1"
+        run: python skills/noui-harness/deploy_default_skill.py
+
   deploy:
     name: deploy (${{ github.event.inputs.environment || github.ref_name }})
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || github.ref_name }}
     steps:

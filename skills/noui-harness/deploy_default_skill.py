@@ -23,6 +23,9 @@ Env vars (all overridable by the matching flag):
     SKILL_MD               path to SKILL.md (default: this folder's SKILL.md)
     AUX                    ':'-separated aux files as 'arcname=path' or 'path'
                            (default: this folder's noui-bundle.zip)
+    DRY_RUN                if truthy, validate + assemble the payload and exit
+                           without minting a token or publishing (PR-time check;
+                           needs no base URL or credentials)
 
 Publish is idempotent for identical bytes (content-addressed ``v=<hash>/``); a
 re-run with an unchanged bundle is a safe no-op pointer confirm. Exits non-zero
@@ -98,9 +101,7 @@ def _load_aux(spec: str | None) -> list[dict]:
 
 
 def main() -> int:
-    base = _env("ADOPT_BASE_URL", required=True).rstrip("/")
-    client_id = _env("ADOPT_CLIENT_ID", required=True)
-    client_secret = _env("ADOPT_CLIENT_SECRET", required=True)
+    dry_run = _env("DRY_RUN", "").lower() in ("1", "true", "yes")
     skill_name = _env("SKILL_NAME", "noui")
     bundle_version = _env("BUNDLE_VERSION", "dev")
     min_contract = int(_env("MIN_PLATFORM_CONTRACT", "1"))
@@ -111,33 +112,45 @@ def main() -> int:
     if not skill_md.lstrip().startswith(b"---"):
         raise SystemExit(f"refusing to publish: {skill_md_path} has no YAML frontmatter")
 
+    payload = {
+        "skill_name": skill_name,
+        "skill_md_b64": base64.b64encode(skill_md).decode(),
+        "aux_files": aux,
+        "bundle_version": bundle_version,
+        "min_platform_contract": min_contract,
+    }
+
     print(
-        f"deploy '{skill_name}' -> {base} (default tier) "
-        f"[bundle_version={bundle_version}, min_platform_contract={min_contract}, "
-        f"SKILL.md {len(skill_md)}B, {len(aux)} aux]"
+        f"skill='{skill_name}' bundle_version={bundle_version} "
+        f"min_platform_contract={min_contract} SKILL.md={len(skill_md)}B "
+        f"aux={[(a['path'], len(base64.b64decode(a['content_b64']))) for a in aux]}"
     )
+
+    if dry_run:
+        # PR-time safety check: prove the bundle is publishable (frontmatter,
+        # non-empty aux, payload assembles) WITHOUT minting a token or writing
+        # anything. Needs no base URL or credentials, so it runs on every PR.
+        for a in aux:
+            if not a["content_b64"]:
+                raise SystemExit(f"aux file {a['path']!r} is empty")
+        approx = len(payload["skill_md_b64"]) + sum(len(a["content_b64"]) for a in aux)
+        print(f"DRY RUN OK: payload assembles (~{approx}B base64); skipping mint + publish.")
+        return 0
+
+    base = _env("ADOPT_BASE_URL", required=True).rstrip("/")
+    client_id = _env("ADOPT_CLIENT_ID", required=True)
+    client_secret = _env("ADOPT_CLIENT_SECRET", required=True)
+    print(f"publishing to {base} (default tier)")
 
     try:
         token = _mint_token(base, client_id, client_secret)
         auth = {"Authorization": f"Bearer {token}"}
-
-        payload = {
-            "skill_name": skill_name,
-            "skill_md_b64": base64.b64encode(skill_md).decode(),
-            "aux_files": aux,
-            "bundle_version": bundle_version,
-            "min_platform_contract": min_contract,
-        }
-        result = _post_json(
-            f"{base}/v1/end-user/agent-harness/default-skills", payload, auth
-        )
+        result = _post_json(f"{base}/v1/end-user/agent-harness/default-skills", payload, auth)
         print(f"published content_dir={result.get('content_dir')}:")
         for k in result.get("keys", []):
             print("  ", k)
 
-        pointer = _get_json(
-            f"{base}/v1/end-user/agent-harness/default-skills/{skill_name}", auth
-        )
+        pointer = _get_json(f"{base}/v1/end-user/agent-harness/default-skills/{skill_name}", auth)
     except urllib.error.HTTPError as e:
         # Surface the upstream reason (409 min_platform_contract / 422 bad bundle),
         # never the request auth header.
