@@ -68,7 +68,7 @@ jobs:
         run: python skills/noui-harness/deploy_default_skill.py
 
   deploy:
-    name: deploy (${{ github.event.inputs.environment || github.ref_name }})
+    name: deploy
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || github.ref_name }}

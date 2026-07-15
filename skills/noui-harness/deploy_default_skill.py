@@ -112,9 +112,10 @@ def main() -> int:
     if not skill_md.lstrip().startswith(b"---"):
         raise SystemExit(f"refusing to publish: {skill_md_path} has no YAML frontmatter")
 
+    skill_md_b64 = base64.b64encode(skill_md).decode()
     payload = {
         "skill_name": skill_name,
-        "skill_md_b64": base64.b64encode(skill_md).decode(),
+        "skill_md_b64": skill_md_b64,
         "aux_files": aux,
         "bundle_version": bundle_version,
         "min_platform_contract": min_contract,
@@ -133,7 +134,7 @@ def main() -> int:
         for a in aux:
             if not a["content_b64"]:
                 raise SystemExit(f"aux file {a['path']!r} is empty")
-        approx = len(payload["skill_md_b64"]) + sum(len(a["content_b64"]) for a in aux)
+        approx = len(skill_md_b64) + sum(len(a["content_b64"]) for a in aux)
         print(f"DRY RUN OK: payload assembles (~{approx}B base64); skipping mint + publish.")
         return 0
 
