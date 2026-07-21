@@ -114,6 +114,8 @@ def generate_auth_plan(
     app_slug: str,
     target_domains: list[str] | None = None,
     login_credential_headers: list[str] | None = None,
+    declared_strategy: str | None = None,
+    static_secret_headers: list[str] | None = None,
 ) -> dict:
     """Generate an auth_plan dict from a workflow HAR and auth signal analysis.
 
@@ -124,6 +126,18 @@ def generate_auth_plan(
         profile_db_id: Tabby profile DB UUID used for admin/profile version ops.
         app_slug: URL-safe lowercase slug for the app (used for env var naming).
         target_domains: Override list of target domains; auto-detected if None.
+        declared_strategy: Explicit auth model declared by the operator at
+            capture/compile time ("tabby_credentials" | "static_secret_header").
+            When set, it OVERRIDES the `_is_static_api_key_app` HAR heuristic
+            entirely — the operator told us the app's auth model, so we never
+            guess (and the false-positive where a separately-recorded session
+            login looks "static" cannot happen). `None` (the default) keeps the
+            legacy heuristic + `login_credential_headers` fallback below.
+        static_secret_headers: Header names to turn into `${SECRET:name}` recipes
+            when `declared_strategy == "static_secret_header"`. Use when the login
+            recording was skipped (static API-key mode) so the workflow HAR may be
+            the only place the header appears — these names are folded into
+            required_headers. Ignored for any other strategy.
         login_credential_headers: Header names the paired login profile already
             declares in its Tabby `credential_types.headers` (i.e. Tabby's
             worker actively captures these from real page traffic via
@@ -145,12 +159,29 @@ def generate_auth_plan(
     if target_domains is None:
         target_domains = _extract_target_domains(har)
 
+    if declared_strategy not in (None, "tabby_credentials", "static_secret_header"):
+        raise ValueError(
+            "declared_strategy must be 'tabby_credentials', 'static_secret_header', or None; "
+            f"got {declared_strategy!r}"
+        )
+
+    # A static-secret declaration may name the auth header explicitly (e.g. the
+    # login was skipped, so the workflow HAR is the only signal). Fold those names
+    # into required_headers so each gets a ${SECRET:name} recipe below.
+    if declared_strategy == "static_secret_header" and static_secret_headers:
+        required_headers = list(dict.fromkeys([*required_headers, *static_secret_headers]))
+
     login_headers_lower = {h.lower() for h in (login_credential_headers or [])}
     covered_by_login = bool(required_headers) and all(
         h.lower() in login_headers_lower for h in required_headers
     )
 
-    is_static = _is_static_api_key_app(har) and not covered_by_login
+    # Explicit declaration wins; otherwise fall back to the HAR heuristic (with
+    # the login-coverage veto). This is the seam that removes the guessing.
+    if declared_strategy is not None:
+        is_static = declared_strategy == "static_secret_header"
+    else:
+        is_static = _is_static_api_key_app(har) and not covered_by_login
     strategy = "static_secret_header" if is_static else "tabby_credentials"
 
     # Build fallbacks for headers that need static secrets

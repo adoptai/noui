@@ -58,6 +58,8 @@ def compile_workflow_bundle(
     output_root: str | None = None,
     start_url: str = "",
     login_credential_headers: list[str] | None = None,
+    auth_type: str = "auto",
+    api_key_header: str = "",
 ) -> dict:
     """Compile a workflow bundle to ``target`` ("mcp" | "skill" | "both").
 
@@ -66,13 +68,39 @@ def compile_workflow_bundle(
             login profile (see `auth_plan.py::generate_auth_plan`). Auto-fetched
             best-effort from Tabby via `profile_slug` when not given explicitly
             (pass an explicit `[]` to opt out of the lookup entirely, e.g. in tests).
+        auth_type: Explicit auth-model declaration from the operator, replacing the
+            HAR heuristic:
+              - "session"  → force `tabby_credentials` (a login/session was recorded;
+                             the false "looks static" positive cannot happen).
+              - "api-key"  → force `static_secret_header`; no login profile is
+                             involved, so the login-header lookup and scope
+                             extension are skipped, and `api_key_header` names the
+                             header carried as a ${SECRET:name} placeholder.
+              - "auto"     → legacy HAR heuristic (`_is_static_api_key_app`) plus the
+                             `login_credential_headers` fallback. Default here so
+                             existing programmatic callers are unchanged; the CLIs
+                             default to "session".
+        api_key_header: Auth header name for "api-key" mode (default "Authorization").
 
     Returns {"mcp": manifest?, "skill": manifest?} for whichever were built.
     """
     if target not in ("mcp", "skill", "both"):
         raise ValueError(f"target must be mcp|skill|both, got {target!r}")
+    if auth_type not in ("auto", "session", "api-key"):
+        raise ValueError(f"auth_type must be auto|session|api-key, got {auth_type!r}")
 
-    if login_credential_headers is None:
+    declared_strategy: str | None = {
+        "session": "tabby_credentials",
+        "api-key": "static_secret_header",
+        "auto": None,
+    }[auth_type]
+    static_secret_headers = [api_key_header or "Authorization"] if auth_type == "api-key" else None
+
+    # A declared static API-key app has no paired login profile: don't try to
+    # fetch login headers or widen a login scope that doesn't exist.
+    if auth_type == "api-key":
+        login_credential_headers = []
+    elif login_credential_headers is None:
         login_credential_headers = _fetch_login_credential_headers(profile_slug)
 
     name = name or f"recording-{session_id[:8]}"
@@ -98,6 +126,8 @@ def compile_workflow_bundle(
             profile_db_id="",
             execution_mode=execution_mode,
             login_credential_headers=login_credential_headers,
+            declared_strategy=declared_strategy,
+            static_secret_headers=static_secret_headers,
         )
     if target in ("skill", "both"):
         result["skill"] = compile_workflow_to_skill(
@@ -115,6 +145,8 @@ def compile_workflow_bundle(
             execution_mode=execution_mode,
             start_url=start_url,
             login_credential_headers=login_credential_headers,
+            declared_strategy=declared_strategy,
+            static_secret_headers=static_secret_headers,
         )
 
     # Best-effort: if this workflow's auth headers are already dynamically
