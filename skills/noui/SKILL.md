@@ -76,6 +76,23 @@ python scripts/capture_record.py --mode login --url https://example.com/login --
 python scripts/capture_import.py <session_id> --promote          # needs TABBY_ADMIN_TOKEN
 ```
 
+**Static API-key app (no login to record):**
+
+```bash
+# The app authenticates with a static key sent on every request — there is no
+# session to record. Record ONLY the workflow, then declare the auth model:
+python scripts/capture_record.py --mode workflow --url https://example.com
+python scripts/capture_import.py <session_id> --as skill --execution-mode harness \
+    --auth-type api-key --api-key-header Authorization
+# An admin registers the printed ${SECRET:...} value in the harness secret store
+# (AGENT_HARNESS_WEB_API_SECRETS). NoUI never records or holds the key itself.
+```
+
+**Auth model is declared, not guessed.** Workflow compile takes `--auth-type`:
+`session` (default — a login/session was recorded → `tabby_credentials`), `api-key`
+(static key, no login → `static_secret_header`), or `auto` (legacy HAR heuristic).
+The default removes the old failure where a separately-recorded login looked "static".
+
 **Autopilot (agent drives, no human VNC):** see `references/pillar-1-capture.md`.
 
 ---

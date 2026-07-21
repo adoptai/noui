@@ -49,6 +49,8 @@ def compile_workflow(
     profile_db_id: str = "",
     execution_mode: str = "tabby",
     login_credential_headers: list[str] | None = None,
+    declared_strategy: str | None = None,
+    static_secret_headers: list[str] | None = None,
 ) -> dict:
     """Compile a recorded workflow session into a runnable FastMCP server.
 
@@ -72,6 +74,11 @@ def compile_workflow(
             through to `generate_auth_plan` so a workflow whose auth headers are
             already dynamically captured by Tabby doesn't get miscategorized as
             needing a static secret. See `auth_plan.py::generate_auth_plan`.
+        declared_strategy: Explicit auth model from the capture/compile flag
+            ("tabby_credentials" | "static_secret_header"); overrides the HAR
+            heuristic. See `auth_plan.py::generate_auth_plan`.
+        static_secret_headers: Header names to turn into ${SECRET:name} recipes
+            under a "static_secret_header" declaration (login-skipped API-key mode).
 
     Returns the manifest dict (same content as manifest.json).
     """
@@ -135,6 +142,8 @@ def compile_workflow(
             profile_db_id=profile_db_id,
             app_slug=app_slug,
             login_credential_headers=login_credential_headers,
+            declared_strategy=declared_strategy,
+            static_secret_headers=static_secret_headers,
         )
 
     # ── 3. Write noui_runtime/auth.py (and execute.py under tabby mode) ───────

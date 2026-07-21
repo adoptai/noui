@@ -62,6 +62,13 @@ Ask the user up front for: the **site** (login URL + the workflow to capture) an
 > to **Part B** and provision the workflow recording with `--profile <profile_id>`
 > — the recorder starts already authenticated via that profile, no login needed.
 
+> **Static API-key apps also skip Part A** (there is no login session to record).
+> If the user says the app authenticates with a static API key, do **only** Part B
+> (record the workflow, no `--profile`/`--from`) and compile it with
+> `--auth-type api-key --api-key-header <header>` (default `Authorization`). The
+> compile prints a `${SECRET:...}` name; an admin registers the key value in the
+> harness secret store. **Otherwise leave `--auth-type` at its default** (`session`).
+
 ### A1. Provision the login recording, surface the VNC link, STOP
 ```bash
 cd /workspace/noui
@@ -120,6 +127,10 @@ python scripts/capture_import.py <workflow_session_id> \
 `<profile-slug>` is the slug from A2, or — if you skipped Part A — the existing profile
 id the user gave you (e.g. `adopt-bank`). The compiled skill lands under
 `workbench/skills/<app>/` as `call_web_api` cards + `operations.json` (no transport code).
+
+For a **static API-key app** (Part A skipped, no profile), drop `--profile-slug` and add
+`--auth-type api-key --api-key-header <header>` instead — the skill authenticates from a
+`${SECRET:...}` the admin registers, not a session. Leave `--auth-type` unset otherwise.
 
 > If the profile already has a HEALTHY session, you may instead drive the workflow
 > **agent-side** with `capture_autopilot.py <slug> --steps steps.json --as skill

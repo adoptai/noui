@@ -31,6 +31,21 @@ def main() -> int:
         choices=["tabby", "http", "harness"],
         default="tabby",
     )
+    p.add_argument(
+        "--auth-type",
+        dest="auth_type",
+        choices=["session", "api-key", "auto"],
+        default="session",
+        help="how the app authenticates (declared, not guessed): session (default) → "
+        "tabby_credentials; api-key → static_secret_header (see --api-key-header); "
+        "auto → legacy HAR heuristic.",
+    )
+    p.add_argument(
+        "--api-key-header",
+        dest="api_key_header",
+        default="",
+        help="(--auth-type api-key) auth header carrying the key (default: Authorization)",
+    )
     p.add_argument("--start-url", dest="start_url", default="")
     args = p.parse_args()
 
@@ -45,6 +60,8 @@ def main() -> int:
             profile_slug=args.profile_slug,
             execution_mode=args.execution_mode,
             start_url=args.start_url,
+            auth_type=args.auth_type,
+            api_key_header=args.api_key_header,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Compile failed: {exc}", file=sys.stderr)

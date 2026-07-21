@@ -30,6 +30,22 @@ def main() -> int:
     p.add_argument("--mode", choices=["login", "workflow"], default="workflow")
     p.add_argument("--url", default="", help="login/start URL to open")
     p.add_argument(
+        "--auth-type",
+        dest="auth_type",
+        choices=["session", "api-key"],
+        default="session",
+        help="how the app authenticates. session (default): record a login/session as "
+        "usual. api-key: the app uses a static API key sent on every request — NO login "
+        "recording is needed; record only the workflow and compile it with "
+        "--auth-type api-key (this flag just prints those next steps and exits).",
+    )
+    p.add_argument(
+        "--api-key-header",
+        dest="api_key_header",
+        default="",
+        help="(--auth-type api-key) auth header carrying the key (default: Authorization)",
+    )
+    p.add_argument(
         "--name",
         default="",
         help="(login) name of the app/site being captured — used to check Tabby for an "
@@ -56,6 +72,28 @@ def main() -> int:
         "when you just recorded the login in this same flow",
     )
     args = p.parse_args()
+
+    # Static API-key app: there is no session to record. Skip the login capture
+    # entirely and tell the operator to record just the workflow, then declare
+    # the auth model at compile time. The key value goes into the harness secret
+    # store (an admin step) — it is never recorded or held by NoUI.
+    if args.auth_type == "api-key":
+        header_flag = f" --api-key-header {args.api_key_header}" if args.api_key_header else ""
+        print(
+            "Static API-key app — no login recording needed. Do this instead:",
+            file=sys.stderr,
+        )
+        print(
+            "  1. Record the workflow you want as a tool:\n"
+            "       python scripts/capture_record.py --mode workflow --url <workflow-url>\n"
+            "  2. Compile it, declaring the static-key auth model:\n"
+            f"       python scripts/capture_import.py <session_id> --as skill "
+            f"--execution-mode harness --auth-type api-key{header_flag}\n"
+            "  3. An admin registers the key in the harness secret store "
+            "(AGENT_HARNESS_WEB_API_SECRETS) under the ${SECRET:...} name the compile prints.",
+            file=sys.stderr,
+        )
+        return 0
 
     if args.mode == "login" and args.name and args.url and not args.force:
         try:

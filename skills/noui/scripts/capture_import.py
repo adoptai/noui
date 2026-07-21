@@ -39,6 +39,25 @@ def main() -> int:
         choices=["tabby", "http", "harness"],
         default="tabby",
     )
+    p.add_argument(
+        "--auth-type",
+        dest="auth_type",
+        choices=["session", "api-key", "auto"],
+        default="session",
+        help="(workflow) how the app authenticates — declared, not guessed. "
+        "session (default): a login/session was recorded → tabby_credentials, so a "
+        "separately-recorded login is never miscategorised as a static API key. "
+        "api-key: no login recorded; the app uses a static key sent on every request "
+        "→ static_secret_header (see --api-key-header); the admin registers the value "
+        "in the harness secret store. auto: legacy HAR heuristic.",
+    )
+    p.add_argument(
+        "--api-key-header",
+        dest="api_key_header",
+        default="",
+        help="(workflow, --auth-type api-key) auth header carrying the key "
+        "(default: Authorization). Emitted as a ${SECRET:name} placeholder.",
+    )
     # login options
     p.add_argument(
         "--auth-mode",
@@ -98,6 +117,8 @@ def main() -> int:
                 profile_slug=args.profile_slug,
                 execution_mode=args.execution_mode,
                 start_url=args.url,
+                auth_type=args.auth_type,
+                api_key_header=args.api_key_header,
             )
         except Exception as exc:  # noqa: BLE001 — surface any compile failure
             print(f"Workflow compile failed: {exc}", file=sys.stderr)
@@ -108,7 +129,18 @@ def main() -> int:
             print(f"MCP server: {mcp.get('server_id', '?')} ({len(mcp.get('tools', []))} tool(s))")
         if skill:
             print(f"Skill: {skill.get('skill_id', '?')} ({len(skill.get('operations', []))} op(s))")
-        if not args.profile_slug:
+        if args.auth_type == "api-key":
+            secrets = (skill.get("secrets_required") if skill else None) or (
+                mcp.get("secrets_required") if mcp else None
+            )
+            target = f"secret(s) {', '.join(secrets)}" if secrets else "the API-key secret"
+            print(
+                f"Static API-key mode: an admin must register {target} in the harness "
+                "secret store (AGENT_HARNESS_WEB_API_SECRETS) — the compiled asset "
+                "carries only a ${SECRET:...} placeholder, never the key.",
+                file=sys.stderr,
+            )
+        elif not args.profile_slug:
             print("No --profile-slug: tools run unauthenticated.", file=sys.stderr)
         scope_ext = result.get("scope_extension")
         if scope_ext:
