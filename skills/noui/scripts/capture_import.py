@@ -43,7 +43,7 @@ def _default_tenant(tenant_id: str) -> str:
     return auth.tenant_id_from_token(recording.resolve_agent_token())
 
 
-def _report_workflow(result: dict, args) -> int:
+def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     mcp = result.get("mcp") or {}
     skill = result.get("skill") or {}
     if mcp:
@@ -67,7 +67,7 @@ def _report_workflow(result: dict, args) -> int:
     return 0
 
 
-def _run_combined(args, bundle: dict) -> int:
+def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
     """One capture → both a registered login App Template and a workflow asset.
 
     Splits the bundle at the login boundary, registers the login half, then

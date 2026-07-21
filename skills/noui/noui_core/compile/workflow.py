@@ -94,9 +94,7 @@ def compile_workflow_bundle(
         "api-key": "static_secret_header",
         "auto": None,
     }[auth_type]
-    static_secret_headers = (
-        [api_key_header or "Authorization"] if auth_type == "api-key" else None
-    )
+    static_secret_headers = [api_key_header or "Authorization"] if auth_type == "api-key" else None
 
     # A declared static API-key app has no paired login profile: don't try to
     # fetch login headers or widen a login scope that doesn't exist.

@@ -45,7 +45,9 @@ def _merged_bundle() -> dict:
         "url_events": [
             _url(T[0], "about:blank", "https://app.example.com/login"),
             _url(T[2], "https://app.example.com/login", "https://app.example.com/enterpassword"),
-            _url(T[4], "https://app.example.com/enterpassword", "https://app.example.com/dashboard"),
+            _url(
+                T[4], "https://app.example.com/enterpassword", "https://app.example.com/dashboard"
+            ),
             _url(T[6], "https://app.example.com/dashboard", "https://app.example.com/reports"),
         ],
         "har": {
@@ -108,9 +110,7 @@ class TestSplit:
         login, workflow = split_bundle(b)
         total_clicks = len(login["click_events"]) + len(workflow["click_events"])
         total_urls = len(login["url_events"]) + len(workflow["url_events"])
-        total_entries = (
-            len(login["har"]["log"]["entries"]) + len(workflow["har"]["log"]["entries"])
-        )
+        total_entries = len(login["har"]["log"]["entries"]) + len(workflow["har"]["log"]["entries"])
         assert total_clicks == len(b["click_events"])
         assert total_urls == len(b["url_events"])
         assert total_entries == len(b["har"]["log"]["entries"])
@@ -137,7 +137,6 @@ class TestRealFixture:
         # login slice must retain the credential events and the login-page traffic
         assert any(c.get("field_role") in ("username", "password") for c in login["click_events"])
         # partition holds
-        assert (
-            len(login["har"]["log"]["entries"]) + len(workflow["har"]["log"]["entries"])
-            == len(bundle["har"]["log"]["entries"])
+        assert len(login["har"]["log"]["entries"]) + len(workflow["har"]["log"]["entries"]) == len(
+            bundle["har"]["log"]["entries"]
         )

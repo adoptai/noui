@@ -93,9 +93,7 @@ def _keep(ts: str | None, boundary: str, side: str) -> bool:
 
 def _slice(bundle: dict[str, Any], boundary: str, side: str) -> dict[str, Any]:
     passthrough = {
-        k: v
-        for k, v in bundle.items()
-        if k not in ("click_events", "url_events", "har", "cookies")
+        k: v for k, v in bundle.items() if k not in ("click_events", "url_events", "har", "cookies")
     }
     passthrough["click_events"] = [
         c

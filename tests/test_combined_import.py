@@ -23,17 +23,37 @@ def _merged_bundle(with_login: bool = True) -> dict:
         "recording_mode": "login",
         "click_events": [
             {"timestamp": T[1], "field_role": role, "tag_name": "input"},
-            {"timestamp": T[2], "field_role": "password" if with_login else None, "tag_name": "input"},
+            {
+                "timestamp": T[2],
+                "field_role": "password" if with_login else None,
+                "tag_name": "input",
+            },
         ],
         "url_events": [
-            {"timestamp": T[0], "from_url": "about:blank", "to_url": "https://app.example.com/login"},
-            {"timestamp": T[4], "from_url": "https://app.example.com/login", "to_url": "https://app.example.com/dash"},
+            {
+                "timestamp": T[0],
+                "from_url": "about:blank",
+                "to_url": "https://app.example.com/login",
+            },
+            {
+                "timestamp": T[4],
+                "from_url": "https://app.example.com/login",
+                "to_url": "https://app.example.com/dash",
+            },
         ],
         "har": {
             "log": {
                 "entries": [
-                    {"startedDateTime": T[3], "request": {"method": "POST", "url": "https://app.example.com/login"}, "response": {}},
-                    {"startedDateTime": T[5], "request": {"method": "GET", "url": "https://app.example.com/api/data"}, "response": {}},
+                    {
+                        "startedDateTime": T[3],
+                        "request": {"method": "POST", "url": "https://app.example.com/login"},
+                        "response": {},
+                    },
+                    {
+                        "startedDateTime": T[5],
+                        "request": {"method": "GET", "url": "https://app.example.com/api/data"},
+                        "response": {},
+                    },
                 ]
             }
         },
@@ -111,7 +131,9 @@ def test_combined_no_login_segment_falls_back_to_workflow_only(monkeypatch):
 
     monkeypatch.setattr(ci.register, "register_login", _boom)
 
-    rc = ci._run_combined(_args(auth_type="auto", profile_slug="existing-prof"), _merged_bundle(with_login=False))
+    rc = ci._run_combined(
+        _args(auth_type="auto", profile_slug="existing-prof"), _merged_bundle(with_login=False)
+    )
     assert rc == 0
     # falls through to a plain workflow compile: keeps the passed auth_type/profile,
     # does not force session.
