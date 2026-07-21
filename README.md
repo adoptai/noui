@@ -283,6 +283,29 @@ python scripts/capture_autopilot.py <profile_slug> --steps steps.json --as both
 python scripts/activate_install.py workbench/skills/<app> claude-code
 ```
 
+### Combined capture — login + workflow in one session
+
+```bash
+# Sign in AND drive the workflow in a single VNC session; NoUI splits the one
+# capture into a registered login App Template + a workflow asset.
+python scripts/capture_record.py --mode combined --url "https://app.example.com/login"
+python scripts/capture_import.py <session_id> --combined --as skill --name <app>
+```
+
+### Static API-key apps (no login to record)
+
+```bash
+# The app authenticates with a static key on every request — record only the
+# workflow and declare the auth model. NoUI emits a ${SECRET:...} placeholder;
+# an admin registers the value in the harness secret store (never held by NoUI).
+python scripts/capture_record.py --mode workflow --url "https://example.com"
+python scripts/capture_import.py <session_id> --as skill --execution-mode harness \
+  --auth-type api-key --api-key-header Authorization
+```
+
+> **`--auth-type` declares the app's auth model** (`session` default | `api-key` | `auto`).
+> Distinct from `--auth-mode` (`agent_token`/`platform_jwt`), which is the Tabby **token** mode.
+
 ------------------------------------------------------------------------
 
 ## 📦 Generated MCP Output
@@ -310,10 +333,12 @@ The bundle replaces the old CLI with thin, purpose-built scripts (run from
 `skills/noui/`):
 
 ```
-scripts/capture_record.py    --mode login|workflow --url <url> [--from <login-session>]
+scripts/capture_record.py    --mode login|workflow|combined --url <url> [--from <login-session>]
+                             [--profile <slug>] [--auth-type {session|api-key}] [--api-key-header <h>]
 scripts/capture_autopilot.py <profile> --steps steps.json --as {mcp|skill|both}
-scripts/capture_import.py    <session_id> [--as {mcp|skill|both} | --credential-mode {takeover|stored|manual}]
-                             [--promote] [--as-template] [--profile-slug <slug>]
+scripts/capture_import.py    <session_id> [--as {mcp|skill|both}] [--execution-mode {tabby|http|harness}]
+                             [--combined] [--auth-type {session|api-key|auto}] [--api-key-header <h>]
+                             [--profile-slug <slug>] [--credential-mode {takeover|manual|stored|auto}]
                              [--tenant-id <id>] [--post-login-url-pattern <glob>]
 
 scripts/compile_workflow.py  <bundle.json> --as {mcp|skill|both}

@@ -57,6 +57,19 @@ python scripts/capture_record.py --mode workflow --url https://example.com --fro
 
 Tabby pulls the source recording's cookies server-side; they never pass through NoUI.
 
+## Combined login + workflow in one session (`--mode combined`)
+Capture the login **and** the authenticated workflow in a **single** VNC session — no separate login recording, no `--from` seeding.
+
+```bash
+python scripts/capture_record.py --mode combined --url https://example.com/login
+# sign in, THEN keep driving the workflow, one "Finish & export"
+python scripts/capture_import.py <session_id> --combined --as skill --name example
+```
+
+Tabby's `recording_mode` is behaviorally inert, so a combined session is provisioned as an ordinary **`login`** session (zero Tabby change). NoUI does the differentiation at import: `--combined` splits the one bundle at the login boundary (`noui_core.capture.split.split_bundle` — the first stable navigation after the last credential-field interaction), then **registers the login App Template** from the login slice and **compiles the workflow** (`--auth-type session`) bound to that new profile. Splitting *before* tool generation is what keeps the login form-submit request — and its credential body — out of the workflow's tool set. If no login segment is present (no credential fields), `--combined` falls back to compiling the bundle workflow-only.
+
+Prefer the split flow (`--mode login` then `--mode workflow`) when you want to confirm the login registered before recording the workflow.
+
 ## Duplicate-template pre-check (`--mode login`)
 Before provisioning a **login** recording session, pass `--name`:
 

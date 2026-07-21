@@ -1,5 +1,12 @@
 # Auth modes: agent_token vs platform_jwt
 
+> **Not to be confused with `--auth-type`.** This page is about the runtime
+> **token** mode — *how NoUI/the asset authenticates to Tabby* (`agent_token` vs
+> `platform_jwt`, set by `--auth-mode` / `NOUI_TABBY_AUTH_MODE`). That is a
+> different axis from **`--auth-type`** (`session` | `api-key` | `auto`), which
+> declares *how the target app authenticates* — the credential strategy baked
+> into the compiled asset. See [pillar-2-compile](pillar-2-compile.md#auth-model---auth-type--declared-not-guessed).
+
 NoUI resolves credentials two ways. Mode is set by `NOUI_TABBY_AUTH_MODE`
 (explicit) or auto-detected (`platform_jwt` when `ADOPT_*` are present, else
 `agent_token`). Bearer tokens are cached per mode.
