@@ -26,6 +26,12 @@ NoUI records what a site's browser already does and ships it as tools your agent
 2. **Compile** (`scripts/compile_*`, also folded into `capture_import`) — turn a capture into assets: a workflow → an **MCP server** and/or a **Skill**; a login → a Tabby **App Template + ServiceProfile**.
 3. **Activate** (`scripts/activate_*`) — make assets usable: **register** a login as a tenant-wide App Template with Tabby (template-first — no promote step), **verify** auth, **install** a generated skill into any agent, and run tools through Tabby `/execute/fetch`.
 
+> Between **Compile** and **Activate**, always run **Generalize** — an LLM-driven
+> **agent** step (not a script; the compiler stays deterministic): prune the noise
+> operations and test the rest until they reliably fetch what's expected. See the
+> [Generalize](#generalize--prune-the-noise-then-test-until-it-works) section below
+> and `references/generalize.md`.
+
 ---
 
 ## Setup (one time)
@@ -62,6 +68,8 @@ Run scripts from this directory: `python scripts/<name>.py …`.
 python scripts/capture_record.py --mode workflow --url https://example.com --from <login-session-id>
 # open the printed VNC URL, drive the flow, click "Finish & export", then:
 python scripts/capture_import.py <session_id> --as both --profile-slug <login-profile>
+# GENERALIZE (agent step): prune noise ops, then test each 2-3x until it fetches
+# what's expected — see references/generalize.md. THEN:
 python scripts/activate_verify.py workbench/mcp_servers/<app>/<server_id>
 python scripts/activate_install.py workbench/skills/<app> claude-code
 ```
@@ -108,6 +116,31 @@ The default removes the old failure where a separately-recorded login looked "st
 
 ---
 
+## Generalize — prune the noise, then test until it works
+
+The initial compile is a **raw** mirror of the recording: it includes calls that
+aren't part of the task (analytics, config pings, prefetch, third-party hosts) and
+names lifted straight from the API. **After every compile, before install**, run the
+generalization pass — an LLM-driven **agent** step (no script; the compiler stays
+deterministic):
+
+1. **Prune noise** — remove operations that don't serve the workflow goal
+   (telemetry/analytics/consent/keepalive pings, typeahead/prefetch, duplicates, any
+   non-app host) from `operations.json` (harness) or `operations/` + `manifest.json`
+   (tabby/http).
+2. **Test the survivors** — actually run each remaining operation against the live
+   site (harness: the `call_web_api` tool with the recipe; tabby/http:
+   `python operations/<tool>.py …` or `activate_verify.py`), **2–3 times each**, and
+   confirm it returns the expected data.
+3. **Fix or drop** failures (empty creds → healthy session; 429 → browser-side
+   execute; wrong/empty body → recompile from the saved bundle), then **rename**
+   cryptic tools/params to natural language and **parameterize** hardcoded values.
+4. **Loop** until every remaining operation passes 2–3 clean runs — only then install.
+
+Full playbook: `references/generalize.md`.
+
+---
+
 ## Script reference
 
 | Script | Pillar | Purpose |
@@ -133,6 +166,7 @@ Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the ra
 
 - `references/pillar-1-capture.md` — VNC vs Autopilot, bundle shape, session reuse (`--from`)
 - `references/pillar-2-compile.md` — HAR→tools, execution modes (`tabby`/`http`/`harness`), login drafts
+- `references/generalize.md` — post-compile agent pass: prune noise ops + test until they work
 - `references/pillar-3-activate.md` — register (template-first), verify, install, `/execute` runtime
 - `references/tabby-setup.md` — pointing NoUI at a local or cloud Tabby
 - `references/auth-modes.md` — `agent_token` vs `platform_jwt`
