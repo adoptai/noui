@@ -36,4 +36,6 @@ How the app authenticates is **declared** at compile, not inferred from the HAR:
 
 Re-compile a saved bundle without re-recording: `scripts/compile_workflow.py` / `scripts/compile_login.py`.
 
-See also: [pillar-3-activate](pillar-3-activate.md).
+The compile output is a **raw** mirror of the recording. Next, run the agent-driven **[generalize](generalize.md)** pass — prune noise operations and test the rest until they work — before activating.
+
+See also: [generalize](generalize.md), [pillar-3-activate](pillar-3-activate.md).

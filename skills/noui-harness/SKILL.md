@@ -147,9 +147,34 @@ For a **static API-key app** (Part A skipped, no profile), drop `--profile-slug`
 > --execution-mode harness` (no human VNC) — see the toolkit reference. For a brand-new
 > profile, the VNC workflow recording above is the reliable path.
 
+## Step B3 — generalize: prune the noise, then test until it works
+
+The B2 compile is a **raw** mirror of the recording — it includes calls that aren't
+part of the task (analytics / config / keepalive pings, typeahead/prefetch, third-party
+hosts) and names lifted straight from the API. **Before installing**, clean it up (this
+is an LLM-driven step you do — no script):
+
+1. **Prune noise.** Read `workbench/skills/<app>/operations.json`; remove any operation
+   that doesn't serve the workflow goal (telemetry/analytics/consent/keepalive,
+   typeahead/prefetch, duplicates, any non-app host) — delete its entry from
+   `operations.json` and its card from the skill's `SKILL.md`.
+2. **Test the survivors.** For each remaining operation, invoke the **`call_web_api`**
+   tool with its recipe from `operations.json` (pass any `${SECRET:...}` verbatim). Run
+   each **2–3 times** and confirm it returns the expected data — not just a non-error.
+   You can do this now: `call_web_api` is a catalog tool, not part of the skill.
+3. **Fix or drop.** Empty creds / 401 → the profile's session isn't healthy (recheck
+   Part A/B); 429 → retry; wrong/empty body → recompile from the saved bundle
+   (`compile_workflow.py <bundle.json> --as skill --execution-mode harness`). If an op
+   can't be made to work and isn't essential, drop it.
+4. **Make it reusable.** Rename cryptic tool/param names to natural language and
+   parameterize hardcoded recorded values, in `operations.json` + the `SKILL.md` cards.
+5. **Loop** until every remaining operation passes 2–3 clean runs. Only then install.
+
+Full playbook: `skills/noui/references/generalize.md`.
+
 ## Step C — install the skill into the harness catalog
 
-Once compiled, **install it** so it becomes a usable tool on future turns. Call the
+Once compiled **and generalized (Step B3)**, **install it** so it becomes a usable tool on future turns. Call the
 **`install_skill`** harness tool (NOT a bash command — it's a tool in your catalog)
 with the compiled directory:
 
