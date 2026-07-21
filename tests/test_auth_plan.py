@@ -468,3 +468,115 @@ class TestLoginCredentialHeadersOverride:
             login_credential_headers=["authorization"],  # X-Api-Key not covered
         )
         assert plan["strategy"] == "static_secret_header"
+
+
+# ── declared_strategy override (explicit auth-type flag at capture/compile) ──
+#
+# The operator declares the auth model up front instead of relying on the HAR
+# heuristic. This is what removes the false-positive where a separately-recorded
+# session login (no Set-Cookie in the workflow HAR) looks like a static API key.
+
+
+class TestDeclaredStrategyOverride:
+    def _bearer_auth_info(self) -> dict:
+        return {
+            "has_auth_headers": True,
+            "has_cookies": False,
+            "has_csrf": False,
+            "auth_header_names": ["Authorization"],
+            "csrf_header_names": [],
+            "set_cookie_names": [],
+            "auth_domains": [],
+        }
+
+    def test_session_declaration_forces_tabby_despite_static_looking_har(self) -> None:
+        """A bearer-only HAR (would heuristically be static) declared 'session'
+        must resolve to tabby_credentials with no static fallbacks."""
+        har = _make_har([_bearer_entry()])  # no Set-Cookie → heuristic says static
+        assert _is_static_api_key_app(har) is True
+        plan = generate_auth_plan(
+            har=har,
+            auth_info=self._bearer_auth_info(),
+            profile_slug="qbo-sandbox",
+            profile_db_id="",
+            app_slug="qbo-sandbox",
+            declared_strategy="tabby_credentials",
+        )
+        assert plan["strategy"] == "tabby_credentials"
+        assert plan["fallbacks"] == []
+
+    def test_api_key_declaration_forces_static_despite_set_cookie(self) -> None:
+        """A session-looking HAR (has Set-Cookie) declared static must still
+        produce static_secret_header with a fallback recipe."""
+        entry = _make_entry(
+            request_headers=[{"name": "Authorization", "value": "Bearer tok"}],
+            response_headers=[_set_cookie_response()],
+        )
+        har = _make_har([entry])
+        assert _is_static_api_key_app(har) is False
+        plan = generate_auth_plan(
+            har=har,
+            auth_info=self._bearer_auth_info(),
+            profile_slug="acme",
+            profile_db_id="",
+            app_slug="acme",
+            declared_strategy="static_secret_header",
+        )
+        assert plan["strategy"] == "static_secret_header"
+        assert plan["fallbacks"]
+
+    def test_static_secret_headers_are_folded_into_required_and_fallbacks(self) -> None:
+        """An explicitly declared header not seen in auth_info still gets a recipe."""
+        har = _make_har([_make_entry()])  # no auth header in HAR at all
+        auth_info = {
+            "has_auth_headers": False,
+            "has_cookies": False,
+            "has_csrf": False,
+            "auth_header_names": [],
+            "csrf_header_names": [],
+            "set_cookie_names": [],
+            "auth_domains": [],
+        }
+        plan = generate_auth_plan(
+            har=har,
+            auth_info=auth_info,
+            profile_slug="acme",
+            profile_db_id="",
+            app_slug="acme",
+            declared_strategy="static_secret_header",
+            static_secret_headers=["X-Api-Key"],
+        )
+        assert "X-Api-Key" in plan["required_auth"]["headers"]
+        env_vars = [fb["secret_env_var"] for fb in plan["fallbacks"]]
+        assert _env_var_name("acme", "X-Api-Key") in env_vars
+
+    def test_static_secret_headers_ignored_for_session_declaration(self) -> None:
+        """static_secret_headers only applies under a static declaration."""
+        har = _make_har([_bearer_entry()])
+        plan = generate_auth_plan(
+            har=har,
+            auth_info=self._bearer_auth_info(),
+            profile_slug="acme",
+            profile_db_id="",
+            app_slug="acme",
+            declared_strategy="tabby_credentials",
+            static_secret_headers=["X-Api-Key"],
+        )
+        assert plan["strategy"] == "tabby_credentials"
+        assert "X-Api-Key" not in plan["required_auth"]["headers"]
+
+    def test_invalid_declared_strategy_raises(self) -> None:
+        har = _make_har([_bearer_entry()])
+        try:
+            generate_auth_plan(
+                har=har,
+                auth_info=self._bearer_auth_info(),
+                profile_slug="acme",
+                profile_db_id="",
+                app_slug="acme",
+                declared_strategy="nonsense",
+            )
+        except ValueError as exc:
+            assert "declared_strategy" in str(exc)
+        else:
+            raise AssertionError("expected ValueError for invalid declared_strategy")

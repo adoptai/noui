@@ -19,6 +19,18 @@ Outputs go under `NOUI_WORKBENCH_DIR` (default `skills/noui/workbench/`): `mcp_s
 
 The vendored `noui_runtime/execute.py` (from `noui_core.activate.execute_adapter`) is what makes a generated asset self-contained and Tabby-`/execute`-backed.
 
+### Auth model (`--auth-type`) — declared, not guessed
+How the app authenticates is **declared** at compile, not inferred from the HAR:
+
+- `session` (default) — a login/session backs the app → `tabby_credentials`. A separately-recorded login can never be miscategorised as static (this replaced a HAR heuristic that mis-fired when the login was captured apart from the workflow, so the workflow HAR had no `Set-Cookie`).
+- `api-key` — a static key sent on every request, **no login recorded** → `static_secret_header`. The auth header (`--api-key-header`, default `Authorization`) is emitted as a `${SECRET:name}` placeholder; an admin registers the value in the harness secret store (`AGENT_HARNESS_WEB_API_SECRETS`). NoUI never records or holds the key.
+- `auto` — legacy `_is_static_api_key_app` HAR heuristic (escape hatch).
+
+`generate_auth_plan(declared_strategy=…)` implements the override; `auto`/`None` keeps the heuristic. (Distinct from `--auth-mode`/`NOUI_TABBY_AUTH_MODE`, which is the runtime **token** mode — see [auth-modes](auth-modes.md).)
+
+### Combined capture (`--combined`)
+`capture_import.py --combined` splits one login+workflow bundle (`noui_core.capture.split`) and runs both compilers: register the login App Template, then `compile_workflow_bundle(..., auth_type="session")` bound to the new profile — see [pillar-1-capture](pillar-1-capture.md).
+
 ## Login → App Template + ServiceProfile drafts
 `noui_core.compile.login.compile_login_bundle` → `login_assets.generate`: builds `application_draft` (target URLs, login DSL from click/url events, egress allowlist, keepalive) and `service_profile_draft` (`profile_id`, `credential_types`, `target_domains`). `build_app_template_payload` emits a tenant-wide App Template for federated auto-provisioning.
 

@@ -8,7 +8,7 @@ NoUI talks to whatever Tabby instance the environment names. Config is read by
 TABBY_API_URL=http://localhost:8000
 TABBY_CLIENT_ID=<minted by your Tabby setup>
 TABBY_CLIENT_SECRET=<minted by your Tabby setup>
-TABBY_ADMIN_TOKEN=<admin token>     # only for register/promote (Activate)
+TABBY_ADMIN_TOKEN=<admin token>     # only to register App Templates (Activate); Editor role suffices
 ```
 `TABBY_CLIENT_ID/SECRET` are exchanged for an agent bearer token
 (`tabby_client.get_agent_token` → `POST /auth/agent-token`) used for recording
@@ -27,7 +27,7 @@ The platform PAT mints a platform JWT, exchanged for a Tabby JWT that carries
 `owner_user_id` (per-user profiles + template auto-provision). No admin token.
 
 ## Tenant alignment (admin token vs agent token)
-`TABBY_ADMIN_TOKEN` (registers/promotes apps & profiles) and
+`TABBY_ADMIN_TOKEN` (registers App Templates) and
 `TABBY_CLIENT_ID/SECRET` (the agent token used to record + execute) may belong to
 **different** Tabby tenants. If a profile is created in the admin's tenant but
 the agent resolves a different one, every agent-token call
