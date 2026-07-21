@@ -27,7 +27,15 @@ from noui_core.capture.template_match import find_similar_templates
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--mode", choices=["login", "workflow"], default="workflow")
+    p.add_argument(
+        "--mode",
+        choices=["login", "workflow", "combined"],
+        default="workflow",
+        help="login: record a login only. workflow: record a workflow only (seed auth "
+        "via --profile/--from). combined: ONE session capturing both — sign in, then "
+        "drive the workflow, and import with `capture_import.py --combined` (NoUI splits "
+        "it into a login App Template + a workflow asset; Tabby records it as 'login').",
+    )
     p.add_argument("--url", default="", help="login/start URL to open")
     p.add_argument(
         "--auth-type",
@@ -128,9 +136,13 @@ def main() -> int:
     # stale one (restart, else re-provision) before returning — so login_url is
     # always a live, redaction-safe short link (.../s/<id> → ?mode=recording, the
     # "Finish & export" viewer), never a dead raw vnc_url.
+    # A combined capture is provisioned as a normal 'login' session — Tabby's
+    # recording_mode is behaviorally inert, so one session records login + workflow
+    # in one HAR; NoUI does the login/workflow split at import (--combined).
+    tabby_mode = "login" if args.mode == "combined" else args.mode
     try:
         result = recording.provision_live_link(
-            args.mode, args.url, profile=args.profile, from_session=args.from_session
+            tabby_mode, args.url, profile=args.profile, from_session=args.from_session
         )
     except (RuntimeError, ValueError) as exc:
         print(f"Provisioning failed: {exc}", file=sys.stderr)
@@ -150,8 +162,15 @@ def main() -> int:
     print()
     print("If the viewer shows 'Disconnected' at first, the browser is still starting —")
     print("it connects on its own within ~30-60s (no need to re-provision).")
-    print("Open the login_url, sign in, drive the flow, click 'Finish & export', then run:")
-    print(f"  python scripts/capture_import.py {session_id}")
+    if args.mode == "combined":
+        print(
+            "Open the login_url, SIGN IN, then keep going and DRIVE THE WORKFLOW you want "
+            "as a tool (run the search / open the report), click 'Finish & export', then:"
+        )
+        print(f"  python scripts/capture_import.py {session_id} --combined --as skill --name <app>")
+    else:
+        print("Open the login_url, sign in, drive the flow, click 'Finish & export', then run:")
+        print(f"  python scripts/capture_import.py {session_id}")
     return 0
 
 

@@ -76,6 +76,17 @@ python scripts/capture_record.py --mode login --url https://example.com/login --
 python scripts/capture_import.py <session_id> --promote          # needs TABBY_ADMIN_TOKEN
 ```
 
+**Combined — login + workflow in ONE session:**
+
+```bash
+# Provisions a normal login session (Tabby records it as 'login'); sign in AND
+# then drive the workflow in the same session, one "Finish & export".
+python scripts/capture_record.py --mode combined --url https://example.com/login
+# NoUI splits the one capture at the login boundary → registers the login App
+# Template AND compiles the workflow (auth_type=session) bound to that profile:
+python scripts/capture_import.py <session_id> --combined --as skill --name example
+```
+
 **Static API-key app (no login to record):**
 
 ```bash

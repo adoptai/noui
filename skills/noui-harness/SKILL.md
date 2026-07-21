@@ -69,6 +69,16 @@ Ask the user up front for: the **site** (login URL + the workflow to capture) an
 > compile prints a `${SECRET:...}` name; an admin registers the key value in the
 > harness secret store. **Otherwise leave `--auth-type` at its default** (`session`).
 
+> **Combined capture collapses Part A + Part B into one session.** When the user
+> prefers to sign in and drive the workflow in a single sitting, provision with
+> `capture_record.py --mode combined --url "<LOGIN_URL>"`, have them sign in **and
+> then** drive the workflow before *Finish & export*, and import once with
+> `capture_import.py <session_id> --combined --as skill --execution-mode harness
+> --name "<app>"`. NoUI splits the one capture at the login boundary, registers the
+> login App Template, and compiles the workflow (session-auth) bound to it — no
+> separate `--from`/`--profile-slug` step. Prefer the split A/B flow when you want to
+> confirm the login registered before recording the workflow.
+
 ### A1. Provision the login recording, surface the VNC link, STOP
 ```bash
 cd /workspace/noui
