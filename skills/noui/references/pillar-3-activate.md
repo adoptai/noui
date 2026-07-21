@@ -2,27 +2,17 @@
 
 Make compiled assets usable, with Tabby `/execute` as the engine.
 
-## Register + promote a login profile
-`noui_core.activate.register.register_login(result, promote=…)`:
+## Register a login → tenant-wide App Template
+`noui_core.activate.register.register_login(result, *, token="", tenant_id="")`:
 
-1. `POST /apps` (application_draft) → `app_id`.
-2. `POST /admin/profiles` (service_profile_draft + app_id + version) → `profile_db_id`, state `STAGING`.
-3. `--promote` → `POST /admin/profiles/{id}/promote` once (STAGING → **CANARY**).
+**Template-first is the only path** — NoUI never creates an App/ServiceProfile directly. `build_app_template_payload` turns the compiled `application_draft` + `service_profile_draft` into one tenant-wide **App Template**, registered via a single `POST /admin/app-templates`. It returns `{template_id, profile_id}`, where `profile_id` is the template's `profile_name_pattern` — the runtime slug the generated ops bake in.
 
-> The runtime resolver matches **ACTIVE *and* CANARY** — a STAGING-only profile 404s at the first tool call, so promote once to CANARY before use. The further CANARY → ACTIVE step is gated by Tabby behind a canary-traffic threshold (≥5 served requests) and is a production decision, not forced at registration.
+When a federated member (platform JWT, `owner_user_id` set) first requests that slug, Tabby's `autoProvisionFromTemplate` clones a **private, owner-scoped App + Profile straight to ACTIVE** (+ a session) for them. There is **no STAGING/CANARY and no promote step** — per-user provisioning lands directly in ACTIVE, and a directly-created App would be creator-only / tenant-shared with no per-user isolation (exactly what template-first avoids).
 
-### Why this step needs an admin token (not agent client/secret)
-Register/promote is the **only** part of NoUI that an agent client/secret cannot do. Those credentials mint an `Agent`-role token, and Tabby gates these endpoints higher:
+### Token / role
+`POST /admin/app-templates` is gated by Tabby at the **Editor** role — *not* Admin (the `/admin/` prefix is a URL namespace, not an admin-credential gate). `resolve_admin_token()` resolves an Editor+ bearer in priority order: (1) **broker** — the harness forwards the user's own federated bearer; (2) **platform_jwt** (`ADOPT_API_URL`/`ADOPT_CLIENT_ID`/`ADOPT_CLIENT_SECRET`) — a token-exchanged human account is typically Editor+; (3) **`TABBY_ADMIN_TOKEN`** — a directly-configured bearer for local/self-host. With platform_jwt set up, local dev needs no separately-minted admin token. Everything else — recording, Autopilot (`/execute/browser`), running generated tools (`/execute/fetch`) — works on an `Agent`-role token alone.
 
-| Endpoint | Required role | Agent token? |
-|---|---|---|
-| `POST /apps` | `Admin`, `Operator` | ❌ 403 |
-| `POST /admin/profiles` | `Admin` | ❌ 403 |
-| `POST /admin/profiles/{id}/promote` | `Admin` | ❌ 403 |
-
-So `register_login` reads **`TABBY_ADMIN_TOKEN`** (`resolve_admin_token`) and fails fast if it's unset. Everything else — recording, Autopilot (`/execute/browser`), and running generated tools (`/execute/fetch`) — accepts the `Agent` role and works on agent client/secret alone. To avoid an admin token entirely, use the cloud **`platform_jwt`** route (per-user JWT + App-Template auto-provisioning) instead of these admin endpoints — see [auth-modes](auth-modes.md).
-
-CLI: `scripts/activate_register.py compiled-login.json --promote` (or fold into `capture_import.py <id> --promote`).
+CLI: `scripts/activate_register.py compiled-login.json` (or, for a login capture, `capture_import.py <id> --name <app>` registers the template in one step).
 
 ## Verify auth before use
 `scripts/activate_verify.py <server_dir>` → `noui_core.activate.verify.verify_before_install`. Deterministic-first repairs; statuses: `PASS`, `REPAIR_APPLIED`, `NEEDS_SECRET`, `UNSUPPORTED`. No `auth_plan.json` ⇒ `PASS` (unauthenticated server).

@@ -75,8 +75,8 @@ Tabby browser session
     ↓ (HAR + click/url events — captured server-side by Tabby)
 noui_core  (the skill bundle, skills/noui/)
     → capture/   — drain/synthesize the recording bundle
-    → compile/   — login → Tabby Application + ServiceProfile; workflow → FastMCP server / Skill
-    → activate/  — register/promote profiles, verify auth, install into agents
+    → compile/   — login → Tabby App Template; workflow → FastMCP server / Skill
+    → activate/  — register App Templates, verify auth, install into agents
     ↓
 Output (all under skills/noui/workbench/)
     → bundles/                       — saved capture bundles (source for re-generalization)
@@ -184,7 +184,7 @@ NoUI removes that layer.
 - Python 3.11+
 - A reachable Tabby (cloud, or self-host via Docker + the `tabby/` submodule)
 - Tabby credentials in one tenant: `TABBY_CLIENT_ID` / `TABBY_CLIENT_SECRET`
-  (agent), and `TABBY_ADMIN_TOKEN` (to register/promote profiles)
+  (agent), and `TABBY_ADMIN_TOKEN` (to register App Templates; Editor role suffices)
 
 ### Clone with submodules
 
@@ -211,7 +211,7 @@ pip install -e .
 # 2. Configure environment
 cp .env.example .env
 # Edit .env: TABBY_API_URL, TABBY_CLIENT_ID / TABBY_CLIENT_SECRET,
-#            and TABBY_ADMIN_TOKEN (for register/promote). All in the SAME tenant.
+#            and TABBY_ADMIN_TOKEN (for register). All in the SAME tenant.
 ```
 
 Scripts are run from `skills/noui/` as `python scripts/<name>.py …`.
@@ -270,10 +270,10 @@ python scripts/capture_import.py <session_id> --as mcp
 ```bash
 # 1. Record a login and register it with Tabby (no stored credentials — VNC takeover)
 python scripts/capture_record.py --mode login --url "https://app.example.com/"
-python scripts/capture_import.py <session_id> \
-  --credential-mode takeover --promote --as-template \
+python scripts/capture_import.py <session_id> --name example \
+  --credential-mode takeover \
   --post-login-url-pattern "<glob the logged-in URL matches but login does not>"
-# → registers App + ServiceProfile (CANARY) in the agent's tenant
+# → registers a tenant-wide App Template (per-user profiles auto-provision → ACTIVE)
 
 # 2. Record the workflow, authenticated — Autopilot (agent drives) …
 python scripts/capture_autopilot.py <profile_slug> --steps steps.json --as both
@@ -336,15 +336,15 @@ The bundle replaces the old CLI with thin, purpose-built scripts (run from
 scripts/capture_record.py    --mode login|workflow|combined --url <url> [--from <login-session>]
                              [--profile <slug>] [--auth-type {session|api-key}] [--api-key-header <h>]
 scripts/capture_autopilot.py <profile> --steps steps.json --as {mcp|skill|both}
-scripts/capture_import.py    <session_id> [--as {mcp|skill|both}] [--execution-mode {tabby|http|harness}]
+scripts/capture_import.py    <session_id> [--name <app>] [--as {mcp|skill|both}] [--execution-mode {tabby|http|harness}]
                              [--combined] [--auth-type {session|api-key|auto}] [--api-key-header <h>]
                              [--profile-slug <slug>] [--credential-mode {takeover|manual|stored|auto}]
-                             [--tenant-id <id>] [--post-login-url-pattern <glob>]
+                             [--auth-mode {agent_token|platform_jwt}] [--tenant-id <id>] [--post-login-url-pattern <glob>]
 
 scripts/compile_workflow.py  <bundle.json> --as {mcp|skill|both}
 scripts/compile_login.py     <bundle.json> --out <compiled.json>
 
-scripts/activate_register.py <compiled-login.json> [--promote] [--as-template] [--tenant-id <id>]
+scripts/activate_register.py <compiled-login.json> [--tenant-id <id>]
 scripts/activate_verify.py   <mcp_server_dir>
 scripts/activate_install.py  <skill_dir> <agent>    # agent: claude-code|codex|cline|opencode|agents [--project]
 ```
@@ -360,9 +360,7 @@ NoUI talks only to Tabby (no NoUI backend service):
 | POST | `/auth/agent-token` | Exchange `TABBY_CLIENT_ID/SECRET` for an agent token |
 | POST | `/recording/sessions` | Provision a VNC recording session |
 | GET  | `/recording/sessions/{id}/bundle` | Drain the captured bundle (HAR + events) |
-| POST | `/apps` | Create an Application (admin) |
-| POST | `/admin/profiles` · `/{id}/promote` | Create / promote a ServiceProfile |
-| POST | `/admin/app-templates` | Create a tenant-wide App Template |
+| POST | `/admin/app-templates` | Create a tenant-wide App Template (login registration) |
 | POST | `/apps/{id}/sessions/scale` | Bring a worker session up/down |
 | GET  | `/agent/session-status/{profile}` | Session state + HITL VNC URL (login) |
 | POST | `/execute/fetch` · `/execute/browser` | Run a tool / drive the browser inside the session |

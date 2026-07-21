@@ -24,7 +24,7 @@ NoUI records what a site's browser already does and ships it as tools your agent
 
 1. **Capture** (`scripts/capture_*`) — record a login or workflow (HAR + DOM) via a Tabby **VNC** session (a human drives) or **Autopilot** (the agent drives via Tabby `/execute/browser`). Tabby's worker captures the bundle server-side.
 2. **Compile** (`scripts/compile_*`, also folded into `capture_import`) — turn a capture into assets: a workflow → an **MCP server** and/or a **Skill**; a login → a Tabby **App Template + ServiceProfile**.
-3. **Activate** (`scripts/activate_*`) — make assets usable: **register/promote** a profile with Tabby, **verify** auth, **install** a generated skill into any agent, and run tools through Tabby `/execute/fetch`.
+3. **Activate** (`scripts/activate_*`) — make assets usable: **register** a login as a tenant-wide App Template with Tabby (template-first — no promote step), **verify** auth, **install** a generated skill into any agent, and run tools through Tabby `/execute/fetch`.
 
 ---
 
@@ -46,8 +46,8 @@ NoUI runs in **your own** Python environment. Two steps:
    |---|---|
    | `TABBY_API_URL` | Tabby base URL (default `http://localhost:8000`) |
    | `TABBY_CLIENT_ID` / `TABBY_CLIENT_SECRET` | Agent credentials — minted by your Tabby setup; used for recording + execution |
-   | `TABBY_ADMIN_TOKEN` | Required only to **register/promote** apps & profiles (Activate) |
-   | `NOUI_TABBY_AUTH_MODE` | Optional: `agent_token` (default) or `platform_jwt` (per-user cloud) |
+   | `TABBY_ADMIN_TOKEN` | Required only to **register** App Templates (Activate); Editor role suffices |
+   | `NOUI_TABBY_AUTH_MODE` | Optional: `agent_token` (default), `platform_jwt` (per-user cloud), or `broker` (harness-injected) |
    | `NOUI_WORKBENCH_DIR` | Optional: where generated assets are written (default `skills/noui/workbench/`) |
 
 Run scripts from this directory: `python scripts/<name>.py …`.
@@ -117,7 +117,7 @@ The default removes the old failure where a separately-recorded login looked "st
 | `capture_import.py` | 1→2→3 | Drain the bundle; compile (workflow) or compile+register (login) |
 | `compile_workflow.py` | 2 | Re-compile a saved workflow bundle → MCP/Skill |
 | `compile_login.py` | 2 | Compile a saved login bundle → App/ServiceProfile drafts |
-| `activate_register.py` | 3 | Register a compiled login result with Tabby (+`--promote`) |
+| `activate_register.py` | 3 | Register a compiled login result with Tabby as a tenant-wide App Template |
 | `activate_verify.py` | 3 | Deterministic auth dry-run on a generated MCP server |
 | `activate_install.py` | 3 | Install a generated skill into an agent (agnostic) |
 
@@ -133,8 +133,8 @@ Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the ra
 
 - `references/pillar-1-capture.md` — VNC vs Autopilot, bundle shape, session reuse (`--from`)
 - `references/pillar-2-compile.md` — HAR→tools, execution modes (`tabby`/`http`/`harness`), login drafts
-- `references/pillar-3-activate.md` — register/promote, verify, install, `/execute` runtime
+- `references/pillar-3-activate.md` — register (template-first), verify, install, `/execute` runtime
 - `references/tabby-setup.md` — pointing NoUI at a local or cloud Tabby
 - `references/auth-modes.md` — `agent_token` vs `platform_jwt`
 
-Example generated assets live in the repo's `mcp/` directory. Demo skills are sibling skills under `skills/` (`airbnb-search-places`, `expedia-stay-search`).
+Example generated assets live in the repo's `mcp/` directory. Demo plugins are sibling directories under `skills/` — `travel` (Airbnb, Expedia, Flydubai, Google Flights) and `quickbooks` (bank reconciliation).

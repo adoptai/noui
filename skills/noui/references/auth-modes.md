@@ -7,9 +7,10 @@
 > declares *how the target app authenticates* — the credential strategy baked
 > into the compiled asset. See [pillar-2-compile](pillar-2-compile.md#auth-model---auth-type--declared-not-guessed).
 
-NoUI resolves credentials two ways. Mode is set by `NOUI_TABBY_AUTH_MODE`
-(explicit) or auto-detected (`platform_jwt` when `ADOPT_*` are present, else
-`agent_token`). Bearer tokens are cached per mode.
+NoUI resolves credentials via `NOUI_TABBY_AUTH_MODE` (explicit) or auto-detection
+(`platform_jwt` when `ADOPT_*` are present, else `agent_token`); a third value,
+`broker`, is injected when running inside the Agent Harness (below). Bearer
+tokens are cached per mode.
 
 ## agent_token (default — local / self-host)
 - `POST /auth/agent-token` with `TABBY_CLIENT_ID` / `TABBY_CLIENT_SECRET`.
@@ -22,6 +23,13 @@ NoUI resolves credentials two ways. Mode is set by `NOUI_TABBY_AUTH_MODE`
 - Carries `owner_user_id` → Tabby resolves the **per-user** profile and can
   trigger **App Template auto-provisioning** for that user.
 - Use when a connection must scale per-user across a tenant.
+
+## broker (Agent Harness)
+- Set by the harness (`NOUI_TABBY_AUTH_MODE=broker`): a per-conversation worker
+  **forwards the signed-in user's own federated bearer** to Tabby — no
+  `TABBY_CLIENT_ID/SECRET`, no `TABBY_ADMIN_TOKEN`, no `ADOPT_*` in the sandbox.
+- `resolve_admin_token()` prefers this forwarded bearer for the Editor-gated
+  `POST /admin/app-templates` (register) when broker mode is active.
 
 ## Where it applies
 - **Recording + register**: `agent_token` (recording) / `TABBY_ADMIN_TOKEN` (register).
