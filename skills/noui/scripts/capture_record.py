@@ -169,6 +169,20 @@ def main() -> int:
             file=sys.stderr,
         )
 
+    # Surface whether Tabby served this from the warm pool (sub-second claim) or
+    # cold-started a pod (~1-2min). Tabby returns `warm: true` only on the pool
+    # path; its absence means a cold start. A cold start is expected on the FIRST
+    # recording per tenant (it warms the pool for next time) or when the pool is
+    # disabled/empty — record again and the next should be warm.
+    if result.get("warm"):
+        print("(warm pool: claimed a pre-warmed spare)", file=sys.stderr)
+    else:
+        print(
+            "(warm pool: MISS — cold-started a pod. Expected on the first recording "
+            "(warms the pool); if it repeats, the pool is disabled or still filling.)",
+            file=sys.stderr,
+        )
+
     print(f"Recording session ready ({args.mode}):")
     print(f"  session_id : {session_id}")
     print(f"  login_url  : {login_url}    <-- open THIS (recording viewer, redaction-safe)")
