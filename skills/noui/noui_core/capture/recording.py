@@ -88,7 +88,11 @@ def start(
         raise ValueError(f"mode must be 'login' or 'workflow', got {mode!r}")
     token = resolve_agent_token()
     return tabby_client.create_recording_session(
-        mode, url, token, profile, source_session_id=from_session,
+        mode,
+        url,
+        token,
+        profile,
+        source_session_id=from_session,
         residential_proxy=residential,
     )
 

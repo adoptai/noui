@@ -151,7 +151,10 @@ def main() -> int:
     tabby_mode = "login" if args.mode == "combined" else args.mode
     try:
         result = recording.provision_live_link(
-            tabby_mode, args.url, profile=args.profile, from_session=args.from_session,
+            tabby_mode,
+            args.url,
+            profile=args.profile,
+            from_session=args.from_session,
             residential=args.residential_proxy,
         )
     except (RuntimeError, ValueError) as exc:
