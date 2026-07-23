@@ -79,6 +79,15 @@ def main() -> int:
         help="(workflow) seed cookies from a prior LOGIN recording (its session id), "
         "when you just recorded the login in this same flow",
     )
+    p.add_argument(
+        "--residential-proxy",
+        dest="residential_proxy",
+        action="store_true",
+        help="route the recorded browser through Tabby's residential proxy (a US "
+        "residential IP) instead of datacenter egress. Use for sites that block "
+        "datacenter IPs, e.g. bank portals. Requires the residential proxy to be "
+        "configured on Tabby; otherwise the recording-shell app default applies.",
+    )
     args = p.parse_args()
 
     # Static API-key app: there is no session to record. Skip the login capture
@@ -142,7 +151,11 @@ def main() -> int:
     tabby_mode = "login" if args.mode == "combined" else args.mode
     try:
         result = recording.provision_live_link(
-            tabby_mode, args.url, profile=args.profile, from_session=args.from_session
+            tabby_mode,
+            args.url,
+            profile=args.profile,
+            from_session=args.from_session,
+            residential=args.residential_proxy,
         )
     except (RuntimeError, ValueError) as exc:
         print(f"Provisioning failed: {exc}", file=sys.stderr)

@@ -64,6 +64,7 @@ def start(
     *,
     profile: str = "",
     from_session: str = "",
+    residential: bool = False,
 ) -> dict:
     """Provision a Tabby VNC recording session.
 
@@ -77,6 +78,9 @@ def start(
         from_session: (workflow) seed cookies from a prior login recording (its
             session id) just captured in this same flow — session reuse, no
             stored credentials. Use --profile instead when a profile already exists.
+        residential: route the recorded browser's egress through Tabby's
+            residential proxy (US residential IP) instead of datacenter egress.
+            Use for sites that block datacenter IPs (e.g. bank portals).
 
     Returns the Tabby payload: {session_id, app_id, recording_mode, vnc_url, ...}.
     """
@@ -84,7 +88,12 @@ def start(
         raise ValueError(f"mode must be 'login' or 'workflow', got {mode!r}")
     token = resolve_agent_token()
     return tabby_client.create_recording_session(
-        mode, url, token, profile, source_session_id=from_session
+        mode,
+        url,
+        token,
+        profile,
+        source_session_id=from_session,
+        residential_proxy=residential,
     )
 
 
@@ -130,6 +139,7 @@ def provision_live_link(
     *,
     profile: str = "",
     from_session: str = "",
+    residential: bool = False,
 ) -> dict:
     """Provision a recording session and return its payload with a ``login_url``
     that is **verified live** — never a stale/dead link, and never handed over
@@ -154,7 +164,7 @@ def provision_live_link(
     ``"restart"`` | ``"reprovision"`` when a refresh was needed).
     """
     token = resolve_agent_token()
-    result = start(mode, url, profile=profile, from_session=from_session)
+    result = start(mode, url, profile=profile, from_session=from_session, residential=residential)
 
     stream_token = _stream_token(result.get("vnc_url", ""))
     sid = result.get("session_id", "")
@@ -176,7 +186,7 @@ def provision_live_link(
             pass  # restart didn't revive it → fall through to a fresh session.
 
     # Restart unavailable or ineffective → provision a brand-new session.
-    result = start(mode, url, profile=profile, from_session=from_session)
+    result = start(mode, url, profile=profile, from_session=from_session, residential=residential)
     result["login_url"] = tabby_client.create_short_link(
         result.get("session_id", ""), token, mode="recording"
     )
