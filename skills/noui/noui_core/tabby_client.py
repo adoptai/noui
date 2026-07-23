@@ -201,6 +201,7 @@ def create_recording_session(
     agent_token: str,
     profile_id: str = "",
     source_session_id: str = "",
+    residential_proxy: bool = False,
 ) -> dict:
     """
     POST /recording/sessions (agent bearer) — provision a recording-shell
@@ -210,6 +211,11 @@ def create_recording_session(
     by a prior login recording (session reuse), so the human starts already
     authenticated without stored credentials.
 
+    ``residential_proxy`` routes the recording session's egress through Tabby's
+    residential proxy (a US residential IP) instead of the datacenter egress —
+    use for sites that block datacenter IPs (e.g. bank portals). Omitted from the
+    request when False so the recording-shell app default applies.
+
     Returns {session_id, app_id, recording_mode, vnc_url, expires_at}.
     Raises RuntimeError on failure.
     """
@@ -218,6 +224,8 @@ def create_recording_session(
         body["profile_id"] = profile_id
     if source_session_id:
         body["source_session_id"] = source_session_id
+    if residential_proxy:
+        body["residential_proxy"] = True
     # Provisioning blocks server-side until the worker session row exists (worker
     # scheduling can take >15s under load), so allow a generous client timeout.
     resp = _tabby_http("POST", "/recording/sessions", body=body, token=agent_token, timeout=90)

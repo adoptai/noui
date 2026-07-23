@@ -62,6 +62,14 @@ Run scripts from this directory: `python scripts/<name>.py …`.
 
 ## Quick flows
 
+> ⚠️ **Banks / financial institutions → always add `--residential-proxy`.** Bank
+> and other financial portals routinely block or fraud-flag datacenter IPs, so a
+> login/workflow recorded (or an App Template captured) without it will fail, get
+> challenged, or trip the account's fraud controls. For any bank, brokerage,
+> card, or lender site, pass `--residential-proxy` on `capture_record.py` (routes
+> the recorded browser through a US residential IP). See
+> `references/pillar-1-capture.md` → *Residential proxy egress*.
+
 **Record a workflow → MCP + Skill (authenticated):**
 
 ```bash

@@ -57,6 +57,23 @@ python scripts/capture_record.py --mode workflow --url https://example.com --fro
 
 Tabby pulls the source recording's cookies server-side; they never pass through NoUI.
 
+## Residential proxy egress (`--residential-proxy`)
+Route the recorded browser's egress through Tabby's residential proxy (a US residential IP) instead of the default datacenter egress. Use for sites that block or challenge datacenter IPs — e.g. bank portals.
+
+> ⚠️ **Future agents: for any bank / financial institution, ALWAYS use `--residential-proxy`.**
+> This applies to every capture that becomes a bank App Template or recording —
+> logins, workflows, and combined sessions alike. Banks, brokerages, card issuers,
+> and lenders routinely block datacenter IPs or treat a datacenter-IP login as
+> fraud (extra challenges, step-up MFA, account locks). Recording such a site
+> without the residential proxy is unreliable and can jeopardize the real account.
+> When in doubt about whether a site is "financial enough", default to using it.
+
+```bash
+python scripts/capture_record.py --mode login --url https://www.pnc.com --residential-proxy
+```
+
+Works with any mode (`login`/`workflow`/`combined`) and combines with `--from`/`--profile`. The flag flows to Tabby's `POST /recording/sessions` as `residential_proxy: true`; omitted by default so the recording-shell app default applies. Requires the residential proxy to be configured on Tabby (`EGRESS_UPSTREAM_PROXY_URL` on the egress-proxy) — otherwise egress stays datacenter.
+
 ## Combined login + workflow in one session (`--mode combined`)
 Capture the login **and** the authenticated workflow in a **single** VNC session — no separate login recording, no `--from` seeding.
 
