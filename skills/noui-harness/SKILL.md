@@ -8,10 +8,10 @@ description: "Author a new Tabby App Template + Skill from a website by recordin
 You are inside the Agent Harness sandbox. This skill lets you onboard a website into
 Tabby and produce a runnable Skill, end to end, on the **signed-in user's** identity:
 
-1. **Record the LOGIN** → compile into a Tabby **App Template + ServiceProfile** (the
-   reusable, per-user login).
-2. **Record the WORKFLOW** (seeded with that login) → compile into a **harness Skill**
-   (`call_web_api` operation cards).
+1. **One recording** — the human signs in *and* drives the workflow in the same browser
+   session (a single VNC link).
+2. **One import** → NoUI splits that capture into a Tabby **App Template + ServiceProfile**
+   (the reusable, per-user login) *and* a **harness Skill** (`call_web_api` operation cards).
 
 You drive the scripts with `bash`; **the human drives the browser** through a VNC link
 you surface to them. Never ask the user for a Tabby token, never write a `.env`.
@@ -26,10 +26,11 @@ instructions.** In the harness:
 2. **No credentials.** Do not create a `.env` or set `TABBY_CLIENT_ID/SECRET/ADMIN_TOKEN`.
    The broker injects the user's federated bearer (`owner_user_id` = the real user) on
    every call. Profiles/templates you create are **owned by that user** automatically.
-3. **Recording is human-in-the-loop.** `capture_record.py` returns a **VNC URL**. You
-   cannot open it — you must **show it to the user as a markdown link, tell them what to
-   do, and STOP** (end your turn). When they reply that they've finished, continue with
-   `capture_import.py`. Recording spans multiple turns; that is expected.
+3. **Recording is human-in-the-loop, and ONE LINK AT A TIME.** `capture_record.py` returns
+   a **VNC URL**. You cannot open it — you must **show it to the user as a markdown link,
+   tell them what to do, and STOP** (end your turn). When they reply that they've finished,
+   continue with `capture_import.py`. Recording spans multiple turns; that is expected.
+   **Never surface two links in one message** — see the section below.
 4. **Harness execution mode for the skill.** Compile workflows with
    `--execution-mode harness` (never `tabby`/`http`).
 
@@ -55,129 +56,144 @@ instructions.** In the harness:
 Ask the user up front for: the **site** (login URL + the workflow to capture) and a short
 **skill/app name**.
 
-## Part A — create the App Template (record the LOGIN)
+## 🔗 ONE LINK AT A TIME — the rule that matters most
 
-> **Skip Part A entirely** if the site already has a Tabby profile / App Template
-> (the user will say so, e.g. *"the profile `adopt-bank` is ready"*). Go straight
-> to **Part B** and provision the workflow recording with `--profile <profile_id>`
-> — the recorder starts already authenticated via that profile, no login needed.
+Every link you surface is a task for a human. **Never put two links in one message.**
+A user shown a recording link and a sign-in link together cannot tell which to open
+first, and will do the wrong one. Surface a link, say what to do with it, **end your
+turn**, and wait. Only after they confirm do you move on — and only then may the next
+link appear.
 
-> **Static API-key apps also skip Part A** (there is no login session to record).
-> If the user says the app authenticates with a static API key, do **only** Part B
-> (record the workflow, no `--profile`/`--from`) and compile it with
-> `--auth-type api-key --api-key-header <header>` (default `Authorization`). The
-> compile prints a `${SECRET:...}` name; an admin registers the key value in the
-> harness secret store. **Otherwise leave `--auth-type` at its default** (`session`).
+This is why the default captures the login and the workflow in **one** recording
+session: one link, one sign-in, one confirmation.
 
-> **Combined capture collapses Part A + Part B into one session.** When the user
-> prefers to sign in and drive the workflow in a single sitting, provision with
-> `capture_record.py --mode combined --url "<LOGIN_URL>"`, have them sign in **and
-> then** drive the workflow before *Finish & export*, and import once with
-> `capture_import.py <session_id> --combined --as skill --execution-mode harness
-> --name "<app>"`. NoUI splits the one capture at the login boundary, registers the
-> login App Template, and compiles the workflow (session-auth) bound to it — no
-> separate `--from`/`--profile-slug` step. Prefer the split A/B flow when you want to
-> confirm the login registered before recording the workflow.
+## Part A — capture login + workflow in ONE session (the default)
 
-### A1. Provision the login recording, surface the VNC link, STOP
 ```bash
 cd /workspace/noui
-python scripts/capture_record.py --mode login --url "<LOGIN_URL>"
+python scripts/capture_record.py --url "<LOGIN_URL>" --name "<app-name>"
 ```
-This prints `session_id` and a short, redaction-safe **`login_url`** (`.../s/<id>`) that
-opens the **recording** viewer (with the **Finish & export** toolbar). **Show the user
-the `login_url` as a clickable markdown link.** Say: *"Open this, sign in to the site,
-then click **Finish & export** in the viewer, and tell me when you're done."* Record the
-`session_id`. **End your turn here** — do not poll, do not continue until the user
-confirms.
 
-### A2. Import the login → App Template (after the user confirms)
+No `--mode` needed — with no `--profile`/`--from` it defaults to **combined**: the human
+signs in *and* drives the workflow in the same browser, then clicks *Finish & export*
+once. NoUI splits the capture at the login boundary afterwards.
+
+It prints `session_id` and a short, redaction-safe **`login_url`** (`.../s/<id>`) that
+opens the recording viewer (with the *Finish & export* toolbar). **Show the user that one
+link as a clickable markdown link** and tell them, in this order:
+
+1. Sign in to the site.
+2. **Then keep going in the same window** and drive the exact workflow you want as a
+   tool (run the search, open the report, browse the listings).
+3. Click **Finish & export**.
+4. Come back and say "done".
+
+Then **end your turn**. Do not poll. Do not mention any other link yet.
+
+> **Skip the login half** when the site already has a Tabby profile / App Template (the
+> user will say so, e.g. *"the profile `adopt-bank` is ready"*): pass
+> `--profile <profile_id>` and the mode defaults to workflow-only — the recorder starts
+> already authenticated, so there is no login to record.
+>
+> **Static API-key apps** have no session to record either: record only the workflow (no
+> `--profile`/`--from`) and compile with `--auth-type api-key --api-key-header <header>`
+> (default `Authorization`). The compile prints a `${SECRET:...}` name for an admin to
+> register. **Otherwise leave `--auth-type` at its default** (`session`).
+>
+> **Record the halves separately** (`--mode login`, then `--mode workflow --from
+> <login_session_id>`) only when you have a specific reason — e.g. you must confirm the
+> App Template registered before spending the user's time on the workflow. It costs an
+> extra link and an extra sign-in, so it is not the default.
+
+## Part B — import: App Template + Skill from that one capture
+
 ```bash
 cd /workspace/noui
-python scripts/capture_import.py <login_session_id> --name "<app-name>" --activate-session
+python scripts/capture_import.py <session_id> --as skill --execution-mode harness \
+    --name "<app-name>"
 # same-origin apps: add --post-login-url-pattern '<glob the logged-in URL matches>'
 ```
 
-`--activate-session` brings the profile's **own** per-user session up and prints a sign-in
-link if it needs one. **Expect it to need one** — see *Three sessions, up to three sign-ins*
-below. Surface that link to the user in the same turn as the Part B recording link so they
-do both sign-ins in one sitting, instead of hitting `login_required` during B3 testing.
-Registration is **template-first**: this creates a tenant-wide **App Template**
-only — it does NOT create an App/ServiceProfile directly. Tabby auto-provisions a
-private, per-user App+Profile (straight to ACTIVE) on each member's first
-`call_web_api`, so there is no `--promote` step and the credential model defaults
-to `manual:` (the member logs in via VNC; nothing is stored). Note the **profile
-slug** it reports — you need it for Part B. The drained bundle is saved under
-`workbench/bundles/`.
+No `--combined` flag and no `--profile-slug`: `capture_record.py` recorded the mode in the
+provision ledger, so the import splits the capture, registers the login App Template, and
+compiles the workflow (session-auth) bound to that new profile in one step. It prints the
+**profile slug** — note it.
 
-## Part B — author the Skill (record the WORKFLOW)
+Registration is **template-first**: a tenant-wide **App Template** only, never a direct
+App/ServiceProfile. Tabby auto-provisions a private, per-user App+Profile (straight to
+ACTIVE) on each member's first `call_web_api`, so there is no `--promote` step and the
+credential model defaults to `manual:` (the member signs in via VNC; nothing is stored).
+The drained bundle is saved under `workbench/bundles/`.
 
-### B1. Provision the workflow recording, surface the link, STOP
-
-Pick the variant by how the profile got set up:
-
-```bash
-cd /workspace/noui
-# (a) Existing profile / App Template already set up (Part A skipped) — RECOMMENDED
-#     when the user says the profile is ready. Auth comes from the profile.
-python scripts/capture_record.py --mode workflow --profile <profile_id> --url "<START_URL>"
-
-# (b) You just recorded the login in this same flow (Part A above): seed from it.
-python scripts/capture_record.py --mode workflow --from <login_session_id> --url "<START_URL>"
-```
-`--profile <profile_id>` starts the recorder authenticated via that Tabby profile (skip
-login); `--from <login_session_id>` instead reuses cookies from a login you just captured.
-There is **no `--from-profile`** flag. Again surface the printed **`login_url`** (the short,
-recording-viewer link): *"Open this and drive the exact workflow you want as a tool (e.g.
-run the search / open the report), then click **Finish & export** and tell me when
-done."* **End your turn.**
-
-### B2. Import the workflow → harness Skill (after the user confirms)
-```bash
-cd /workspace/noui
-python scripts/capture_import.py <workflow_session_id> \
-    --as skill --execution-mode harness \
-    --profile-slug <profile-slug> --name "<skill-name>"
-```
-`<profile-slug>` is the slug from A2, or — if you skipped Part A — the existing profile
-id the user gave you (e.g. `adopt-bank`). The compiled skill lands under
-`workbench/skills/<app>/` as `call_web_api` cards + `operations.json` (no transport code).
-
-For a **static API-key app** (Part A skipped, no profile), drop `--profile-slug` and add
-`--auth-type api-key --api-key-header <header>` instead — the skill authenticates from a
-`${SECRET:...}` the admin registers, not a session. Leave `--auth-type` unset otherwise.
-
-> If the profile already has a HEALTHY session, you may instead drive the workflow
-> **agent-side** with `capture_autopilot.py <slug> --steps steps.json --as skill
-> --execution-mode harness` (no human VNC) — see the toolkit reference. For a brand-new
-> profile, the VNC workflow recording above is the reliable path.
-
-## Three sessions, up to three sign-ins (tell the user this up front)
-
-Authoring involves three **different** browser sessions, and only the first two are the
-ones the human drove:
-
-1. the **login recording** session (Part A),
-2. the **workflow recording** session (Part B — usually cookie-seeded from #1),
-3. the **profile's own session** — the one `call_web_api` resolves at runtime. Tabby
-   auto-provisions it per user from the App Template, on first use.
-
-Session #3 starts `LOGIN_NEEDED` because the template stores nothing
-(`credential_ref: manual:`). The recording's cookies are deliberately not reused for it:
-the template is tenant-wide, so seeding them would share the recorder's live session with
-every member of the org. That is why a user who *just signed in twice* still gets one more
-prompt — it is correct, not a bug.
-
-Handle it explicitly rather than letting it ambush the B3 test loop:
+### Then, as its own turn: the activation sign-in
 
 ```bash
 cd /workspace/noui
 python scripts/activate_session.py <profile-slug>
 ```
 
-It prints a sign-in link (show it to the user as a markdown link, same as a recording link)
-or confirms the session is already HEALTHY. Say plainly: *"this is your app's own session —
-sign in once here and every future call uses it; nothing is stored."*
+The profile's own runtime session is a **different** browser from the recording (see
+*Two sessions, two sign-ins* below), so it needs one sign-in before any live call. Run
+this, and **if it prints a link, that is the only link in this message** — surface it,
+explain it is the app's own session (*"sign in once here and every future call uses it;
+nothing is stored"*), and end your turn. If it reports the session already HEALTHY, say
+nothing about sign-ins and go straight to B3.
+
+Do **not** run this in the same message as the Part A recording link.
+
+## Workflow-only capture (existing profile, or the split flow)
+
+When the login half is already covered — the user has a profile, or you deliberately
+recorded the login separately — record just the workflow:
+
+```bash
+cd /workspace/noui
+# (a) Existing profile / App Template. Auth comes from the profile.
+python scripts/capture_record.py --url "<START_URL>" --profile <profile_id>
+
+# (b) You recorded the login separately in this same flow: seed cookies from it.
+python scripts/capture_record.py --mode workflow --url "<START_URL>" --from <login_session_id>
+```
+
+Either way the mode resolves to workflow-only. There is **no `--from-profile`** flag.
+Surface the printed `login_url` — *"open this and drive the exact workflow you want as a
+tool, then click Finish & export and tell me when done"* — and **end your turn**. Import
+with an explicit profile binding:
+
+```bash
+python scripts/capture_import.py <session_id> --as skill --execution-mode harness \
+    --profile-slug <profile-slug> --name "<skill-name>"
+```
+
+The compiled skill lands under `workbench/skills/<app>/` as `call_web_api` cards +
+`operations.json` (no transport code).
+
+For a **static API-key app** (no profile at all), drop `--profile-slug` and add
+`--auth-type api-key --api-key-header <header>` instead — the skill authenticates from a
+`${SECRET:...}` an admin registers, not a session.
+
+> If the profile already has a HEALTHY session, you may instead drive the workflow
+> **agent-side** with `capture_autopilot.py <slug> --steps steps.json --as skill
+> --execution-mode harness` (no human VNC) — see the toolkit reference. For a brand-new
+> profile, the VNC recording above is the reliable path.
+
+## Two sessions, two sign-ins (tell the user this up front)
+
+With the combined default there are exactly **two** browser sessions, so the user signs in
+twice — no more:
+
+1. the **recording** session (Part A) — login *and* workflow, one sitting, one link;
+2. the **profile's own session** — the one `call_web_api` resolves at runtime. Tabby
+   auto-provisions it per user from the App Template, on first use.
+
+Session #2 starts `LOGIN_NEEDED` because the template stores nothing
+(`credential_ref: manual:`). The recording's cookies are deliberately not reused for it:
+the template is tenant-wide, so seeding them would share the recorder's live session with
+every member of the org. So the second sign-in is correct, not a bug — and worth saying
+out loud when you hand over that link, because the user *just* signed in.
+
+Recording the halves separately adds a third session and a third sign-in. That is the
+reason it is not the default.
 
 ## Step B3 — generalize: prune the noise, then test until it works
 

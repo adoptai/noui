@@ -37,24 +37,24 @@ Delete pruned operations from the asset:
 When in doubt, keep it for now and let the test in step 3 decide — a call that
 returns nothing useful is noise.
 
-## Before you test: three sessions, up to three sign-ins
+## Before you test: the profile's session needs its own sign-in
 
-Testing hits a **different browser session** from the ones you just recorded. Three are
-involved:
+Testing hits a **different browser session** from the one you just recorded. With the
+default combined capture there are two:
 
-1. the **login recording** session (the human drove it),
-2. the **workflow recording** session (a second one, usually cookie-seeded from #1),
-3. the **profile's own session** — what `call_web_api` / `/execute/fetch` actually resolve.
+1. the **recording** session — login *and* workflow, driven by the human in one sitting;
+2. the **profile's own session** — what `call_web_api` / `/execute/fetch` actually resolve.
    Tabby auto-provisions it per user from the App Template, on first use.
 
-Session #3 starts `LOGIN_NEEDED`: the template registers `credential_ref: manual:`, so
+Session #2 starts `LOGIN_NEEDED`: the template registers `credential_ref: manual:`, so
 nothing is stored. Recording cookies are deliberately **not** reused for it — the template
 is tenant-wide, so seeding them would hand the recorder's live session to every member of
 the org. Per-user auth with nothing stored costs one sign-in.
 
 So expect **one activation sign-in** before the first live call, even though the human just
 signed in during capture. Get it out of the way before step 3 rather than discovering it as
-a `login_required` mid-test:
+a `login_required` mid-test — and surface that link on its own, never alongside a recording
+link:
 
 ```bash
 python scripts/activate_session.py <profile-slug>

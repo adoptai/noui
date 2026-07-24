@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 """Provision a Tabby VNC recording session and print the viewer URL.
 
-    python scripts/capture_record.py --mode workflow --url https://example.com
+    # DEFAULT: one session for the login AND the workflow — ONE link, one sign-in
+    python scripts/capture_record.py --url https://example.com/login --name example
+
+    # Auth already exists (App Template / profile set up) → workflow only
+    python scripts/capture_record.py --url https://example.com/app --profile example
+
+    # Explicit halves, when you really want them separate (two links, two sign-ins)
     python scripts/capture_record.py --mode login --url https://example.com/login --name example
     python scripts/capture_record.py --mode workflow --from <login-session-id>
 
 Open the printed VNC URL, drive the browser, click "Finish & export", then:
     python scripts/capture_import.py <session_id>
 
---mode login with --name set checks Tabby for an existing App Template with a
-similar name and the same URL first; if one is found, the capture is skipped
-and a command to reuse it for the workflow is printed instead (--force to
-bypass).
+Give the human ONE link at a time. Recording the login and the workflow
+separately means two links and two sign-ins, and surfacing both at once is
+confusing — hence the combined default.
+
+With --name and --url set, the login-capturing modes check Tabby for an existing
+App Template with a similar name and the same URL first; if one is found, the
+capture is skipped and a command to reuse that profile is printed instead
+(--force to bypass).
 """
 
 from __future__ import annotations
@@ -30,11 +40,13 @@ def main() -> int:
     p.add_argument(
         "--mode",
         choices=["login", "workflow", "combined"],
-        default="workflow",
-        help="login: record a login only. workflow: record a workflow only (seed auth "
-        "via --profile/--from). combined: ONE session capturing both — sign in, then "
-        "drive the workflow, and import with `capture_import.py --combined` (NoUI splits "
-        "it into a login App Template + a workflow asset; Tabby records it as 'login').",
+        default="",
+        help="DEFAULT: combined — ONE session capturing the login AND the workflow, so "
+        "the human gets a single link and signs in once. (With --profile/--from the auth "
+        "already exists, so the default becomes workflow.) combined: sign in, then drive "
+        "the workflow, and import with `capture_import.py` (NoUI splits it into a login "
+        "App Template + a workflow asset). login: record a login only. workflow: record "
+        "a workflow only, seeding auth via --profile/--from.",
     )
     p.add_argument("--url", default="", help="login/start URL to open")
     p.add_argument(
@@ -90,6 +102,21 @@ def main() -> int:
     )
     args = p.parse_args()
 
+    # Default to ONE session for the login AND the workflow. Recording them
+    # separately means two viewer links and two sign-ins for the human, and an
+    # agent juggling two links in one conversation tends to surface both at once —
+    # which is the confusing outcome this default exists to prevent. When
+    # --profile/--from is given the auth already exists, so there is no login to
+    # record and 'workflow' is the only sensible default.
+    if not args.mode:
+        args.mode = "workflow" if (args.profile or args.from_session) else "combined"
+        why = (
+            "auth comes from --profile/--from"
+            if args.mode == "workflow"
+            else "one session, one link"
+        )
+        print(f"(--mode not given → '{args.mode}': {why})", file=sys.stderr)
+
     # Static API-key app: there is no session to record. Skip the login capture
     # entirely and tell the operator to record just the workflow, then declare
     # the auth model at compile time. The key value goes into the harness secret
@@ -112,7 +139,10 @@ def main() -> int:
         )
         return 0
 
-    if args.mode == "login" and args.name and args.url and not args.force:
+    # Both login-capturing modes benefit from this: if a template already covers
+    # this app, the login half is wasted work (and a duplicate template) — the
+    # workflow can be recorded against the existing profile instead.
+    if args.mode in ("login", "combined") and args.name and args.url and not args.force:
         try:
             token = recording.resolve_agent_token()
             matches = find_similar_templates(args.name, args.url, token)
@@ -134,8 +164,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             print(
-                f"  python scripts/capture_record.py --mode workflow --url <workflow-url> "
-                f"--profile {slug}",
+                f"  python scripts/capture_record.py --url <workflow-url> --profile {slug}",
                 file=sys.stderr,
             )
             print("(pass --force to record the login anyway)", file=sys.stderr)
@@ -209,12 +238,17 @@ def main() -> int:
     print(f"  session_id : {session_id}")
     print(f"  login_url  : {login_url}    <-- open THIS (recording viewer, redaction-safe)")
     print()
+    print("This is the ONLY link to give the human right now. Do not surface another")
+    print("link until they confirm this recording is finished.")
+    print()
     if args.mode == "combined":
         print(
             "Open the login_url, SIGN IN, then keep going and DRIVE THE WORKFLOW you want "
             "as a tool (run the search / open the report), click 'Finish & export', then:"
         )
-        print(f"  python scripts/capture_import.py {session_id} --combined --as skill --name <app>")
+        # No --combined flag needed: the provision ledger already recorded this
+        # session as combined, so capture_import routes it without being told.
+        print(f"  python scripts/capture_import.py {session_id} --as skill --name <app>")
     else:
         print("Open the login_url, sign in, drive the flow, click 'Finish & export', then run:")
         print(f"  python scripts/capture_import.py {session_id}")
