@@ -127,19 +127,17 @@ ACTIVE) on each member's first `call_web_api`, so there is no `--promote` step a
 credential model defaults to `manual:` (the member signs in via VNC; nothing is stored).
 The drained bundle is saved under `workbench/bundles/`.
 
-### Then, as its own turn: the activation sign-in
+### Do NOT try to pre-activate the session — just go to B3
 
-```bash
-cd /workspace/noui
-python scripts/activate_session.py <profile-slug>
-```
+The profile's own runtime session is a different browser from the recording, so it needs one
+sign-in before any live call (see *Two sessions, two sign-ins* below). **Let the first
+`call_web_api` in B3 trigger it.** That call returns `login_required` and the harness renders
+its own **Connect** card for the user — no link for you to surface, no script to run, nothing
+to poll.
 
-The profile's own runtime session is a **different** browser from the recording (see
-*Two sessions, two sign-ins* below), so it needs one sign-in before any live call. Run
-this, and **if it prints a link, that is the only link in this message** — surface it,
-explain it is the app's own session (*"sign in once here and every future call uses it;
-nothing is stored"*), and end your turn. If it reports the session already HEALTHY, say
-nothing about sign-ins and go straight to B3.
+Do not try to get ahead of it. A freshly-provisioned session sits in `STARTING` for minutes,
+so probing it just burns turns and produces no link, and any link you did surface would
+compete with the harness's own card. Go straight to B3 and let the `login_required` happen.
 
 Do **not** run this in the same message as the Part A recording link.
 
@@ -191,8 +189,13 @@ twice — no more:
 Session #2 starts `LOGIN_NEEDED` because the template stores nothing
 (`credential_ref: manual:`). The recording's cookies are deliberately not reused for it:
 the template is tenant-wide, so seeding them would share the recorder's live session with
-every member of the org. So the second sign-in is correct, not a bug — and worth saying
-out loud when you hand over that link, because the user *just* signed in.
+every member of the org. So the second sign-in is correct, not a bug.
+
+**You do nothing to arrange it.** The first `call_web_api` returns `login_required` and the
+harness shows the user a **Connect** card. Your job is only to *expect* it, and to tell the
+user up front that it's coming — *"you'll be asked to sign in once more when I first call the
+API; that's the app's own session and nothing is stored"* — so it doesn't read as a bug after
+they just signed in during the recording.
 
 Recording the halves separately adds a third session and a third sign-in. That is the
 reason it is not the default.
@@ -212,10 +215,9 @@ is an LLM-driven step you do — no script):
    tool with its recipe from `operations.json` (pass any `${SECRET:...}` verbatim). Run
    each **2–3 times** and confirm it returns the expected data — not just a non-error.
    You can do this now: `call_web_api` is a catalog tool, not part of the skill.
-3. **Fix or drop.** `login_required` / empty creds / 401 → the profile's own session needs
-   its activation sign-in: run `python scripts/activate_session.py <profile-slug>`, surface
-   the link it prints **on its own** and end your turn; 429 → retry; wrong/empty body →
-   recompile from the saved bundle
+3. **Fix or drop.** `login_required` / empty creds / 401 → expected on the *first* call: the
+   harness shows the user a Connect card; wait for them to sign in, then re-run the call.
+   429 → retry; wrong/empty body → recompile from the saved bundle
    (`compile_workflow.py <bundle.json> --as skill --execution-mode harness`). If an op
    can't be made to work and isn't essential, drop it.
 4. **Make it reusable.** Rename cryptic tool/param names to natural language and
@@ -273,10 +275,10 @@ ever picks wrong, pass `--mode {login,workflow,combined}` explicitly.
 ## Troubleshooting
 
 - **`login_required` on the first live `call_web_api`** — expected, not a failure: the
-  profile's own session needs its one activation sign-in (see *Two sessions, two sign-ins*
-  above). Run `python scripts/activate_session.py <profile-slug>` and surface the link — on
-  its own, not next to another link. Only if that reports the session already HEALTHY is
-  something actually wrong.
+  profile's own session needs its one sign-in (see *Two sessions, two sign-ins* above). The
+  harness renders a **Connect** card for the user; there is nothing for you to run or
+  surface. Tell them what it is, wait for them to complete it, then re-run the call. It
+  only indicates a real problem if it keeps happening *after* they've signed in.
 - **`login_required` / session not healthy on import** — the login wasn't completed; have
   the user redo the VNC sign-in and click *Finish & export*.
 - **The compiled asset is the wrong kind** (a workflow recording registered as an App

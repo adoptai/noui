@@ -14,16 +14,12 @@ When a federated member (platform JWT, `owner_user_id` set) first requests that 
 
 CLI: `scripts/activate_register.py compiled-login.json` (or, for a login capture, `capture_import.py <id> --name <app>` registers the template in one step).
 
-## Activate the per-user session (one sign-in)
+## The per-user session's one sign-in (nothing to run)
 The auto-provisioned App+Profile lands in ACTIVE, but its **session** starts `LOGIN_NEEDED`: the template's `credential_ref` is `manual:`, so nothing is stored. The recording's cookies are deliberately **not** seeded into it — the template is tenant-wide, so that would share the recorder's live session with every member of the org. Each member therefore signs in **once**, in their own session, before their first live call.
 
-```bash
-python scripts/activate_session.py <profile-slug>
-```
+**This is driven by the runtime, not by a NoUI command.** The first `call_web_api` / `/execute/fetch` returns `login_required`, and the caller escalates: the Agent Harness renders a Connect card; a local caller reads `hitl_active` + `vnc_stream.url` from `GET /agent/session-status/<slug>` (`tabby_client.get_session_status`) and hands that URL to the human.
 
-`noui_core.activate.session.ensure_session` provokes the provisioning (`POST /credentials/request`), polls `GET /agent/session-status/{slug}`, and prints a redaction-safe short link when a sign-in is pending — or reports the session already HEALTHY. `capture_import.py --activate-session` does the same right after registering. **Surface that link on its own**, never alongside a recording link: two links in one message is the fastest way to confuse the person who has to open them.
-
-`needs_login` is `True` / `False` / `None` — `None` means still provisioning or terminal, never a false green.
+Do **not** try to pre-activate it. A just-provisioned session sits in `STARTING` for minutes, so polling for a link before the first call waits for nothing and produces nothing — and any link surfaced that way competes with the escalation the runtime is about to show. Expect the sign-in, mention it, and let the first call trigger it.
 
 ## Verify auth before use
 `scripts/activate_verify.py <server_dir>` → `noui_core.activate.verify.verify_before_install`. Deterministic-first repairs; statuses: `PASS`, `REPAIR_APPLIED`, `NEEDS_SECRET`, `UNSUPPORTED`. No `auth_plan.json` ⇒ `PASS` (unauthenticated server).
