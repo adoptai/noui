@@ -16,6 +16,7 @@ import urllib.parse
 
 from noui_core import tabby_client
 from noui_core.capture.bundle import count_sensitive_unredacted, validate_bundle
+from noui_core.capture.classify import classify_bundle
 from noui_core.config import settings
 
 _MISSING_CREDS = (
@@ -216,15 +217,21 @@ def provision_live_link(
 def fetch_bundle(session_id: str) -> tuple[str, dict]:
     """Drain and validate a recording bundle from Tabby.
 
-    Returns (session_type, bundle) where session_type is "login" or "workflow".
+    Returns ``(classification, bundle)`` where classification is "login",
+    "workflow" or "combined", derived from the capture's **content** by
+    ``noui_core.capture.classify`` — never from ``bundle["recording_mode"]``,
+    which Tabby stamps unreliably (warm-pool sessions always report "login").
+    The classification is advisory: callers should prefer an explicit ``--mode``
+    or the provision ledger when either is available.
+
     Raises ValueError on an invalid bundle, RuntimeError on unredacted secrets.
     """
     token = resolve_agent_token()
     bundle = tabby_client.get_recording_bundle(session_id, token)
-    session_type = validate_bundle(bundle)  # raises ValueError on bad shape
+    validate_bundle(bundle)  # raises ValueError on bad shape
     leaks = count_sensitive_unredacted(bundle)
     if leaks:
         raise RuntimeError(
             f"Refusing to import: {leaks} password/OTP value(s) were not redacted in the bundle."
         )
-    return session_type, bundle
+    return classify_bundle(bundle), bundle

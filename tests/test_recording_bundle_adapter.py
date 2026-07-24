@@ -66,12 +66,13 @@ def _bundle(**overrides):
 
 
 class TestValidate:
-    def test_returns_mode(self):
-        assert validate_bundle(_bundle()) == "login"
+    def test_validates_shape_only(self):
+        """No longer a classifier — see noui_core.capture.classify for why."""
+        assert validate_bundle(_bundle()) is None
 
-    def test_rejects_bad_mode(self):
-        with pytest.raises(ValueError):
-            validate_bundle(_bundle(recording_mode="nope"))
+    def test_ignores_the_recording_mode_stamp(self):
+        """Tabby's stamp is unreliable, so it can't be a validation failure either."""
+        validate_bundle(_bundle(recording_mode="nope"))
 
     def test_rejects_missing_har(self):
         with pytest.raises(ValueError):
