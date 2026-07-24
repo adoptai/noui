@@ -2,10 +2,15 @@
 
 A single Tabby recording session can capture BOTH the login and the subsequent
 authenticated workflow (see
-`plans/noui/noui-single-session-login-workflow-capture-investigation.md`). Tabby
-stamps such a session `recording_mode='login'` — the mode is behaviorally inert,
-so NoUI always provisions combined sessions as 'login' and does the login/workflow
-differentiation here, on the NoUI side, with zero Tabby changes.
+`plans/noui/noui-single-session-login-workflow-capture-investigation.md`), and
+that is now the default (`capture_record.py` with no `--mode`): one viewer link,
+one sign-in. Tabby stamps such a session `recording_mode='login'`, which is
+inert server-side, so NoUI provisions combined sessions as 'login' and does the
+login/workflow differentiation here, with zero Tabby changes.
+
+NoUI never *reads* that stamp to decide what a bundle is — it cannot be trusted
+at all (a warm-pool session reports 'login' whatever was provisioned). See
+`noui_core.capture.classify` for how the decision is actually made.
 
 The boundary is the moment the login completes: the first *stable* navigation
 after the last credential-field interaction. Everything up to and including that

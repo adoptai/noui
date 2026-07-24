@@ -254,7 +254,8 @@ All commands run from `skills/noui/`.
 ### Unauthenticated apps
 
 ```bash
-# 1. Record a workflow in a Tabby VNC session
+# 1. Record a workflow in a Tabby VNC session. --mode workflow is EXPLICIT here: with no
+#    login to capture, the combined default would ask you to sign in to nothing.
 python scripts/capture_record.py --mode workflow --url "https://example.com"
 #    open the printed VNC URL, perform the workflow, click "Finish & export"
 
@@ -262,31 +263,38 @@ python scripts/capture_record.py --mode workflow --url "https://example.com"
 python scripts/capture_import.py <session_id> --as mcp
 ```
 
-### Authenticated apps (with Tabby)
+### Authenticated apps (with Tabby) — the default flow
+
+One recording session captures the login **and** the workflow, so the human gets a
+single link and signs in once. NoUI splits the capture at the login boundary.
 
 ```bash
-# 1. Record a login and register it with Tabby (no stored credentials — VNC takeover)
-python scripts/capture_record.py --mode login --url "https://app.example.com/"
-python scripts/capture_import.py <session_id> --name example \
-  --credential-mode takeover \
+# 1. Record: sign in AND drive the workflow in ONE VNC session, one "Finish & export".
+#    No --mode needed (it defaults to combined); --name also skips the capture entirely
+#    if an App Template already covers this app.
+python scripts/capture_record.py --url "https://app.example.com/login" --name example
+
+# 2. Drain + compile: registers a tenant-wide login App Template (per-user profiles
+#    auto-provision → ACTIVE, no stored credentials) AND compiles the workflow bound
+#    to it. No --combined flag: the provision ledger already recorded the mode.
+python scripts/capture_import.py <session_id> --as skill --name example \
   --post-login-url-pattern "<glob the logged-in URL matches but login does not>"
-# → registers a tenant-wide App Template (per-user profiles auto-provision → ACTIVE)
 
-# 2. Record the workflow, authenticated — Autopilot (agent drives) …
-python scripts/capture_autopilot.py <profile_slug> --steps steps.json --as both
-#    … or VNC, seeded from the login: capture_record.py --mode workflow --from <login-session-id>
+# 3. Activate the profile's own runtime session (one sign-in, its own step)
+python scripts/activate_session.py <profile-slug>
 
-# 3. Install the generated Skill into your agent
+# 4. Install the generated Skill into your agent
 python scripts/activate_install.py workbench/skills/<app> claude-code
 ```
 
-### Combined capture — login + workflow in one session
+### Workflow only — the app already has a profile
 
 ```bash
-# Sign in AND drive the workflow in a single VNC session; NoUI splits the one
-# capture into a registered login App Template + a workflow asset.
-python scripts/capture_record.py --mode combined --url "https://app.example.com/login"
-python scripts/capture_import.py <session_id> --combined --as skill --name <app>
+# --profile/--from means the auth exists, so the mode defaults to workflow-only.
+python scripts/capture_record.py --url "https://app.example.com/app" --profile example
+python scripts/capture_import.py <session_id> --as both --profile-slug example
+# … or let the agent drive it headlessly instead of a human:
+python scripts/capture_autopilot.py <profile_slug> --steps steps.json --as both
 ```
 
 ### Static API-key apps (no login to record)
@@ -330,8 +338,12 @@ The bundle replaces the old CLI with thin, purpose-built scripts (run from
 `skills/noui/`):
 
 ```
-scripts/capture_record.py    --mode login|workflow|combined --url <url> [--from <login-session>]
+scripts/capture_record.py    --url <url> [--mode login|workflow|combined] [--from <login-session>]
                              [--profile <slug>] [--auth-type {session|api-key}] [--api-key-header <h>]
+                             # --mode defaults to `combined` (one link, one sign-in), or
+                             # `workflow` when --profile/--from supplies the auth
+scripts/bundle_inspect.py    <bundle.json> | --session <session_id> [--json]
+scripts/activate_session.py  <profile-slug> [--wait-seconds N]
 scripts/capture_autopilot.py <profile> --steps steps.json --as {mcp|skill|both}
 scripts/capture_import.py    <session_id> [--name <app>] [--as {mcp|skill|both}] [--execution-mode {tabby|http|harness}]
                              [--combined] [--auth-type {session|api-key|auto}] [--api-key-header <h>]

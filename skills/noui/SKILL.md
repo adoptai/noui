@@ -70,44 +70,48 @@ Run scripts from this directory: `python scripts/<name>.py …`.
 > the recorded browser through a US residential IP). See
 > `references/pillar-1-capture.md` → *Residential proxy egress*.
 
-**Record a workflow → MCP + Skill (authenticated):**
+**The default — login + workflow in ONE session (one link, one sign-in):**
 
 ```bash
-python scripts/capture_record.py --mode workflow --url https://example.com --from <login-session-id>
-# open the printed VNC URL, drive the flow, click "Finish & export", then:
-python scripts/capture_import.py <session_id> --as both --profile-slug <login-profile>
+# No --mode: with no --profile/--from this defaults to `combined`.
+# --name also checks for an existing App Template first (same name + URL) and tells
+# you to reuse that profile instead of recording the login again (--force to bypass).
+python scripts/capture_record.py --url https://example.com/login --name example
+# Sign in AND then drive the workflow in the same session; one "Finish & export".
+# NoUI splits the capture at the login boundary → registers the login App Template
+# AND compiles the workflow (auth_type=session) bound to that new profile:
+python scripts/capture_import.py <session_id> --as skill --name example
 # GENERALIZE (agent step): prune noise ops, then test each 2-3x until it fetches
 # what's expected — see references/generalize.md. THEN:
-python scripts/activate_verify.py workbench/mcp_servers/<app>/<server_id>
 python scripts/activate_install.py workbench/skills/<app> claude-code
 ```
 
-**Record a login → registered Tabby profile:**
+**Workflow only — the app already has a profile / App Template:**
+
+```bash
+# --profile makes the recorder start authenticated, so the mode defaults to workflow.
+python scripts/capture_record.py --url https://example.com/app --profile example
+python scripts/capture_import.py <session_id> --as both --profile-slug example
+python scripts/activate_verify.py workbench/mcp_servers/<app>/<server_id>
+```
+
+**The halves, recorded separately** (costs an extra link and an extra sign-in — use only
+when you need the login registered before recording the workflow):
 
 ```bash
 python scripts/capture_record.py --mode login --url https://example.com/login --name example
-# ^ --name triggers a check for an existing App Template with a similar name + same URL;
-#   if one matches, the capture is skipped and a reuse command is printed instead (--force to bypass)
-# drive the login in VNC, finish, then:
-python scripts/capture_import.py <session_id> --name example      # registers a tenant-wide App Template
-```
-
-**Combined — login + workflow in ONE session:**
-
-```bash
-# Provisions a normal login session (Tabby records it as 'login'); sign in AND
-# then drive the workflow in the same session, one "Finish & export".
-python scripts/capture_record.py --mode combined --url https://example.com/login
-# NoUI splits the one capture at the login boundary → registers the login App
-# Template AND compiles the workflow (auth_type=session) bound to that profile:
-python scripts/capture_import.py <session_id> --combined --as skill --name example
+python scripts/capture_import.py <session_id> --name example    # registers the App Template
+python scripts/capture_record.py --mode workflow --url https://example.com/app --from <login-session-id>
+python scripts/capture_import.py <session_id> --as both --profile-slug example
 ```
 
 **Static API-key app (no login to record):**
 
 ```bash
 # The app authenticates with a static key sent on every request — there is no
-# session to record. Record ONLY the workflow, then declare the auth model:
+# session to record. Record ONLY the workflow (--mode workflow must be explicit:
+# with no login to capture, the combined default would ask for a sign-in that
+# doesn't exist), then declare the auth model:
 python scripts/capture_record.py --mode workflow --url https://example.com
 python scripts/capture_import.py <session_id> --as skill --execution-mode harness \
     --auth-type api-key --api-key-header Authorization
@@ -153,7 +157,7 @@ Full playbook: `references/generalize.md`.
 
 | Script | Pillar | Purpose |
 |---|---|---|
-| `capture_record.py` | 1 | Provision a VNC recording session; prints the viewer URL |
+| `capture_record.py` | 1 | Provision a VNC recording session; prints one viewer URL (default: login + workflow in one session) |
 | `capture_autopilot.py` | 1→2 | Drive a profile's session via `/execute/browser` (scripted steps); synthesize a bundle + compile |
 | `capture_import.py` | 1→2→3 | Drain the bundle; compile (workflow) or compile+register (login) |
 | `bundle_inspect.py` | 1 | Summarise a saved bundle: mode block, URL timeline, endpoint/tool table |
@@ -197,10 +201,10 @@ Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the ra
 
 ## Reference docs
 
-- `references/pillar-1-capture.md` — VNC vs Autopilot, bundle shape, session reuse (`--from`)
+- `references/pillar-1-capture.md` — VNC vs Autopilot, the combined default, how the login/workflow mode is decided, bundle shape, session reuse (`--from`)
 - `references/pillar-2-compile.md` — HAR→tools, execution modes (`tabby`/`http`/`harness`), login drafts
 - `references/generalize.md` — post-compile agent pass: prune noise ops + test until they work
-- `references/pillar-3-activate.md` — register (template-first), verify, install, `/execute` runtime
+- `references/pillar-3-activate.md` — register (template-first), the per-user activation sign-in, verify, install, `/execute` runtime
 - `references/tabby-setup.md` — pointing NoUI at a local or cloud Tabby
 - `references/auth-modes.md` — `agent_token` vs `platform_jwt`
 
