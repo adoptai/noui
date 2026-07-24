@@ -149,6 +149,111 @@ def _url_domain(url: str) -> str:
         return url
 
 
+# First path segments that belong to a login/auth flow rather than to the app
+# behind it. Used to reject a "post-login" pattern that is really another login
+# page. Over-rejecting is cheap (the human confirms with "Mark as Resolved");
+# under-rejecting hangs the session forever, so the list leans inclusive.
+# Deliberately absent: post-login landing routes that only *look* auth-adjacent,
+# e.g. Airbnb's `/` and Expedia's `/onboarding`.
+_LOGIN_FLOW_SEGMENTS = frozenset(
+    {
+        "login",
+        "log-in",
+        "log_in",
+        "logon",
+        "signin",
+        "sign-in",
+        "sign_in",
+        "signup",
+        "sign-up",
+        "register",
+        "auth",
+        "authn",
+        "authenticate",
+        "authentication",
+        "authorize",
+        "oauth",
+        "oauth2",
+        "openid",
+        "sso",
+        "saml",
+        "idp",
+        "password",
+        "enterpassword",
+        "resetpassword",
+        "forgot",
+        "verify",
+        "verifyotp",
+        "verification",
+        "otp",
+        "mfa",
+        "2fa",
+        "twofactor",
+        "two-factor",
+        "challenge",
+    }
+)
+
+
+def _first_path_segment(url: str) -> str:
+    raw = url if url.startswith(("http://", "https://")) else f"http://{url}"
+    path = urlparse(raw).path.strip("/")
+    return path.split("/")[0].lower() if path else ""
+
+
+def _derive_post_login_pattern(login_url: str, landing_url: str) -> str:
+    """A glob the LOGGED-IN url matches but the login page does not, or ``""``.
+
+    Returning ``""`` means "no trustworthy pattern": the caller then emits no
+    ``wait_for_url``, and login completes when the human clicks *Mark as
+    Resolved*. That degradation is cheap. A **wrong** pattern is not — a
+    ``wait_for_url`` that can never match leaves the session waiting until it
+    times out, and a session that never reports LOGIN_NEEDED never gets a
+    sign-in prompt either.
+
+    Seen live on dev: an Airbnb profile compiled
+    ``https://www.airbnb.com/login/**`` as its *logged-in* check. It matches
+    ``/login/otp`` but not ``/``, ``/hosting/listings`` or ``/s/homes``, so no
+    real sign-in could ever satisfy it. The cause is upstream — the capture's
+    login slice ended before the post-login navigation, so the "landing" URL was
+    still inside the login flow — but the compiler must not turn that into an
+    unsatisfiable step.
+
+    Three rejections, in order of how directly they'd break:
+      1. the candidate also matches the login page → it would auto-resolve
+         instantly, before the human has logged in;
+      2. the landing path is itself a login-flow route (see
+         ``_LOGIN_FLOW_SEGMENTS``) → it can never match once logged in;
+      3. the landing path shares its top-level route with the login page → not a
+         distinguishing signal, and covers custom auth routes the list misses.
+
+    Shape note: the glob is ``/<segment>**``, NOT ``/<segment>/**``. Both
+    matchers that consume it — Playwright's anchored ``page.waitForURL`` glob and
+    Tabby's own unanchored ``urlGlobToRegex`` (worker ``login-dsl-runner.ts``,
+    which turns ``**`` into ``.*``) — require the literal ``/`` when the pattern
+    carries one, so ``/dashboard/**`` matches ``/dashboard/x`` but NOT the bare
+    ``/dashboard`` or ``/dashboard?tab=1``. Landing exactly on the route is the
+    common case, so the slash-less form is the one that actually fires.
+    """
+    raw = (
+        landing_url if landing_url.startswith(("http://", "https://")) else f"http://{landing_url}"
+    )
+    parsed = urlparse(raw)
+    seg = _first_path_segment(landing_url)
+    candidate = (
+        f"{parsed.scheme}://{parsed.netloc}/{seg}**"
+        if seg
+        else f"{parsed.scheme}://{parsed.netloc}/**"
+    )
+    if fnmatch(login_url, candidate):
+        return ""
+    if seg and seg in _LOGIN_FLOW_SEGMENTS:
+        return ""
+    if seg and seg == _first_path_segment(login_url):
+        return ""
+    return candidate
+
+
 def _is_redirect_hop(prev_url: str, next_url: str) -> bool:
     """True if next_url looks like a transient redirect (same domain, /callback, /sso, /auth)."""
     try:
@@ -812,14 +917,7 @@ def generate(
         # falsely auto-resolve). Same-origin root-path apps need an explicit pattern.
         pattern = post_login_url_pattern
         if not pattern and stable_urls:
-            _raw = stable_urls[-1]
-            if not _raw.startswith(("http://", "https://")):
-                _raw = "http://" + _raw
-            p = urlparse(_raw)
-            seg = p.path.strip("/").split("/")[0] if p.path.strip("/") else ""
-            cand = f"{p.scheme}://{p.netloc}/{seg}/**" if seg else f"{p.scheme}://{p.netloc}/**"
-            if not fnmatch(first_url, cand):  # skip if it also matches the login page
-                pattern = cand
+            pattern = _derive_post_login_pattern(first_url, stable_urls[-1])
         if pattern:
             takeover_steps.append(
                 {
@@ -844,10 +942,12 @@ def generate(
                     "type": "no_autoresolve_pattern",
                     "severity": "info",
                     "message": (
-                        "Post-login URL shares the login origin/path, so no auto-resolve "
-                        "wait_for_url was added — the user clicks 'Mark as Resolved' to "
-                        "continue. Pass post_login_url_pattern (a glob the logged-in URL "
-                        "matches but the login page does not) to enable auto-resolve."
+                        "No trustworthy post-login URL pattern (the recorded landing URL "
+                        "is still a login-flow page, or shares the login page's route), so "
+                        "no auto-resolve wait_for_url was added — the user clicks 'Mark as "
+                        "Resolved' to continue, which always works. Pass "
+                        "post_login_url_pattern (a glob the logged-in URL matches but the "
+                        "login page does not) to enable auto-resolve."
                     ),
                 }
             )
