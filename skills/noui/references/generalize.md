@@ -37,6 +37,34 @@ Delete pruned operations from the asset:
 When in doubt, keep it for now and let the test in step 3 decide — a call that
 returns nothing useful is noise.
 
+## Before you test: three sessions, up to three sign-ins
+
+Testing hits a **different browser session** from the ones you just recorded. Three are
+involved:
+
+1. the **login recording** session (the human drove it),
+2. the **workflow recording** session (a second one, usually cookie-seeded from #1),
+3. the **profile's own session** — what `call_web_api` / `/execute/fetch` actually resolve.
+   Tabby auto-provisions it per user from the App Template, on first use.
+
+Session #3 starts `LOGIN_NEEDED`: the template registers `credential_ref: manual:`, so
+nothing is stored. Recording cookies are deliberately **not** reused for it — the template
+is tenant-wide, so seeding them would hand the recorder's live session to every member of
+the org. Per-user auth with nothing stored costs one sign-in.
+
+So expect **one activation sign-in** before the first live call, even though the human just
+signed in during capture. Get it out of the way before step 3 rather than discovering it as
+a `login_required` mid-test:
+
+```bash
+python scripts/activate_session.py <profile-slug>
+# or, at import time:
+python scripts/capture_import.py <session_id> --name <app> --activate-session
+```
+
+Either prints a sign-in link when one is needed, or confirms the session is already
+HEALTHY.
+
 ## 3. Test the survivors — a couple of times each
 **Actually run every remaining operation against the live site** and confirm it
 returns what the workflow needs (right status, non-empty, the expected fields) —
@@ -47,7 +75,10 @@ one-off or intermittently blocked.
 - **tabby/http**: `python operations/<tool>.py <args>` (needs a HEALTHY Tabby session for the profile). Run `python scripts/activate_verify.py <server_dir>` first for a deterministic auth dry-run.
 
 ## 4. Fix or drop failures
-- **Empty credentials / 401 / profile 404** → the profile/session isn't healthy or the slug is wrong; bring the session up (see `pillar-1-capture.md`) and re-test.
+- **`login_required` / empty credentials / 401 / profile 404** → the profile's own session
+  needs its one activation sign-in (see the section above) or the slug is wrong. Run
+  `python scripts/activate_session.py <profile-slug>`, have the human open the link it
+  prints, then re-test.
 - **429 / bot detection** → prefer browser-side execution (`--execution-mode tabby`, `/execute/fetch`) over `http`; retry.
 - **Wrong or empty payload** → the first compile may have dropped/duplicated a request body (e.g. a GraphQL query lost to `/graphql` dedup). Recover it from the saved bundle and recompile (`compile_workflow.py <bundle.json>`), then re-test.
 - **Can't be made to work and isn't essential** → drop it (step 2).
@@ -68,6 +99,7 @@ remaining operation passes 2–3 consecutive clean runs** and returns the expect
 data. Only then install/deliver the skill (Pillar 3).
 
 ## Definition of done
+- The profile's own session is HEALTHY (its activation sign-in is done).
 - No operation to a non-app / tracking / telemetry host remains.
 - Every remaining operation has been run against the live site and fetched the expected data, repeatably.
 - Tool and parameter names are natural-language; task inputs are parameters, not baked-in values.

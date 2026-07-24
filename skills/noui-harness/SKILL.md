@@ -94,9 +94,14 @@ confirms.
 ### A2. Import the login → App Template (after the user confirms)
 ```bash
 cd /workspace/noui
-python scripts/capture_import.py <login_session_id> --name "<app-name>"
+python scripts/capture_import.py <login_session_id> --name "<app-name>" --activate-session
 # same-origin apps: add --post-login-url-pattern '<glob the logged-in URL matches>'
 ```
+
+`--activate-session` brings the profile's **own** per-user session up and prints a sign-in
+link if it needs one. **Expect it to need one** — see *Three sessions, up to three sign-ins*
+below. Surface that link to the user in the same turn as the Part B recording link so they
+do both sign-ins in one sitting, instead of hitting `login_required` during B3 testing.
 Registration is **template-first**: this creates a tenant-wide **App Template**
 only — it does NOT create an App/ServiceProfile directly. Tabby auto-provisions a
 private, per-user App+Profile (straight to ACTIVE) on each member's first
@@ -147,6 +152,33 @@ For a **static API-key app** (Part A skipped, no profile), drop `--profile-slug`
 > --execution-mode harness` (no human VNC) — see the toolkit reference. For a brand-new
 > profile, the VNC workflow recording above is the reliable path.
 
+## Three sessions, up to three sign-ins (tell the user this up front)
+
+Authoring involves three **different** browser sessions, and only the first two are the
+ones the human drove:
+
+1. the **login recording** session (Part A),
+2. the **workflow recording** session (Part B — usually cookie-seeded from #1),
+3. the **profile's own session** — the one `call_web_api` resolves at runtime. Tabby
+   auto-provisions it per user from the App Template, on first use.
+
+Session #3 starts `LOGIN_NEEDED` because the template stores nothing
+(`credential_ref: manual:`). The recording's cookies are deliberately not reused for it:
+the template is tenant-wide, so seeding them would share the recorder's live session with
+every member of the org. That is why a user who *just signed in twice* still gets one more
+prompt — it is correct, not a bug.
+
+Handle it explicitly rather than letting it ambush the B3 test loop:
+
+```bash
+cd /workspace/noui
+python scripts/activate_session.py <profile-slug>
+```
+
+It prints a sign-in link (show it to the user as a markdown link, same as a recording link)
+or confirms the session is already HEALTHY. Say plainly: *"this is your app's own session —
+sign in once here and every future call uses it; nothing is stored."*
+
 ## Step B3 — generalize: prune the noise, then test until it works
 
 The B2 compile is a **raw** mirror of the recording — it includes calls that aren't
@@ -162,8 +194,9 @@ is an LLM-driven step you do — no script):
    tool with its recipe from `operations.json` (pass any `${SECRET:...}` verbatim). Run
    each **2–3 times** and confirm it returns the expected data — not just a non-error.
    You can do this now: `call_web_api` is a catalog tool, not part of the skill.
-3. **Fix or drop.** Empty creds / 401 → the profile's session isn't healthy (recheck
-   Part A/B); 429 → retry; wrong/empty body → recompile from the saved bundle
+3. **Fix or drop.** `login_required` / empty creds / 401 → the profile's own session needs
+   its activation sign-in: run `python scripts/activate_session.py <profile-slug>` and
+   surface the link it prints; 429 → retry; wrong/empty body → recompile from the saved bundle
    (`compile_workflow.py <bundle.json> --as skill --execution-mode harness`). If an op
    can't be made to work and isn't essential, drop it.
 4. **Make it reusable.** Rename cryptic tool/param names to natural language and
@@ -220,6 +253,10 @@ ever picks wrong, pass `--mode {login,workflow,combined}` explicitly.
 
 ## Troubleshooting
 
+- **`login_required` on the first live `call_web_api`** — expected, not a failure: the
+  profile's own session needs its one activation sign-in (see *Three sessions* above). Run
+  `python scripts/activate_session.py <profile-slug>` and surface the link. Only if that
+  reports the session already HEALTHY is something actually wrong.
 - **`login_required` / session not healthy on import** — the login wasn't completed; have
   the user redo the VNC sign-in and click *Finish & export*.
 - **The compiled asset is the wrong kind** (a workflow recording registered as an App

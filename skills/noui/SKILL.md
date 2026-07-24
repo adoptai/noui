@@ -160,6 +160,7 @@ Full playbook: `references/generalize.md`.
 | `compile_workflow.py` | 2 | Re-compile a saved workflow bundle → MCP/Skill |
 | `compile_login.py` | 2 | Compile a saved login bundle → App/ServiceProfile drafts |
 | `activate_register.py` | 3 | Register a compiled login result with Tabby as a tenant-wide App Template |
+| `activate_session.py` | 3 | Bring a profile's own per-user session up; print its sign-in link if needed |
 | `activate_verify.py` | 3 | Deterministic auth dry-run on a generated MCP server |
 | `activate_install.py` | 3 | Install a generated skill into an agent (agnostic) |
 
