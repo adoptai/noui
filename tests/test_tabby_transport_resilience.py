@@ -135,6 +135,17 @@ class TestRetry:
             tabby_client.get_session_status("acme", "cap-tok")
         assert opened.call_count == 1
 
+    def test_token_minting_is_retried(self, broker, _no_sleep):
+        """In agent_token mode this is the FIRST call of every command.
+
+        Found by live-testing against dev Tabby: with the control plane down, the
+        failure surfaced as `POST /auth/agent-token` before the work even started.
+        """
+        outcomes = [OSError("refused"), _Resp({"access_token": "tok"})]
+        with patch.object(tabby_client.urllib.request, "urlopen", side_effect=outcomes) as opened:
+            assert tabby_client.get_agent_token("cid", "csec") == "tok"
+        assert opened.call_count == 2
+
     def test_recording_session_creation_is_not_retried(self, broker):
         """Retrying a provision would leak shell apps / warm-pool claims."""
         with (

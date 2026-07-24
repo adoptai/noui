@@ -56,11 +56,7 @@ def _unreachable_error(
     base = settings.tabby_api_host.rstrip("/")
     mode = settings.tabby_auth_mode or "agent_token"
     who = "control-plane broker" if settings.broker_mode() else "Tabby API"
-    tried = (
-        f" Retried {attempts} time(s) over {elapsed:.0f}s."
-        if attempts > 1
-        else " Not retried (non-idempotent request)."
-    )
+    tried = f" Retried {attempts} time(s) over {elapsed:.0f}s." if attempts > 1 else " Not retried."
     return RuntimeError(
         f"Cannot reach the {who} at {base} ({mode} mode) for {method} {path}: {detail}."
         f"{tried} This is an upstream/network failure, not an auth problem — a rejected "
@@ -200,6 +196,10 @@ def get_agent_token(client_id: str, client_secret: str) -> str:
             "Missing TABBY_CLIENT_ID or TABBY_CLIENT_SECRET — "
             "run `noui tabby setup` to provision agent credentials"
         )
+    # Retried: minting a fresh short-lived token is safe to repeat, and in
+    # agent_token mode this is the FIRST call of every command — so without a
+    # retry here a brief control-plane blip fails the run before it starts, and
+    # the error names /auth/agent-token rather than the work the caller wanted.
     resp = _tabby_http(
         "POST",
         "/auth/agent-token",
@@ -208,6 +208,7 @@ def get_agent_token(client_id: str, client_secret: str) -> str:
             "client_secret": client_secret,
             "grant_type": "client_credentials",
         },
+        retries=3,
     )
     if not isinstance(resp, dict):
         raise RuntimeError(f"Unexpected response from POST /auth/agent-token: {type(resp)}")
@@ -260,10 +261,13 @@ def get_platform_tabby_token(adopt_api_url: str, client_id: str, client_secret: 
     Returns the Tabby bearer token string. Raises RuntimeError on failure.
     """
     platform_jwt = get_platform_jwt(adopt_api_url, client_id, client_secret)
+    # Retried for the same reason as get_agent_token: a token exchange is safe to
+    # repeat and sits in front of every platform_jwt-mode command.
     resp = _tabby_http(
         "POST",
         "/auth/token-exchange",
         body={"subject_token": platform_jwt, "subject_token_type": "oidc_jwt"},
+        retries=3,
     )
     if not isinstance(resp, dict):
         raise RuntimeError(f"Unexpected response from POST /auth/token-exchange: {type(resp)}")
