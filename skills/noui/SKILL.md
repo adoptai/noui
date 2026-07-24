@@ -156,11 +156,35 @@ Full playbook: `references/generalize.md`.
 | `capture_record.py` | 1 | Provision a VNC recording session; prints the viewer URL |
 | `capture_autopilot.py` | 1→2 | Drive a profile's session via `/execute/browser` (scripted steps); synthesize a bundle + compile |
 | `capture_import.py` | 1→2→3 | Drain the bundle; compile (workflow) or compile+register (login) |
+| `bundle_inspect.py` | 1 | Summarise a saved bundle: mode block, URL timeline, endpoint/tool table |
 | `compile_workflow.py` | 2 | Re-compile a saved workflow bundle → MCP/Skill |
 | `compile_login.py` | 2 | Compile a saved login bundle → App/ServiceProfile drafts |
 | `activate_register.py` | 3 | Register a compiled login result with Tabby as a tenant-wide App Template |
 | `activate_verify.py` | 3 | Deterministic auth dry-run on a generated MCP server |
 | `activate_install.py` | 3 | Install a generated skill into an agent (agnostic) |
+
+---
+
+## Inspect a bundle when a compile surprises you
+
+```bash
+python scripts/bundle_inspect.py workbench/bundles/<name>.json
+python scripts/bundle_inspect.py --session <session_id>    # drain from Tabby first
+```
+
+Prints, in one pass: the **mode block** (Tabby's `recording_mode`, NoUI's own
+classification, and the mode the session was *provisioned* as — side by side, with a
+warning when they disagree), the URL timeline with the login boundary marked, credential
+interactions (roles + redaction only, never values), and the **API endpoint table** built
+with the compiler's own filter and naming — so it previews the operation set compile will
+emit. Reach for it first whenever an import produced the wrong kind of asset or an
+operation you didn't expect.
+
+**NoUI never routes on Tabby's `recording_mode`.** The field is unreliable — a
+warm-pool recording session always reports `login` regardless of what was provisioned.
+`capture_import.py` decides from, in order: `--mode`, the provision ledger
+(`<workbench>/sessions/<session_id>.json`, written by `capture_record.py`), then the
+capture's content. It prints which source won.
 
 ---
 

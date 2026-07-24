@@ -197,10 +197,34 @@ nothing about secrets.**
 Then report the deliverable: the profile slug, the compiled skill path, and the
 installed skill name — plus the required secret(s) only if `install_skill` returned any.
 
+## Diagnosing a surprising compile — `bundle_inspect.py`
+
+If an import produces the wrong kind of asset, or operations you didn't expect, **don't
+write a throwaway script** — inspect the bundle:
+
+```bash
+cd /workspace/noui
+python scripts/bundle_inspect.py workbench/bundles/<name>.json
+```
+
+It prints the **mode block** (Tabby's `recording_mode` vs NoUI's classification vs the
+mode the session was provisioned as, with a warning on any mismatch), the URL timeline
+with the login boundary marked, credential interactions (roles + redaction only), and the
+API endpoint table built with the compiler's own filter and naming — i.e. a preview of the
+operation set, useful for the B3 prune.
+
+**On modes:** Tabby's `recording_mode` is unreliable (a warm-pool session always reports
+`login`), and NoUI ignores it. `capture_import.py` decides from `--mode` → the provision
+ledger written by `capture_record.py` → the capture's content, and prints which won. If it
+ever picks wrong, pass `--mode {login,workflow,combined}` explicitly.
+
 ## Troubleshooting
 
 - **`login_required` / session not healthy on import** — the login wasn't completed; have
   the user redo the VNC sign-in and click *Finish & export*.
+- **The compiled asset is the wrong kind** (a workflow recording registered as an App
+  Template, or vice versa) — run `bundle_inspect.py` on the saved bundle and re-import
+  with an explicit `--mode`.
 - **403 from Tabby** — the profile isn't owned by / reachable for this user; re-record so
   it's created under the user's identity.
 - **VNC link won't load** — it expires; re-run the `capture_record.py` step to get a fresh
