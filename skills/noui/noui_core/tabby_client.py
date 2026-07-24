@@ -15,6 +15,7 @@ Configuration is read from noui_core.config.settings:
 
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import urllib.error
@@ -28,6 +29,44 @@ from noui_core.config import settings
 # Internal HTTP helper
 # ---------------------------------------------------------------------------
 
+# Upstream statuses worth retrying. In broker mode the harness control-plane
+# broker answers 502 for both "tabby upstream error" and a failed per-user
+# bearer resolution (see adoptai-workflows noui_broker.forward) — transient in
+# both cases. 401/403/4xx are NOT retried: they are answers, not outages.
+_RETRY_STATUSES = frozenset({502, 503, 504})
+
+# Transport-level failures: nothing was listening, the connection dropped, DNS
+# failed, or the socket timed out. urllib.error.URLError and HTTPError are both
+# OSError subclasses, so HTTPError MUST be caught before this tuple.
+_TRANSPORT_ERRORS = (OSError, http.client.HTTPException)
+
+
+def _unreachable_error(
+    method: str, path: str, detail: str, attempts: int, elapsed: float
+) -> RuntimeError:
+    """Build the error raised when we could not get an answer out of Tabby.
+
+    Deliberately verbose: this is the failure an agent sees when the control
+    plane is down mid-flow (often *after* a human already drove a recording), and
+    the previous bare urllib traceback named neither the URL nor the auth mode —
+    which led to it being misdiagnosed as an auth/bearer problem. Say plainly
+    what was unreachable, that the bearer is not implicated, and how hard we
+    tried, so the next step is obvious rather than exploratory.
+    """
+    base = settings.tabby_api_host.rstrip("/")
+    mode = settings.tabby_auth_mode or "agent_token"
+    who = "control-plane broker" if settings.broker_mode() else "Tabby API"
+    tried = (
+        f" Retried {attempts} time(s) over {elapsed:.0f}s."
+        if attempts > 1
+        else " Not retried (non-idempotent request)."
+    )
+    return RuntimeError(
+        f"Cannot reach the {who} at {base} ({mode} mode) for {method} {path}: {detail}."
+        f"{tried} This is an upstream/network failure, not an auth problem — a rejected "
+        f"bearer answers with HTTP 401/403. Check that the {who} is up, then re-run."
+    )
+
 
 def _tabby_http(
     method: str,
@@ -35,11 +74,19 @@ def _tabby_http(
     body: dict[str, Any] | None = None,
     token: str | None = None,
     timeout: int = 15,
+    retries: int = 0,
 ) -> dict[str, Any] | list[Any]:
     """
     Make an HTTP request to the Tabby API.
 
-    Raises RuntimeError on non-2xx responses.
+    Always raises ``RuntimeError`` on failure — including transport-level
+    failures (connection refused/reset, DNS, socket timeout), which urllib
+    raises as ``OSError`` subclasses and which therefore used to escape every
+    ``except RuntimeError`` handler in the scripts as a raw traceback.
+
+    ``retries`` (0 = none) retries transport failures and _RETRY_STATUSES with
+    exponential backoff (1-2-4-8-16s). Only for requests that are safe to repeat
+    — a caller that creates or mutates server-side state must leave it at 0.
     """
     url = settings.tabby_api_host.rstrip("/") + path
     data = json.dumps(body).encode() if body is not None else b""
@@ -47,12 +94,43 @@ def _tabby_http(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode(errors="replace")
-        raise RuntimeError(f"HTTP {exc.code} from {method} {path}: {body_text}") from exc
+
+    attempts = max(1, retries + 1)
+    started = time.monotonic()
+    delay = 1.0
+    for attempt in range(1, attempts + 1):
+        last = attempt == attempts
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode(errors="replace")
+            if exc.code in _RETRY_STATUSES and not last:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            suffix = (
+                f" (after {attempt} attempt(s) over {time.monotonic() - started:.0f}s)"
+                if attempt > 1
+                else ""
+            )
+            raise RuntimeError(
+                f"HTTP {exc.code} from {method} {path}{suffix}: {body_text}"
+            ) from exc
+        except _TRANSPORT_ERRORS as exc:
+            if not last:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise _unreachable_error(
+                method,
+                path,
+                f"{type(exc).__name__}: {exc}",
+                attempts,
+                time.monotonic() - started,
+            ) from exc
+    # Unreachable: the loop either returns or raises on its final attempt.
+    raise RuntimeError(f"{method} {path} exhausted {attempts} attempt(s) without a response")
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +306,9 @@ def create_recording_session(
         body["residential_proxy"] = True
     # Provisioning blocks server-side until the worker session row exists (worker
     # scheduling can take >15s under load), so allow a generous client timeout.
+    # Deliberately NOT retried: each call creates a shell app (and can claim or
+    # cold-start a pod), so a retry after an ambiguous transport failure would
+    # leak recording sessions. Fail fast and let the operator re-run.
     resp = _tabby_http("POST", "/recording/sessions", body=body, token=agent_token, timeout=90)
     if not isinstance(resp, dict) or "vnc_url" not in resp:
         raise RuntimeError(f"POST /recording/sessions returned an unexpected payload: {resp}")
@@ -241,13 +322,19 @@ def get_recording_bundle(session_id: str, agent_token: str) -> dict:
     Returns the drained VNC recording bundle (HAR + click_events + url_events)
     that the worker captured and the API persisted on "Finish & export".
     Raises RuntimeError if the bundle is missing or the response is malformed.
+
+    Retried generously (5 retries ≈ 31s): a drained bundle is immutable, so
+    re-reading it is free, and by the time we get here a human has already spent
+    minutes driving the recording — a few seconds of control-plane unavailability
+    must not throw that away.
     """
     resp = _tabby_http(
         "GET",
         f"/recording/sessions/{session_id}/bundle",
         token=agent_token,
+        retries=5,
     )
-    if not isinstance(resp, dict) or "recording_mode" not in resp:
+    if not isinstance(resp, dict) or "har" not in resp:
         raise RuntimeError(
             f"GET /recording/sessions/{session_id}/bundle returned an unexpected payload: {resp}"
         )
@@ -261,11 +348,15 @@ def request_credentials(profile_slug: str, agent_token: str) -> dict:
     Returns the credentials dict with "headers" and "cookies" lists.
     Raises RuntimeError on failure.
     """
+    # Safe to repeat: it reads credentials for a profile (and, on first call for a
+    # member, triggers Tabby's idempotent auto-provisioning from the App Template
+    # — which already handles the concurrent-provision race server-side).
     resp = _tabby_http(
         "POST",
         "/credentials/request",
         body={"profile_id": profile_slug},
         token=agent_token,
+        retries=2,
     )
     if not isinstance(resp, dict):
         raise RuntimeError(f"Unexpected response from POST /credentials/request: {type(resp)}")
@@ -281,7 +372,7 @@ def get_service_profile_by_slug(profile_slug: str, token: str) -> dict | None:
     Raises RuntimeError on API errors.
     """
     try:
-        resp = _tabby_http("GET", "/admin/profiles", token=token)
+        resp = _tabby_http("GET", "/admin/profiles", token=token, retries=2)
     except RuntimeError:
         return None
     if isinstance(resp, list):
@@ -382,7 +473,7 @@ def get_app_template(template_id: str, token: str) -> dict | None:
     on other API errors.
     """
     try:
-        resp = _tabby_http("GET", f"/admin/app-templates/{template_id}", token=token)
+        resp = _tabby_http("GET", f"/admin/app-templates/{template_id}", token=token, retries=2)
     except RuntimeError as exc:
         if "HTTP 404" in str(exc):
             return None
@@ -426,7 +517,7 @@ def list_app_templates(token: str) -> list[dict]:
     Returns the list of template dicts (``[]`` if the API returns none).
     Raises RuntimeError on API errors.
     """
-    resp = _tabby_http("GET", "/admin/app-templates", token=token)
+    resp = _tabby_http("GET", "/admin/app-templates", token=token, retries=2)
     if isinstance(resp, list):
         return resp
     if isinstance(resp, dict):
@@ -483,7 +574,7 @@ def get_session_status(profile_slug: str, token: str) -> dict:
     ``vnc_stream: {url, expires_at}`` — the URL a human opens to complete login.
     Returns the status dict (session_id, state, hitl_active, vnc_stream, ...).
     """
-    resp = _tabby_http("GET", f"/agent/session-status/{profile_slug}", token=token)
+    resp = _tabby_http("GET", f"/agent/session-status/{profile_slug}", token=token, retries=3)
     if not isinstance(resp, dict):
         raise RuntimeError(
             f"Unexpected response from GET /agent/session-status/{profile_slug}: {type(resp)}"
@@ -504,7 +595,12 @@ def create_short_link(session_id: str, token: str, mode: str = "") -> str:
     secret-redactor strips (breaking the link), whereas the short code is redaction-safe.
     """
     body = {"mode": mode} if mode else None
-    resp = _tabby_http("POST", f"/sessions/{session_id}/short-link", body=body, token=token)
+    # Safe to repeat: mints a fresh short code for the same session (no other
+    # server-side effect), and a transport blip here would otherwise be read as
+    # "this session is dead" by provision_live_link's liveness check.
+    resp = _tabby_http(
+        "POST", f"/sessions/{session_id}/short-link", body=body, token=token, retries=2
+    )
     if not isinstance(resp, dict) or "short_url" not in resp:
         raise RuntimeError(
             f"POST /sessions/{session_id}/short-link returned an unexpected payload: {resp}"
