@@ -33,8 +33,18 @@ _PROVISIONED = {
 
 @pytest.fixture
 def run(tmp_path, monkeypatch, capsys):
-    """Run capture_record.main() with argv, Tabby provisioning stubbed."""
+    """Run capture_record.main() with argv; every Tabby call stubbed.
+
+    ``resolve_agent_token`` is stubbed too, not just provisioning: the
+    duplicate-template pre-check resolves a bearer *before* calling
+    ``find_similar_templates``, and in agent_token mode that mints a real token
+    over the network. Left unstubbed, these tests would hit Tabby whenever the
+    developer happens to have credentials in their environment — and silently
+    take the "no match" branch (RuntimeError → ``matches = []``) wherever they
+    don't, e.g. CI.
+    """
     monkeypatch.setattr(settings, "workbench_dir", str(tmp_path))
+    monkeypatch.setattr(cr.recording, "resolve_agent_token", lambda: "test-token")
 
     def _run(*argv: str):
         monkeypatch.setattr(sys, "argv", ["capture_record.py", *argv])
