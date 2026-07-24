@@ -95,6 +95,10 @@ def _url_timeline(bundle: dict[str, Any], boundary: str | None) -> list[dict[str
     made hand-rolled inspection scripts report empty timelines.
     """
     out: list[dict[str, Any]] = []
+    # Collapse "no boundary" (None) and an empty boundary into one falsy string, so
+    # the comparisons below are plain str-to-str and an empty boundary can't mark
+    # every navigation as post-login.
+    bound = boundary or ""
     for ev in bundle.get("url_events") or []:
         if not isinstance(ev, dict) or not ev.get("to_url"):
             continue
@@ -104,8 +108,8 @@ def _url_timeline(bundle: dict[str, Any], boundary: str | None) -> list[dict[str
                 "timestamp": ts,
                 "from_url": ev.get("from_url") or "",
                 "to_url": ev["to_url"],
-                "is_login_boundary": bool(boundary) and ts == boundary,
-                "post_login": bool(boundary) and bool(ts) and ts > boundary,
+                "is_login_boundary": bool(bound) and ts == bound,
+                "post_login": bool(bound) and bool(ts) and ts > bound,
             }
         )
     return out
