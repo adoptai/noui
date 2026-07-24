@@ -21,16 +21,17 @@ you surface to them. Never ask the user for a Tabby token, never write a `.env`.
 The toolkit zip ships its own `SKILL.md` for *local CLI* use. **Ignore its setup/auth
 instructions.** In the harness:
 
-1. **Cloud Tabby via the broker.** `TABBY_API_URL` is already set to the control-plane
-   **broker** (fronting cloud Tabby). Never use `localhost`, never change it.
+1. **Cloud Tabby via the broker.** `TABBY_API_URL` is already the control-plane broker
+   (fronting cloud Tabby): never `localhost`, never change it, and **never build a
+   user-facing URL from it** — it is an internal API, not a browsable site. Show only links
+   a script printed verbatim; copy them, never compose them.
 2. **No credentials.** Do not create a `.env` or set `TABBY_CLIENT_ID/SECRET/ADMIN_TOKEN`.
    The broker injects the user's federated bearer (`owner_user_id` = the real user) on
    every call. Profiles/templates you create are **owned by that user** automatically.
-3. **Recording is human-in-the-loop, and ONE LINK AT A TIME.** `capture_record.py` returns
-   a **VNC URL**. You cannot open it — you must **show it to the user as a markdown link,
-   tell them what to do, and STOP** (end your turn). When they reply that they've finished,
-   continue with `capture_import.py`. Recording spans multiple turns; that is expected.
-   **Never surface two links in one message** — see the section below.
+3. **Recording is human-in-the-loop, one link at a time.** `capture_record.py` prints a VNC
+   URL you cannot open: show it as a markdown link, say what to do, and **end your turn**.
+   Never put two links in one message — the user can't tell which to open. Recording spans
+   multiple turns; that is expected.
 4. **Harness execution mode for the skill.** Compile workflows with
    `--execution-mode harness` (never `tabby`/`http`).
 
@@ -55,17 +56,6 @@ instructions.** In the harness:
 
 Ask the user up front for: the **site** (login URL + the workflow to capture) and a short
 **skill/app name**.
-
-## 🔗 ONE LINK AT A TIME — the rule that matters most
-
-Every link you surface is a task for a human. **Never put two links in one message.**
-A user shown a recording link and a sign-in link together cannot tell which to open
-first, and will do the wrong one. Surface a link, say what to do with it, **end your
-turn**, and wait. Only after they confirm do you move on — and only then may the next
-link appear.
-
-This is why the default captures the login and the workflow in **one** recording
-session: one link, one sign-in, one confirmation.
 
 ## Part A — capture login + workflow in ONE session (the default)
 
@@ -127,19 +117,12 @@ ACTIVE) on each member's first `call_web_api`, so there is no `--promote` step a
 credential model defaults to `manual:` (the member signs in via VNC; nothing is stored).
 The drained bundle is saved under `workbench/bundles/`.
 
-### Do NOT try to pre-activate the session — just go to B3
+### The sign-in comes next — let it happen
 
-The profile's own runtime session is a different browser from the recording, so it needs one
-sign-in before any live call (see *Two sessions, two sign-ins* below). **Let the first
-`call_web_api` in B3 trigger it.** That call returns `login_required` and the harness renders
-its own **Connect** card for the user — no link for you to surface, no script to run, nothing
-to poll.
-
-Do not try to get ahead of it. A freshly-provisioned session sits in `STARTING` for minutes,
-so probing it just burns turns and produces no link, and any link you did surface would
-compete with the harness's own card. Go straight to B3 and let the `login_required` happen.
-
-Do **not** run this in the same message as the Part A recording link.
+The profile's runtime session needs one sign-in (see below). Go straight to B3: the first
+`call_web_api` returns `login_required` and **the platform prompts the user itself**. Say what
+it's for, wait, re-run. Don't pre-check the session (it sits in `STARTING` for minutes) and
+don't build a card or link of your own — you have no sign-in URL (rule 1).
 
 ## Workflow-only capture (existing profile, or the split flow)
 
@@ -177,28 +160,13 @@ For a **static API-key app** (no profile at all), drop `--profile-slug` and add
 > --execution-mode harness` (no human VNC) — see the toolkit reference. For a brand-new
 > profile, the VNC recording above is the reliable path.
 
-## Two sessions, two sign-ins (tell the user this up front)
+## Two sessions, two sign-ins (say this up front)
 
-With the combined default there are exactly **two** browser sessions, so the user signs in
-twice — no more:
-
-1. the **recording** session (Part A) — login *and* workflow, one sitting, one link;
-2. the **profile's own session** — the one `call_web_api` resolves at runtime. Tabby
-   auto-provisions it per user from the App Template, on first use.
-
-Session #2 starts `LOGIN_NEEDED` because the template stores nothing
-(`credential_ref: manual:`). The recording's cookies are deliberately not reused for it:
-the template is tenant-wide, so seeding them would share the recorder's live session with
-every member of the org. So the second sign-in is correct, not a bug.
-
-**You do nothing to arrange it.** The first `call_web_api` returns `login_required` and the
-harness shows the user a **Connect** card. Your job is only to *expect* it, and to tell the
-user up front that it's coming — *"you'll be asked to sign in once more when I first call the
-API; that's the app's own session and nothing is stored"* — so it doesn't read as a bug after
-they just signed in during the recording.
-
-Recording the halves separately adds a third session and a third sign-in. That is the
-reason it is not the default.
+Two browser sessions exist: the **recording** (Part A) and the profile's **own runtime
+session**, which Tabby provisions per user on first `call_web_api`. The second stores nothing
+— reusing the recording's cookies would share one user's session with the whole org — so it
+asks for one sign-in. Correct, not a bug, but tell the user it's coming or it won't look that
+way. Recording the halves separately adds a third sign-in; that's why it isn't the default.
 
 ## Step B3 — generalize: prune the noise, then test until it works
 
@@ -216,7 +184,8 @@ is an LLM-driven step you do — no script):
    each **2–3 times** and confirm it returns the expected data — not just a non-error.
    You can do this now: `call_web_api` is a catalog tool, not part of the skill.
 3. **Fix or drop.** `login_required` / empty creds / 401 → expected on the *first* call: the
-   harness shows the user a Connect card; wait for them to sign in, then re-run the call.
+   platform prompts the user itself — describe it, wait, re-run. Never build a card or URL
+   (rule 1).
    429 → retry; wrong/empty body → recompile from the saved bundle
    (`compile_workflow.py <bundle.json> --as skill --execution-mode harness`). If an op
    can't be made to work and isn't essential, drop it.
@@ -276,9 +245,8 @@ ever picks wrong, pass `--mode {login,workflow,combined}` explicitly.
 
 - **`login_required` on the first live `call_web_api`** — expected, not a failure: the
   profile's own session needs its one sign-in (see *Two sessions, two sign-ins* above). The
-  harness renders a **Connect** card for the user; there is nothing for you to run or
-  surface. Tell them what it is, wait for them to complete it, then re-run the call. It
-  only indicates a real problem if it keeps happening *after* they've signed in.
+  platform prompts the user; nothing for you to run or build. Describe it, wait, re-run. If no
+  prompt appears, say so. Only a problem if it repeats *after* they've signed in.
 - **`login_required` / session not healthy on import** — the login wasn't completed; have
   the user redo the VNC sign-in and click *Finish & export*.
 - **The compiled asset is the wrong kind** (a workflow recording registered as an App

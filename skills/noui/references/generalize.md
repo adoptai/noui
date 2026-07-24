@@ -51,14 +51,11 @@ nothing is stored. Recording cookies are deliberately **not** reused for it — 
 is tenant-wide, so seeding them would hand the recorder's live session to every member of
 the org. Per-user auth with nothing stored costs one sign-in.
 
-So expect **one sign-in** on the first live call, even though the human just signed in
-during capture. **Don't try to arrange it in advance.** The first call returns
-`login_required` and the runtime asks for the sign-in itself (in the Agent Harness, a
-Connect card; locally, the `vnc_stream` URL on `GET /agent/session-status/<slug>`). A
-freshly-provisioned session sits in `STARTING` for minutes, so probing it ahead of time just
-waits for nothing.
-
-Say it's coming, let step 3 trigger it, and re-run the call once they're done.
+So expect **one sign-in** on the first live call. Don't arrange it in advance — the caller
+raises the prompt itself (harness: a sign-in card; locally: `vnc_stream.url` from
+`GET /agent/session-status/<slug>`), and a fresh session sits in `STARTING` for minutes.
+Never hand-write a sign-in URL; you don't have one. Say it's coming, let step 3 trigger it,
+re-run once they're done.
 
 ## 3. Test the survivors — a couple of times each
 **Actually run every remaining operation against the live site** and confirm it
