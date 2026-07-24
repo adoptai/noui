@@ -24,8 +24,12 @@ Implemented in `noui_core.capture.autopilot` (`AutopilotSession` for interactive
 
 ```python
 from noui_core.capture.autopilot import AutopilotSession
+
 ap = AutopilotSession("<profile-slug>")
-ap.start_capture(); ap.navigate(url); ap.click("#go"); bundle = ap.finish()
+ap.start_capture()
+ap.navigate(url)
+ap.click("#go")
+bundle = ap.finish()
 ```
 
 #### Prerequisite: a HEALTHY execute session (+ login escalation)
@@ -39,10 +43,11 @@ ap.start_capture(); ap.navigate(url); ap.click("#go"); bundle = ap.finish()
 
 ```python
 from noui_core import tabby_client
+
 tabby_client.scale_sessions(app_id, 1, admin_token)
 st = tabby_client.get_session_status(profile_slug, agent_token)
 if st["hitl_active"]:
-    print("Log in here:", st["vnc_stream"]["url"])   # human completes login
+    print("Log in here:", st["vnc_stream"]["url"])  # human completes login
 # re-poll until st["state"] == "HEALTHY", then AutopilotSession(profile_slug)...
 ```
 

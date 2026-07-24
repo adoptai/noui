@@ -128,10 +128,7 @@ def create_invoice(customer_id, amount):
         method="POST",
         endpoint="/api/invoices",
         headers=session_headers,
-        json={
-            "customer_id": customer_id,
-            "amount": amount
-        }
+        json={"customer_id": customer_id, "amount": amount},
     )
 ```
 
