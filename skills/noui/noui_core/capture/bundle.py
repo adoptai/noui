@@ -4,7 +4,8 @@ A Tabby recording bundle has the shape::
 
     {
       "session_id": "...",
-      "recording_mode": "login" | "workflow",
+      "recording_mode": "login" | "workflow",   # IGNORED by NoUI — unreliable,
+                                                # see noui_core.capture.classify
       "started_at": "...", "stopped_at": "...",
       "har": {"log": {...}},
       "click_events": [ {event_type, tag_name, selector, value, field_role, ...}, ... ],
@@ -49,8 +50,6 @@ _CLICK_FIELDS = (
     "timestamp",
 )
 
-_VALID_MODES = ("login", "workflow")
-
 
 def save_bundle(bundle: dict[str, Any], name: str, output_root: str | None = None) -> Path:
     """Persist a capture bundle to ``<workbench>/bundles/<name>-<session>.json``.
@@ -72,15 +71,20 @@ def save_bundle(bundle: dict[str, Any], name: str, output_root: str | None = Non
     return path
 
 
-def validate_bundle(bundle: dict[str, Any]) -> str:
-    """Return the session_type ('login'|'workflow') or raise ValueError."""
-    mode = bundle.get("recording_mode")
-    if mode not in _VALID_MODES:
-        raise ValueError(f"bundle.recording_mode must be one of {_VALID_MODES}, got {mode!r}")
+def validate_bundle(bundle: dict[str, Any]) -> None:
+    """Validate the bundle's SHAPE. Raises ValueError if it isn't usable.
+
+    Deliberately not a classifier: it used to return ``bundle["recording_mode"]``
+    as the session type, which made Tabby's (unreliable) stamp decide how the
+    capture was compiled. Deciding what a bundle is now lives in
+    ``noui_core.capture.classify`` — see that module for why the field can't be
+    trusted. Here we only check that there is a HAR to compile.
+    """
+    if not isinstance(bundle, dict):
+        raise ValueError(f"bundle must be a JSON object, got {type(bundle).__name__}")
     har = bundle.get("har")
     if not isinstance(har, dict) or "log" not in har:
         raise ValueError("bundle.har must be an object with a 'log' key (HAR 1.2)")
-    return mode
 
 
 def click_payloads(

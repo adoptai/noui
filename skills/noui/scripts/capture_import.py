@@ -7,6 +7,11 @@ Workflow recording → MCP and/or Skill:
 Login recording → Tabby App Template (per-user auto-provisioning blueprint):
     python scripts/capture_import.py <session_id> --name <app-name>
 
+How the login/workflow/combined decision is made: --mode wins, else the mode
+capture_record.py recorded when it provisioned the session, else the capture's
+content. Tabby's own ``recording_mode`` is never consulted — it is unreliable
+(warm-pool sessions always report 'login'). See noui_core.capture.classify.
+
 End to end, no NoUI backend round-trip: Tabby captured the bundle server-side.
 """
 
@@ -19,11 +24,58 @@ import sys
 import _bootstrap  # noqa: F401
 
 from noui_core.activate import register
-from noui_core.capture import recording
+from noui_core.capture import ledger, recording
 from noui_core.capture.bundle import save_bundle
+from noui_core.capture.classify import COMBINED, LOGIN, WORKFLOW
 from noui_core.capture.split import split_bundle
 from noui_core.compile.login import compile_login_bundle
 from noui_core.compile.workflow import compile_workflow_bundle
+
+
+def _resolve_mode(args: argparse.Namespace, inferred: str) -> tuple[str, str]:
+    """Decide how to treat this capture, and say where the decision came from.
+
+    Precedence — strongest declaration wins, and Tabby's ``recording_mode`` is
+    not in the list at all (it is unreliable: a warm-pool session always reports
+    ``login`` regardless of what was provisioned, which used to route workflow
+    recordings into the login/App-Template path):
+
+      1. ``--mode`` / ``--combined`` — the operator said so explicitly.
+      2. the provision ledger — what ``capture_record.py`` actually asked Tabby for.
+      3. content classification (``classify_bundle``) — the fallback for captures
+         with no ledger entry (older sessions, bundles from another machine).
+    """
+    if args.mode != "auto":
+        return args.mode, "--mode flag"
+    if args.combined:
+        return COMBINED, "--combined flag"
+    declared = ledger.declared_mode(args.session_id)
+    if declared:
+        return declared, "provision ledger"
+    return inferred, "bundle content"
+
+
+def _report_mode(mode: str, source: str, inferred: str, bundle: dict) -> None:
+    """Tell the operator what we decided, and flag any disagreement."""
+    print(f"Treating this capture as '{mode}' (source: {source}).", file=sys.stderr)
+    stamped = bundle.get("recording_mode")
+    if stamped and stamped != mode:
+        print(
+            f"(Tabby stamped recording_mode='{stamped}' — ignored. That field is "
+            "unreliable: warm-pool recording sessions always report 'login'.)",
+            file=sys.stderr,
+        )
+    if inferred != mode:
+        hint = {
+            COMBINED: "pass --mode combined to split it into a login + a workflow asset",
+            LOGIN: "pass --mode login to register it as an App Template",
+            WORKFLOW: "pass --mode workflow to compile it as a workflow asset",
+        }[inferred]
+        print(
+            f"(Content looks like '{inferred}' instead — honouring '{mode}'. "
+            f"If that's wrong, {hint}.)",
+            file=sys.stderr,
+        )
 
 
 def _credential_flags(credential_mode: str) -> tuple[bool, bool | None]:
@@ -188,9 +240,20 @@ def main() -> int:
         "(default: Authorization). Emitted as a ${SECRET:name} placeholder.",
     )
     p.add_argument(
+        "--mode",
+        choices=["auto", "login", "workflow", "combined"],
+        default="auto",
+        help="how to treat this capture. auto (default): use the mode "
+        "capture_record.py recorded at provision time, else infer it from the "
+        "capture's content. Tabby's own recording_mode is never used — it is "
+        "unreliable (warm-pool sessions always report 'login'). Pass an explicit "
+        "value to override both.",
+    )
+    p.add_argument(
         "--combined",
         action="store_true",
-        help="one recording that captured BOTH the login and the workflow: split it "
+        help="(alias for --mode combined) "
+        "one recording that captured BOTH the login and the workflow: split it "
         "at the login boundary, register the login App Template, then compile the "
         "workflow (--auth-type session) bound to that profile. Uses the login options "
         "below for the login half. If no login segment is found, compiles workflow-only.",
@@ -234,7 +297,7 @@ def main() -> int:
 
     print(f"Fetching recording bundle from Tabby ({args.session_id}) …", file=sys.stderr)
     try:
-        session_type, bundle = recording.fetch_bundle(args.session_id)
+        inferred, bundle = recording.fetch_bundle(args.session_id)
     except (RuntimeError, ValueError) as exc:
         print(f"Fetch failed: {exc}", file=sys.stderr)
         return 1
@@ -244,11 +307,14 @@ def main() -> int:
     bundle_path = save_bundle(bundle, args.name or args.session_id)
     print(f"Saved capture bundle → {bundle_path}", file=sys.stderr)
 
+    mode, source = _resolve_mode(args, inferred)
+    _report_mode(mode, source, inferred, bundle)
+
     # One capture holding both login and workflow → split and do both.
-    if args.combined:
+    if mode == COMBINED:
         return _run_combined(args, bundle)
 
-    if session_type == "workflow":
+    if mode == WORKFLOW:
         try:
             result = compile_workflow_bundle(
                 session_id=args.session_id,
