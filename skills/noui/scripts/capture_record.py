@@ -21,7 +21,7 @@ import sys
 
 import _bootstrap  # noqa: F401  (sys.path side effect)
 
-from noui_core.capture import recording
+from noui_core.capture import ledger, recording
 from noui_core.capture.template_match import find_similar_templates
 
 
@@ -163,6 +163,28 @@ def main() -> int:
 
     session_id = result.get("session_id", "")
     login_url = result.get("login_url", "")
+
+    # Record what we ASKED for. Tabby's own recording_mode is unreliable at drain
+    # time (a warm-pool claim always reports 'login'), so capture_import reads this
+    # ledger instead of the bundle's stamp. Advisory: never fail a provision that
+    # already succeeded because a local file couldn't be written.
+    if session_id:
+        try:
+            ledger.record(
+                session_id,
+                declared_mode=args.mode,
+                url=args.url,
+                profile=args.profile,
+                from_session=args.from_session,
+                residential=args.residential_proxy,
+            )
+        except (OSError, ValueError) as exc:
+            print(
+                f"(warning: could not record the declared mode for {session_id}: {exc}. "
+                f"Pass --mode {args.mode} to capture_import.py to be explicit.)",
+                file=sys.stderr,
+            )
+
     if result.get("refreshed"):
         print(
             f"(note: initial session was stale; refreshed via {result['refreshed']})",

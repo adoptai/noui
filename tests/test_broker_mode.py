@@ -84,7 +84,7 @@ class TestControlPlaneRoutesCapabilityToBroker:
         monkeypatch.setattr(settings, "tabby_api_host", "http://broker.local")
         seen = {}
 
-        def fake_http(method, path, body=None, token=None, timeout=15):
+        def fake_http(method, path, body=None, token=None, timeout=15, retries=0):
             seen.update(method=method, path=path, token=token)
             return {"session_id": "s1", "vnc_url": "https://vnc"}
 
@@ -96,7 +96,7 @@ class TestControlPlaneRoutesCapabilityToBroker:
     def test_execute_browser_sends_capability_bearer(self, broker, monkeypatch):
         seen = {}
 
-        def fake_http(method, path, body=None, token=None, timeout=15):
+        def fake_http(method, path, body=None, token=None, timeout=15, retries=0):
             seen.update(path=path, token=token)
             return {"success": True, "data": {}}
 

@@ -75,6 +75,7 @@ def _args(**over) -> SimpleNamespace:
         "tenant_id": "",
         "post_login_url_pattern": "",
         "profile_slug": "",
+        "activate_session": False,
     }
     base.update(over)
     return SimpleNamespace(**base)
