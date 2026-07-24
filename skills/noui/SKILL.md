@@ -201,10 +201,10 @@ Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the ra
 
 ## Reference docs
 
-- `references/pillar-1-capture.md` — VNC vs Autopilot, bundle shape, session reuse (`--from`)
+- `references/pillar-1-capture.md` — VNC vs Autopilot, the combined default, how the login/workflow mode is decided, bundle shape, session reuse (`--from`)
 - `references/pillar-2-compile.md` — HAR→tools, execution modes (`tabby`/`http`/`harness`), login drafts
 - `references/generalize.md` — post-compile agent pass: prune noise ops + test until they work
-- `references/pillar-3-activate.md` — register (template-first), verify, install, `/execute` runtime
+- `references/pillar-3-activate.md` — register (template-first), the per-user activation sign-in, verify, install, `/execute` runtime
 - `references/tabby-setup.md` — pointing NoUI at a local or cloud Tabby
 - `references/auth-modes.md` — `agent_token` vs `platform_jwt`
 

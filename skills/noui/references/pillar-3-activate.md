@@ -14,6 +14,17 @@ When a federated member (platform JWT, `owner_user_id` set) first requests that 
 
 CLI: `scripts/activate_register.py compiled-login.json` (or, for a login capture, `capture_import.py <id> --name <app>` registers the template in one step).
 
+## Activate the per-user session (one sign-in)
+The auto-provisioned App+Profile lands in ACTIVE, but its **session** starts `LOGIN_NEEDED`: the template's `credential_ref` is `manual:`, so nothing is stored. The recording's cookies are deliberately **not** seeded into it — the template is tenant-wide, so that would share the recorder's live session with every member of the org. Each member therefore signs in **once**, in their own session, before their first live call.
+
+```bash
+python scripts/activate_session.py <profile-slug>
+```
+
+`noui_core.activate.session.ensure_session` provokes the provisioning (`POST /credentials/request`), polls `GET /agent/session-status/{slug}`, and prints a redaction-safe short link when a sign-in is pending — or reports the session already HEALTHY. `capture_import.py --activate-session` does the same right after registering. **Surface that link on its own**, never alongside a recording link: two links in one message is the fastest way to confuse the person who has to open them.
+
+`needs_login` is `True` / `False` / `None` — `None` means still provisioning or terminal, never a false green.
+
 ## Verify auth before use
 `scripts/activate_verify.py <server_dir>` → `noui_core.activate.verify.verify_before_install`. Deterministic-first repairs; statuses: `PASS`, `REPAIR_APPLIED`, `NEEDS_SECRET`, `UNSUPPORTED`. No `auth_plan.json` ⇒ `PASS` (unauthenticated server).
 
