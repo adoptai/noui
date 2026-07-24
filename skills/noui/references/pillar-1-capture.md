@@ -8,11 +8,19 @@ Record a login or workflow as a **bundle** = `{har, click_events, url_events}` (
 A human drives a real browser in a Tabby VNC session.
 
 ```bash
-python scripts/capture_record.py --mode workflow --url https://example.com
-# → prints session_id + vnc_url
-# open vnc_url, drive the flow, click "Finish & export"
-python scripts/capture_import.py <session_id> --as both --profile-slug <slug>
+# Default (no --mode): ONE session for the login AND the workflow — one link, one sign-in.
+python scripts/capture_record.py --url https://example.com/login --name example
+# → prints session_id + a short recording-viewer link
+# open it, SIGN IN, then drive the flow in the same window, click "Finish & export"
+python scripts/capture_import.py <session_id> --as skill --name example
+
+# Auth already exists (profile/App Template set up) → the mode defaults to workflow-only:
+python scripts/capture_record.py --url https://example.com/app --profile example
+python scripts/capture_import.py <session_id> --as both --profile-slug example
 ```
+
+**Give the human one link at a time.** Recording the halves separately means two links and
+two sign-ins; the combined default exists so there is only ever one recording link in play.
 
 `capture_record.py` → `noui_core.capture.recording.start()` → Tabby `POST /recording/sessions`.
 `capture_import.py` → `recording.fetch_bundle()` → Tabby `GET /recording/sessions/{id}/bundle`, then compile.
@@ -57,7 +65,8 @@ if st["hitl_active"]:
 Record a workflow already authenticated, with **no stored credentials**: seed the recording browser with cookies captured by a prior **login** recording.
 
 ```bash
-python scripts/capture_record.py --mode workflow --url https://example.com --from <login-session-id>
+python scripts/capture_record.py --url https://example.com --from <login-session-id>
+# --from implies the login already exists, so the mode defaults to workflow-only
 ```
 
 Tabby pulls the source recording's cookies server-side; they never pass through NoUI.
@@ -79,24 +88,36 @@ python scripts/capture_record.py --mode login --url https://www.pnc.com --reside
 
 Works with any mode (`login`/`workflow`/`combined`) and combines with `--from`/`--profile`. The flag flows to Tabby's `POST /recording/sessions` as `residential_proxy: true`; omitted by default so the recording-shell app default applies. Requires the residential proxy to be configured on Tabby (`EGRESS_UPSTREAM_PROXY_URL` on the egress-proxy) — otherwise egress stays datacenter.
 
-## Combined login + workflow in one session (`--mode combined`)
-Capture the login **and** the authenticated workflow in a **single** VNC session — no separate login recording, no `--from` seeding.
+## Combined login + workflow in one session — **the default**
+Capture the login **and** the authenticated workflow in a **single** VNC session: one viewer link, one sign-in, no separate login recording and no `--from` seeding.
 
 ```bash
-python scripts/capture_record.py --mode combined --url https://example.com/login
+# `--mode` omitted → combined (it becomes workflow-only if --profile/--from is given)
+python scripts/capture_record.py --url https://example.com/login --name example
 # sign in, THEN keep driving the workflow, one "Finish & export"
-python scripts/capture_import.py <session_id> --combined --as skill --name example
+python scripts/capture_import.py <session_id> --as skill --name example
 ```
 
-Tabby's `recording_mode` is behaviorally inert, so a combined session is provisioned as an ordinary **`login`** session (zero Tabby change). NoUI does the differentiation at import: `--combined` splits the one bundle at the login boundary (`noui_core.capture.split.split_bundle` — the first stable navigation after the last credential-field interaction), then **registers the login App Template** from the login slice and **compiles the workflow** (`--auth-type session`) bound to that new profile. Splitting *before* tool generation is what keeps the login form-submit request — and its credential body — out of the workflow's tool set. If no login segment is present (no credential fields), `--combined` falls back to compiling the bundle workflow-only.
+A combined session is provisioned as an ordinary **`login`** session server-side (zero Tabby change), and NoUI does the differentiation at import. **The import needs no flag:** `capture_record.py` writes the declared mode to the provision ledger (`<workbench>/sessions/<session_id>.json`), and `capture_import.py` reads it — see [the mode decision](#how-the-loginworkflow-mode-is-decided) below. `--mode combined` / the legacy `--combined` alias force it explicitly.
 
-Prefer the split flow (`--mode login` then `--mode workflow`) when you want to confirm the login registered before recording the workflow.
+The split itself happens at the login boundary (`noui_core.capture.split.split_bundle` — the first stable navigation after the last credential-field interaction): NoUI **registers the login App Template** from the login slice and **compiles the workflow** (`--auth-type session`) bound to that new profile. Splitting *before* tool generation is what keeps the login form-submit request — and its credential body — out of the workflow's tool set. If no login segment is present (no credential fields), it falls back to compiling the bundle workflow-only.
 
-## Duplicate-template pre-check (`--mode login`)
-Before provisioning a **login** recording session, pass `--name`:
+Record the halves separately (`--mode login`, then `--mode workflow --from <session>`) only when you need the login registered before spending the user's time on the workflow. It costs an extra link and an extra sign-in, which is why it is not the default.
+
+## How the login/workflow mode is decided
+Tabby's `recording_mode` on the drained bundle is **never** used — a warm-pool recording session always reports `login` regardless of what was provisioned (see `noui_core.capture.classify`). `capture_import.py` decides in this order:
+
+1. explicit `--mode {login,workflow,combined}` (or the legacy `--combined` alias);
+2. the **provision ledger** — what `capture_record.py` asked Tabby for;
+3. **content classification** — credential-field interactions, and whether the human kept driving afterwards.
+
+It prints which source won, and warns when the content suggests something else. `python scripts/bundle_inspect.py <bundle.json>` shows all three side by side.
+
+## Duplicate-template pre-check (`--name`)
+Before provisioning a session that would capture a **login** (the combined default, or `--mode login`), pass `--name`:
 
 ```bash
-python scripts/capture_record.py --mode login --url https://example.com/login --name example
+python scripts/capture_record.py --url https://example.com/login --name example
 ```
 
 This checks Tabby's existing App Templates (`GET /admin/app-templates`, via `tabby_client.list_app_templates`) for one with the **same origin** (from `login_config.login_url` or `export_policy.target_urls`) **and** a similar `name` (`noui_core.capture.template_match.find_similar_templates`, fuzzy match + substring check, threshold 0.6). Both signals are required — same host alone is common across unrelated logins, and name similarity alone proves nothing about the site.
@@ -104,7 +125,7 @@ This checks Tabby's existing App Templates (`GET /admin/app-templates`, via `tab
 If a match is found, the login capture is **skipped** (no session is provisioned): the matching template's name/slug/id are printed along with the command to go straight to workflow recording against that profile —
 
 ```bash
-python scripts/capture_record.py --mode workflow --url <workflow-url> --profile <slug>
+python scripts/capture_record.py --url <workflow-url> --profile <slug>
 ```
 
 — since the login is already covered. Pass `--force` to record the login anyway (e.g. deliberately re-capturing a login to widen or refresh it). Without `--name`, the pre-check is skipped entirely (nothing to compare against).
@@ -133,6 +154,8 @@ Both capture scripts persist the raw bundle to `workbench/bundles/<name>.json` v
 `--save-bundle <path>` overrides the location; otherwise it lands in `workbench/bundles/`.
 
 ## Bundle validation
-`noui_core.capture.bundle.validate_bundle` enforces shape (`recording_mode` ∈ {login, workflow}, HAR present); `count_sensitive_unredacted` blocks import if passwords/OTP weren't redacted. `validate.validate_har_dict` reports API-call count, domains, and credential-leak / no-mutation warnings.
+`noui_core.capture.bundle.validate_bundle` checks **shape only** — a HAR must be present. It deliberately does *not* validate or return `recording_mode`: that field is unreliable (see [the mode decision](#how-the-loginworkflow-mode-is-decided)), so it can neither classify a bundle nor fail one. `count_sensitive_unredacted` blocks import if passwords/OTP weren't redacted. `validate.validate_har_dict` reports API-call count, domains, and credential-leak / no-mutation warnings.
 
-See also: [pillar-2-compile](pillar-2-compile.md), [auth-modes](auth-modes.md).
+`python scripts/bundle_inspect.py <bundle.json>` renders all of this — plus the mode block, URL timeline, and the operation set compile would emit — for a saved bundle.
+
+See also: [pillar-2-compile](pillar-2-compile.md), [auth-modes](auth-modes.md), [generalize](generalize.md).

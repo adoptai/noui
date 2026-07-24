@@ -109,7 +109,9 @@ python scripts/capture_import.py <session_id> --as both --profile-slug example
 
 ```bash
 # The app authenticates with a static key sent on every request — there is no
-# session to record. Record ONLY the workflow, then declare the auth model:
+# session to record. Record ONLY the workflow (--mode workflow must be explicit:
+# with no login to capture, the combined default would ask for a sign-in that
+# doesn't exist), then declare the auth model:
 python scripts/capture_record.py --mode workflow --url https://example.com
 python scripts/capture_import.py <session_id> --as skill --execution-mode harness \
     --auth-type api-key --api-key-header Authorization
@@ -155,7 +157,7 @@ Full playbook: `references/generalize.md`.
 
 | Script | Pillar | Purpose |
 |---|---|---|
-| `capture_record.py` | 1 | Provision a VNC recording session; prints the viewer URL |
+| `capture_record.py` | 1 | Provision a VNC recording session; prints one viewer URL (default: login + workflow in one session) |
 | `capture_autopilot.py` | 1→2 | Drive a profile's session via `/execute/browser` (scripted steps); synthesize a bundle + compile |
 | `capture_import.py` | 1→2→3 | Drain the bundle; compile (workflow) or compile+register (login) |
 | `bundle_inspect.py` | 1 | Summarise a saved bundle: mode block, URL timeline, endpoint/tool table |

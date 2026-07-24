@@ -95,10 +95,12 @@ Then **end your turn**. Do not poll. Do not mention any other link yet.
 > `--profile <profile_id>` and the mode defaults to workflow-only — the recorder starts
 > already authenticated, so there is no login to record.
 >
-> **Static API-key apps** have no session to record either: record only the workflow (no
-> `--profile`/`--from`) and compile with `--auth-type api-key --api-key-header <header>`
-> (default `Authorization`). The compile prints a `${SECRET:...}` name for an admin to
-> register. **Otherwise leave `--auth-type` at its default** (`session`).
+> **Apps with no login at all** — unauthenticated, or authenticated by a static API key —
+> need `--mode workflow` **explicitly**, because the default would tell the user to sign in
+> to nothing. For a static key, record only the workflow (no `--profile`/`--from`) and
+> compile with `--auth-type api-key --api-key-header <header>` (default `Authorization`);
+> the compile prints a `${SECRET:...}` name for an admin to register. **Otherwise leave
+> `--auth-type` at its default** (`session`).
 >
 > **Record the halves separately** (`--mode login`, then `--mode workflow --from
 > <login_session_id>`) only when you have a specific reason — e.g. you must confirm the
@@ -211,8 +213,9 @@ is an LLM-driven step you do — no script):
    each **2–3 times** and confirm it returns the expected data — not just a non-error.
    You can do this now: `call_web_api` is a catalog tool, not part of the skill.
 3. **Fix or drop.** `login_required` / empty creds / 401 → the profile's own session needs
-   its activation sign-in: run `python scripts/activate_session.py <profile-slug>` and
-   surface the link it prints; 429 → retry; wrong/empty body → recompile from the saved bundle
+   its activation sign-in: run `python scripts/activate_session.py <profile-slug>`, surface
+   the link it prints **on its own** and end your turn; 429 → retry; wrong/empty body →
+   recompile from the saved bundle
    (`compile_workflow.py <bundle.json> --as skill --execution-mode harness`). If an op
    can't be made to work and isn't essential, drop it.
 4. **Make it reusable.** Rename cryptic tool/param names to natural language and
@@ -270,9 +273,10 @@ ever picks wrong, pass `--mode {login,workflow,combined}` explicitly.
 ## Troubleshooting
 
 - **`login_required` on the first live `call_web_api`** — expected, not a failure: the
-  profile's own session needs its one activation sign-in (see *Three sessions* above). Run
-  `python scripts/activate_session.py <profile-slug>` and surface the link. Only if that
-  reports the session already HEALTHY is something actually wrong.
+  profile's own session needs its one activation sign-in (see *Two sessions, two sign-ins*
+  above). Run `python scripts/activate_session.py <profile-slug>` and surface the link — on
+  its own, not next to another link. Only if that reports the session already HEALTHY is
+  something actually wrong.
 - **`login_required` / session not healthy on import** — the login wasn't completed; have
   the user redo the VNC sign-in and click *Finish & export*.
 - **The compiled asset is the wrong kind** (a workflow recording registered as an App

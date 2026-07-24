@@ -46,7 +46,9 @@ def main() -> int:
         "already exists, so the default becomes workflow.) combined: sign in, then drive "
         "the workflow, and import with `capture_import.py` (NoUI splits it into a login "
         "App Template + a workflow asset). login: record a login only. workflow: record "
-        "a workflow only, seeding auth via --profile/--from.",
+        "a workflow only — pass this EXPLICITLY for an app with no login at all "
+        "(unauthenticated, or a static API key), since the default would otherwise ask "
+        "the human to sign in to nothing.",
     )
     p.add_argument("--url", default="", help="login/start URL to open")
     p.add_argument(
@@ -108,6 +110,12 @@ def main() -> int:
     # which is the confusing outcome this default exists to prevent. When
     # --profile/--from is given the auth already exists, so there is no login to
     # record and 'workflow' is the only sensible default.
+    #
+    # This assumes the app HAS a login. An app with none (unauthenticated, or a
+    # static API key) needs an explicit --mode workflow: the default would tell the
+    # human to sign in to nothing. Import still self-corrects — a bundle with no
+    # credential events compiles workflow-only — but the recording instructions
+    # would have been wrong, so say so rather than rely on that.
     if not args.mode:
         args.mode = "workflow" if (args.profile or args.from_session) else "combined"
         why = (
@@ -174,9 +182,9 @@ def main() -> int:
     # stale one (restart, else re-provision) before returning — so login_url is
     # always a live, redaction-safe short link (.../s/<id> → ?mode=recording, the
     # "Finish & export" viewer), never a dead raw vnc_url.
-    # A combined capture is provisioned as a normal 'login' session — Tabby's
-    # recording_mode is behaviorally inert, so one session records login + workflow
-    # in one HAR; NoUI does the login/workflow split at import (--combined).
+    # A combined capture is provisioned as a normal 'login' session — the server-side
+    # mode is behaviorally inert, so one session records login + workflow in one HAR.
+    # NoUI splits it at import, routed by the provision ledger written below.
     tabby_mode = "login" if args.mode == "combined" else args.mode
     try:
         result = recording.provision_live_link(
