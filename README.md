@@ -280,12 +280,16 @@ python scripts/capture_record.py --url "https://app.example.com/login" --name ex
 python scripts/capture_import.py <session_id> --as skill --name example \
   --post-login-url-pattern "<glob the logged-in URL matches but login does not>"
 
-# 3. Activate the profile's own runtime session (one sign-in, its own step)
-python scripts/activate_session.py <profile-slug>
-
-# 4. Install the generated Skill into your agent
+# 3. Install the generated Skill into your agent
 python scripts/activate_install.py workbench/skills/<app> claude-code
 ```
+
+The **first** live call against the new profile returns `login_required`: its per-user
+session starts `LOGIN_NEEDED` (nothing is stored, and the recording's cookies are
+deliberately not reused for a tenant-wide template). The caller escalates — the Agent
+Harness shows a Connect card; locally, read `vnc_stream.url` from
+`GET /agent/session-status/<slug>` and hand it to the human. One sign-in, then every later
+call uses that session. There is nothing to run in advance.
 
 ### Workflow only — the app already has a profile
 
@@ -343,7 +347,6 @@ scripts/capture_record.py    --url <url> [--mode login|workflow|combined] [--fro
                              # --mode defaults to `combined` (one link, one sign-in), or
                              # `workflow` when --profile/--from supplies the auth
 scripts/bundle_inspect.py    <bundle.json> | --session <session_id> [--json]
-scripts/activate_session.py  <profile-slug> [--wait-seconds N]
 scripts/capture_autopilot.py <profile> --steps steps.json --as {mcp|skill|both}
 scripts/capture_import.py    <session_id> [--name <app>] [--as {mcp|skill|both}] [--execution-mode {tabby|http|harness}]
                              [--combined] [--auth-type {session|api-key|auto}] [--api-key-header <h>]

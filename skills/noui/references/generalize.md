@@ -51,19 +51,14 @@ nothing is stored. Recording cookies are deliberately **not** reused for it — 
 is tenant-wide, so seeding them would hand the recorder's live session to every member of
 the org. Per-user auth with nothing stored costs one sign-in.
 
-So expect **one activation sign-in** before the first live call, even though the human just
-signed in during capture. Get it out of the way before step 3 rather than discovering it as
-a `login_required` mid-test — and surface that link on its own, never alongside a recording
-link:
+So expect **one sign-in** on the first live call, even though the human just signed in
+during capture. **Don't try to arrange it in advance.** The first call returns
+`login_required` and the runtime asks for the sign-in itself (in the Agent Harness, a
+Connect card; locally, the `vnc_stream` URL on `GET /agent/session-status/<slug>`). A
+freshly-provisioned session sits in `STARTING` for minutes, so probing it ahead of time just
+waits for nothing.
 
-```bash
-python scripts/activate_session.py <profile-slug>
-# or, at import time:
-python scripts/capture_import.py <session_id> --name <app> --activate-session
-```
-
-Either prints a sign-in link when one is needed, or confirms the session is already
-HEALTHY.
+Say it's coming, let step 3 trigger it, and re-run the call once they're done.
 
 ## 3. Test the survivors — a couple of times each
 **Actually run every remaining operation against the live site** and confirm it
@@ -75,10 +70,10 @@ one-off or intermittently blocked.
 - **tabby/http**: `python operations/<tool>.py <args>` (needs a HEALTHY Tabby session for the profile). Run `python scripts/activate_verify.py <server_dir>` first for a deterministic auth dry-run.
 
 ## 4. Fix or drop failures
-- **`login_required` / empty credentials / 401 / profile 404** → the profile's own session
-  needs its one activation sign-in (see the section above) or the slug is wrong. Run
-  `python scripts/activate_session.py <profile-slug>`, have the human open the link it
-  prints, then re-test.
+- **`login_required` / empty credentials / 401 / profile 404** → on the *first* call this is
+  the expected sign-in (see the section above): let the human complete it, then re-test. If
+  it repeats *after* they've signed in, the slug is wrong or the session isn't healthy —
+  check `GET /agent/session-status/<slug>`.
 - **429 / bot detection** → prefer browser-side execution (`--execution-mode tabby`, `/execute/fetch`) over `http`; retry.
 - **Wrong or empty payload** → the first compile may have dropped/duplicated a request body (e.g. a GraphQL query lost to `/graphql` dedup). Recover it from the saved bundle and recompile (`compile_workflow.py <bundle.json>`), then re-test.
 - **Can't be made to work and isn't essential** → drop it (step 2).

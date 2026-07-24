@@ -164,7 +164,6 @@ Full playbook: `references/generalize.md`.
 | `compile_workflow.py` | 2 | Re-compile a saved workflow bundle → MCP/Skill |
 | `compile_login.py` | 2 | Compile a saved login bundle → App/ServiceProfile drafts |
 | `activate_register.py` | 3 | Register a compiled login result with Tabby as a tenant-wide App Template |
-| `activate_session.py` | 3 | Bring a profile's own per-user session up; print its sign-in link if needed |
 | `activate_verify.py` | 3 | Deterministic auth dry-run on a generated MCP server |
 | `activate_install.py` | 3 | Install a generated skill into an agent (agnostic) |
 
@@ -204,7 +203,7 @@ Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the ra
 - `references/pillar-1-capture.md` — VNC vs Autopilot, the combined default, how the login/workflow mode is decided, bundle shape, session reuse (`--from`)
 - `references/pillar-2-compile.md` — HAR→tools, execution modes (`tabby`/`http`/`harness`), login drafts
 - `references/generalize.md` — post-compile agent pass: prune noise ops + test until they work
-- `references/pillar-3-activate.md` — register (template-first), the per-user activation sign-in, verify, install, `/execute` runtime
+- `references/pillar-3-activate.md` — register (template-first), the per-user session's one sign-in, verify, install, `/execute` runtime
 - `references/tabby-setup.md` — pointing NoUI at a local or cloud Tabby
 - `references/auth-modes.md` — `agent_token` vs `platform_jwt`
 
