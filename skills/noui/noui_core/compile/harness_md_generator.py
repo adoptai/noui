@@ -318,6 +318,19 @@ def _render_body(
     # Operations
     sections.append("## Operations")
     sections.append("")
+    sections.append(
+        "> **Generalize this list before relying on it.** These operations are captured "
+        "verbatim from a single recording, so alongside the real workflow API they may "
+        "include incidental requests the page happened to fire — third-party / cross-domain "
+        "calls (analytics, maps, ad & tracking pixels, CDN or static assets) and telemetry "
+        "beacons (e.g. `gen_204`, `/tr`, `get-data-layer-variables`, feature-flag fetches). "
+        "During the generalization phase (`/noui-generalize`), review each operation and "
+        "**prune the ones that aren't part of the intended task**. Do NOT blanket-drop by "
+        "domain: a workflow can legitimately span multiple hosts (e.g. an auth domain plus "
+        "an API domain), so keep cross-domain operations that are actually used. Aim for the "
+        "smallest set of operations that performs the workflow."
+    )
+    sections.append("")
     for td in tool_defs:
         sections.extend(_render_operation_card(td, profile_slug=profile_slug, auth_plan=auth_plan))
 

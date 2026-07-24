@@ -515,13 +515,25 @@ def create_short_link(session_id: str, token: str, mode: str = "") -> str:
 def _vnc_http(method: str, session_id: str, sub: str, stream_token: str, timeout: int = 15) -> dict:
     """Call a ``/vnc/{session_id}/{sub}`` endpoint.
 
-    These are authenticated by the VNC **stream token** (the JWT from the
+    Tabby authenticates these by the VNC **stream token** (the JWT from the
     ``vnc_url`` ``#token=`` fragment) passed as a ``token`` query param — NOT the
     agent bearer. Raises ``urllib.error`` on non-2xx.
+
+    Broker mode caveat: the harness control-plane broker gates EVERY forwarded
+    route on the capability bearer, including the ``/vnc`` stream-token routes it
+    allowlists (``panel-state``, ``restart``). So we must still send the
+    capability bearer here — the broker validates+strips it and injects the real
+    Tabby bearer, while the ``?token=`` query continues to satisfy Tabby's own
+    VNC-route auth. Without the bearer the broker 401s every call (which made
+    ``_wait_for_pod_ready`` burn its whole ~60s budget). Harmless in non-broker
+    mode: we only attach it when a broker token is present.
     """
     qs = urllib.parse.urlencode({"token": stream_token})
     url = f"{settings.tabby_api_host.rstrip('/')}/vnc/{session_id}/{sub}?{qs}"
-    req = urllib.request.Request(url, method=method)
+    headers: dict[str, str] = {}
+    if settings.broker_mode() and settings.broker_token:
+        headers["Authorization"] = f"Bearer {settings.broker_token}"
+    req = urllib.request.Request(url, method=method, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read().decode()
         return json.loads(raw) if raw else {}

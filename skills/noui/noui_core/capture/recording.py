@@ -117,16 +117,30 @@ def _wait_for_pod_ready(
     startup; any non-``STARTING`` state — including a dead one — exits the loop,
     so we never hang (a dead session is then caught by minting and refreshed).
 
+    ``panel-state`` is a ``/vnc`` route authed by the stream token (query param),
+    not the Tabby bearer. In broker mode (Agent Harness sandbox) that route may
+    not be reachable if the caller omits the capability bearer — so every poll
+    would throw. Rather than burn the whole ~60s budget probing a dead endpoint,
+    bail after a few consecutive errors: the login link is still valid and the
+    viewer auto-reconnects once the pod is up.
+
     Returns the last observed state ("" if it never became readable).
     """
     state = ""
+    consecutive_errors = 0
     for _ in range(attempts):
         try:
             state = tabby_client.get_recording_panel_state(session_id, stream_token).get(
                 "state", ""
             )
+            consecutive_errors = 0
         except Exception:
             state = ""
+            consecutive_errors += 1
+            # panel-state unreachable (e.g. /vnc not proxied in broker mode) —
+            # stop polling a dead endpoint and hand back the link.
+            if consecutive_errors >= 3:
+                return state
         if state and state != "STARTING":
             return state
         time.sleep(interval)
@@ -168,7 +182,12 @@ def provision_live_link(
 
     stream_token = _stream_token(result.get("vnc_url", ""))
     sid = result.get("session_id", "")
-    if stream_token and sid:
+    # A warm-pool claim is already HEALTHY — the server only returns warm=true
+    # after atomically claiming a HEALTHY, pod-backed spare — so there is nothing
+    # to wait for. Skip the pod-startup poll entirely; it's only meaningful for a
+    # cold start (and in broker mode the /vnc panel-state probe it uses can't be
+    # reached, so waiting would just burn the full ~60s budget for nothing).
+    if not result.get("warm") and stream_token and sid:
         _wait_for_pod_ready(sid, stream_token)
 
     try:
