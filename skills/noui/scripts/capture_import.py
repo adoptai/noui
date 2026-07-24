@@ -78,30 +78,6 @@ def _report_mode(mode: str, source: str, inferred: str, bundle: dict) -> None:
         )
 
 
-def _maybe_activate_session(args: argparse.Namespace, profile_slug: str) -> None:
-    """Surface the profile's activation sign-in now, not mid-test.
-
-    The registered template auto-provisions a per-user session on first use, and
-    that session — a different browser from the ones just recorded, with nothing
-    stored — starts LOGIN_NEEDED. Finding that out during the generalize test loop
-    reads as a bug ("I just signed in twice!"); finding out here is a step.
-    Never fatal: the import already succeeded.
-    """
-    if not args.activate_session or not profile_slug:
-        return
-    from noui_core.activate.session import ensure_session, format_activation_notice
-
-    print(f"Activating the session for profile '{profile_slug}' …", file=sys.stderr)
-    try:
-        print(format_activation_notice(ensure_session(profile_slug)), file=sys.stderr)
-    except RuntimeError as exc:
-        print(
-            f"(could not check the session for '{profile_slug}': {exc} — run "
-            f"`python scripts/activate_session.py {profile_slug}` before testing.)",
-            file=sys.stderr,
-        )
-
-
 def _credential_flags(credential_mode: str) -> tuple[bool, bool | None]:
     manual_takeover = credential_mode == "takeover"
     manual_credentials = {"takeover": True, "manual": True, "stored": False, "auto": None}[
@@ -199,7 +175,6 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
 
     profile_slug = prov.get("profile_id", "")
     print(f"Registered login App Template → profile slug '{profile_slug}'.", file=sys.stderr)
-    _maybe_activate_session(args, profile_slug)
 
     # The login compile ran on the login SLICE (not the workflow hosts), so its
     # target_urls won't cover the workflow's hosts — passing its declared headers
@@ -282,16 +257,6 @@ def main() -> int:
         "at the login boundary, register the login App Template, then compile the "
         "workflow (--auth-type session) bound to that profile. Uses the login options "
         "below for the login half. If no login segment is found, compiles workflow-only.",
-    )
-    p.add_argument(
-        "--activate-session",
-        dest="activate_session",
-        action="store_true",
-        help="(login/combined) after registering, bring the profile's OWN per-user "
-        "Tabby session up and print its sign-in link if it needs one. That session is "
-        "a different browser from the ones just recorded (nothing is stored), so it "
-        "needs one interactive sign-in before the first live call — this surfaces it "
-        "now instead of during your first test.",
     )
     # login options
     p.add_argument(
@@ -404,7 +369,6 @@ def main() -> int:
         "first request — no promote needed.",
         file=sys.stderr,
     )
-    _maybe_activate_session(args, prov.get("profile_id", ""))
     return 0
 
 

@@ -28,8 +28,8 @@ How the app authenticates is **declared** at compile, not inferred from the HAR:
 
 `generate_auth_plan(declared_strategy=…)` implements the override; `auto`/`None` keeps the heuristic. (Distinct from `--auth-mode`/`NOUI_TABBY_AUTH_MODE`, which is the runtime **token** mode — see [auth-modes](auth-modes.md).)
 
-### Combined capture (`--combined`)
-`capture_import.py --combined` splits one login+workflow bundle (`noui_core.capture.split`) and runs both compilers: register the login App Template, then `compile_workflow_bundle(..., auth_type="session")` bound to the new profile — see [pillar-1-capture](pillar-1-capture.md).
+### Combined capture (the default)
+A capture holding both halves splits at the login boundary (`noui_core.capture.split`) and runs both compilers: register the login App Template, then `compile_workflow_bundle(..., auth_type="session")` bound to the new profile. `capture_import.py` routes there on its own — from the provision ledger, or from content classification (`noui_core.capture.classify`), never from Tabby's `recording_mode`; `--mode combined` (legacy alias `--combined`) forces it. See [pillar-1-capture](pillar-1-capture.md).
 
 ## Login → App Template + ServiceProfile drafts
 `noui_core.compile.login.compile_login_bundle` → `login_assets.generate`: builds `application_draft` (target URLs, login DSL from click/url events, egress allowlist, keepalive) and `service_profile_draft` (`profile_id`, `credential_types`, `target_domains`). `build_app_template_payload` emits a tenant-wide App Template for federated auto-provisioning.
