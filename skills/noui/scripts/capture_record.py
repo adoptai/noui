@@ -187,8 +187,6 @@ def main() -> int:
     print(f"  session_id : {session_id}")
     print(f"  login_url  : {login_url}    <-- open THIS (recording viewer, redaction-safe)")
     print()
-    print("If the viewer shows 'Disconnected' at first, the browser is still starting —")
-    print("it connects on its own within ~30-60s (no need to re-provision).")
     if args.mode == "combined":
         print(
             "Open the login_url, SIGN IN, then keep going and DRIVE THE WORKFLOW you want "
