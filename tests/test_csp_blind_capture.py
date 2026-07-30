@@ -230,6 +230,25 @@ class TestAuthHeaderOriginsInScope:
             har=bundle["har"],
         )
 
+    def test_request_header_allowlist_turns_capture_on(self) -> None:
+        """Tabby's registerRequestHeaderCapture() returns immediately on an empty
+        allowlist, so without this nothing is captured however right the scope is."""
+        export_policy = self._draft()["application_draft"]["export_policy"]
+        assert export_policy["request_header_allowlist"] == ["authorization"]
+
+    def test_allowlist_never_contains_cookie(self) -> None:
+        """Tabby's validator rejects Cookie — cookies have their own path."""
+        allowlist = self._draft()["application_draft"]["export_policy"]["request_header_allowlist"]
+        assert all(h.lower() != "cookie" for h in allowlist)
+
+    def test_allowlist_agrees_with_declared_credential_types(self) -> None:
+        """The two halves of the contract: what the worker CAPTURES must cover
+        what /credentials/request SERVES, or the value is always empty."""
+        draft = self._draft()
+        served = draft["service_profile_draft"]["credential_types"]["headers"]
+        captured = draft["application_draft"]["export_policy"]["request_header_allowlist"]
+        assert {h.lower() for h in served} <= {h.lower() for h in captured}
+
     def test_api_origin_lands_in_target_urls(self) -> None:
         """Without this the request-header sniffer never fires and auth stays empty."""
         target_urls = self._draft()["application_draft"]["target_urls"]

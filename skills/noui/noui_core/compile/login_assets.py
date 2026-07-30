@@ -1061,6 +1061,23 @@ def generate(
         # for JWT-minting SPAs (tabby/CLAUDE.md gotcha #17) — the 3600s
         # worker-side default is far too slow for this class of header.
         export_policy["refresh_interval_seconds"] = 180
+        # THE allowlist that turns request-header capture on. Tabby's
+        # registerRequestHeaderCapture() opens with
+        #     if (allowlist.length === 0) return;
+        # so without this the listener is never even registered and the header
+        # is never captured — no matter how correct target_urls is, and even
+        # though credential_types.headers declares it. Those two are different
+        # halves of the same contract: credential_types is what
+        # /credentials/request SERVES, request_header_allowlist is what the
+        # worker CAPTURES. Declaring only the first yields a profile that looks
+        # correct, reports HEALTHY, and hands out an empty authorization value,
+        # so every compiled operation 401s.
+        #
+        # Cookie is excluded by Tabby's validator (cookies have their own
+        # extraction path); _analyze_har never collects it here anyway.
+        export_policy["request_header_allowlist"] = [
+            h for h in har_analysis["auth_header_names"] if h.lower() != "cookie"
+        ]
 
     # ---- Infer credential_types ----
     credential_types: dict[str, list] = {"cookies": [], "headers": []}
