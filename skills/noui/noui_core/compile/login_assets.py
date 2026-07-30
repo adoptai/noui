@@ -283,6 +283,7 @@ def _analyze_har(har: dict | None) -> dict[str, Any]:
         "auth_domains": [],
         "set_cookie_headers": [],
         "auth_header_names": [],
+        "auth_header_origins": [],
     }
     if not har:
         return result
@@ -291,6 +292,10 @@ def _analyze_har(har: dict | None) -> dict[str, Any]:
     domains_seen: set[str] = set()
     cookie_names: list[str] = []
     auth_header_names: list[str] = []
+    # Origins that actually carry an auth header. These are what Tabby's
+    # request-header sniffer must be pointed at — see the target_urls note in
+    # generate(); they are frequently NOT the origin the human logged in on.
+    auth_header_origins: list[str] = []
 
     for entry in entries:
         response = entry.get("response", {})
@@ -317,6 +322,7 @@ def _analyze_har(har: dict | None) -> dict[str, Any]:
             if hname in ("authorization", "x-auth-token", "x-api-key"):
                 result["has_auth_headers"] = True
                 auth_header_names.append(header.get("name", ""))
+                auth_header_origins.append(_url_origin(url))
 
         # Check for CSRF tokens
         for header in req.get("headers", []):
@@ -324,10 +330,12 @@ def _analyze_har(har: dict | None) -> dict[str, Any]:
             if "csrf" in hname or "xsrf" in hname:
                 result["has_csrf"] = True
                 auth_header_names.append(header.get("name", ""))
+                auth_header_origins.append(_url_origin(url))
 
     result["auth_domains"] = list(domains_seen)
     result["set_cookie_headers"] = list(set(cookie_names))[:20]
     result["auth_header_names"] = list(set(auth_header_names))[:10]
+    result["auth_header_origins"] = [o for o in dict.fromkeys(auth_header_origins) if o][:10]
     return result
 
 
@@ -986,8 +994,24 @@ def generate(
     # string, never "https://x.com/api/...". A "/**" suffix is required for any
     # real request path to match. Verified live: capture stayed empty until
     # this suffix was added, even with a correct request_header_allowlist.
-    target_urls = [f"{u}/**" for u in dict.fromkeys([origin, post_login_origin]) if u]
-    target_domains_list = [d for d in dict.fromkeys([domain, post_login_domain]) if d]
+    #
+    # The post-login origin is still not enough on its own. A SPA typically
+    # serves its UI from one origin and its API from another (app.adopt.ai ->
+    # api.adopt.ai; the bearer only ever rides on the API calls), so scoping
+    # capture to the origins the human *navigated* misses the origins the token
+    # is actually sent to. Nothing then populates the declared header, Tabby's
+    # attach_captured_credentials falls back to caller headers only, and every
+    # compiled operation 401s while the session reports HEALTHY. So include
+    # every origin observed carrying an auth header.
+    auth_origins = list(har_analysis["auth_header_origins"])
+    target_urls = [
+        f"{u}/**" for u in dict.fromkeys([origin, post_login_origin, *auth_origins]) if u
+    ]
+    target_domains_list = [
+        d
+        for d in dict.fromkeys([domain, post_login_domain, *(_url_domain(o) for o in auth_origins)])
+        if d
+    ]
 
     # ---- Infer keepalive ----
     keepalive_actions: list[dict] = []

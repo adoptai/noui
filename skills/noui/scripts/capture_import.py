@@ -26,7 +26,7 @@ import _bootstrap  # noqa: F401
 from noui_core.activate import register
 from noui_core.capture import ledger, recording
 from noui_core.capture.bundle import save_bundle
-from noui_core.capture.classify import COMBINED, LOGIN, WORKFLOW
+from noui_core.capture.classify import COMBINED, LOGIN, WORKFLOW, missing_login_advice
 from noui_core.capture.split import split_bundle
 from noui_core.compile.login import compile_login_bundle
 from noui_core.compile.workflow import compile_workflow_bundle
@@ -134,6 +134,12 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             "if the capture used an existing profile's auth.",
             file=sys.stderr,
         )
+        # Never let this fall back quietly when the capture shows a login DID
+        # happen (or the recorder was silenced): workflow-only skips App Template
+        # registration, and the failure only surfaces much later as an opaque
+        # "no Tabby profile exists" at runtime.
+        for line in missing_login_advice(bundle, args.session_id, args.name):
+            print(line, file=sys.stderr)
         try:
             result = compile_workflow_bundle(
                 session_id=args.session_id,
@@ -332,6 +338,10 @@ def main() -> int:
             return 1
         if args.auth_type != "api-key" and not args.profile_slug:
             print("No --profile-slug: tools run unauthenticated.", file=sys.stderr)
+            # Same trap as the combined path: an undetected login compiles to an
+            # unauthenticated asset that only fails at runtime.
+            for line in missing_login_advice(bundle, args.session_id, args.name):
+                print(line, file=sys.stderr)
         return _report_workflow(result, args)
 
     # login

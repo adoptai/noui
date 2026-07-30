@@ -97,6 +97,126 @@ def bundle_signals(bundle: dict[str, Any]) -> dict[str, Any]:
     return signals
 
 
+# URL fragments that mean "a sign-in flow ran here". Matched against the
+# capture's url_events, which come from CDP frame navigations and so survive
+# anything the page itself does.
+_LOGIN_URL_MARKERS = (
+    "/login",
+    "/signin",
+    "/sign-in",
+    "/sign_in",
+    "/prelogin",
+    "/oauth",
+    "/authorize",
+    "/sso",
+    "/session/new",
+    "/account/login",
+    "/auth/",
+)
+
+
+def diagnose_missing_login(bundle: dict[str, Any]) -> dict[str, Any] | None:
+    """Explain a capture that yielded no login boundary but looks like it should.
+
+    Returns None when the absence is unremarkable (a genuine workflow-only
+    capture). Otherwise returns ``{"reason", "detail", "recorder_silent",
+    "login_urls"}`` describing why the boundary is missing.
+
+    There are two very different failure shapes, and telling them apart is the
+    whole point — a silent fallback to workflow-only used to hide both:
+
+    * **The recorder was silenced.** Zero interaction events alongside real
+      network traffic does not mean the human sat still; it means nothing the
+      recorder emitted got through. The usual cause is the page's
+      Content-Security-Policy: the beacon the DOM recorder posts each event to
+      is refused before it becomes a request, so the whole capture arrives with
+      empty ``click_events`` (fixed in Tabby by posting the beacon same-origin —
+      older workers and older bundles still show this).
+    * **The login left no credential field.** Interaction events exist but none
+      is a credential field: SSO hand-off, a magic link clicked in another tab,
+      or a session already authenticated by a warm-pool browser.
+
+    Both are recoverable without re-recording (``--mode login``), which is why
+    the caller must say so instead of quietly compiling half the asset.
+    """
+    signals = bundle_signals(bundle)
+    if signals["login_boundary"] is not None:
+        return None
+
+    clicks = [c for c in (bundle.get("click_events") or []) if isinstance(c, dict)]
+    url_events = [u for u in (bundle.get("url_events") or []) if isinstance(u, dict)]
+    login_urls = [
+        u["to_url"]
+        for u in url_events
+        if u.get("to_url") and any(m in u["to_url"].lower() for m in _LOGIN_URL_MARKERS)
+    ]
+    recorder_silent = not clicks and (signals["api_calls_total"] > 0 or len(url_events) > 1)
+
+    if recorder_silent:
+        return {
+            "reason": "recorder_silent",
+            "recorder_silent": True,
+            "login_urls": login_urls,
+            "detail": (
+                f"the capture holds {signals['api_calls_total']} API call(s) and "
+                f"{len(url_events)} navigation(s) but NOT ONE interaction event. The human "
+                "drove this session, so the recorder was silenced rather than idle — most "
+                "often the page's Content-Security-Policy refusing the recorder's beacon. "
+                "No credential field can be detected in this capture, whatever was typed."
+            ),
+        }
+    if login_urls:
+        return {
+            "reason": "login_without_credential_field",
+            "recorder_silent": False,
+            "login_urls": login_urls,
+            "detail": (
+                f"{len(clicks)} interaction event(s) were captured but none is a credential "
+                f"field, even though the session passed through a sign-in URL "
+                f"({login_urls[0]}). Typical of SSO hand-off, magic-link/passwordless login, "
+                "or a warm-pool browser that was already signed in."
+            ),
+        }
+    return None
+
+
+def missing_login_advice(bundle: dict[str, Any], session_id: str, name: str = "") -> list[str]:
+    """Operator-facing lines for a capture whose login could not be detected.
+
+    Empty when nothing looks wrong. Otherwise: what happened, why, and the exact
+    commands that recover it — the recovery path (``--mode login``) is not
+    guessable from the failure alone and used to require reading NoUI's source.
+    """
+    diagnosis = diagnose_missing_login(bundle)
+    if diagnosis is None:
+        return []
+
+    name_flag = f" --name {name}" if name else ""
+    lines = [
+        "",
+        "  ⚠ No login segment detected, but this capture does not look login-free:",
+        f"    {diagnosis['detail']}",
+        "",
+        "    Compiling workflow-only means NO App Template is registered, so at runtime",
+        "    call_web_api will report that no Tabby profile exists for this app.",
+        "",
+        "    Recover WITHOUT re-recording — the bundle is already saved:",
+        f"      python scripts/capture_import.py {session_id} --mode login{name_flag}",
+        "        └ registers the App Template from this same capture, then",
+        f"      python scripts/capture_import.py {session_id} --mode workflow{name_flag} \\",
+        "          --profile-slug <slug-printed-above> --as skill",
+        "        └ compiles the workflow bound to it.",
+    ]
+    if diagnosis["reason"] == "recorder_silent":
+        lines += [
+            "",
+            "    If you do re-record, note that a silenced recorder will silence the next",
+            "    capture too: check the worker log for '[Recording] NO DOM interaction",
+            "    events captured' and make sure the worker carries the same-origin beacon fix.",
+        ]
+    return lines
+
+
 def classify_bundle(bundle: dict[str, Any]) -> str:
     """Return ``"login"``, ``"workflow"`` or ``"combined"`` from the capture's content."""
     signals = bundle_signals(bundle)

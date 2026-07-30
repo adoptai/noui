@@ -21,7 +21,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from noui_core.capture.bundle import count_sensitive_unredacted
-from noui_core.capture.classify import bundle_signals, classify_bundle
+from noui_core.capture.classify import bundle_signals, classify_bundle, diagnose_missing_login
 from noui_core.capture.split import CREDENTIAL_FIELD_ROLES
 
 # Deliberately the compiler's own internals: the table must mirror compile, not
@@ -164,6 +164,9 @@ def summarize(
             "cookies": len(bundle.get("cookies") or []),
         },
         "signals": signals,
+        # Why no login boundary was found, when the capture suggests there should
+        # have been one (silenced recorder, SSO/passwordless, warm-pool session).
+        "missing_login": diagnose_missing_login(bundle),
         "url_timeline": _url_timeline(bundle, signals["login_boundary"]),
         "credential_events": _credential_events(bundle),
         "endpoints": endpoints,

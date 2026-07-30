@@ -155,7 +155,16 @@ def compile_workflow_bundle(
     # `activate/register.py::extend_login_scope_for_workflow` for why this is
     # necessary (target_urls otherwise never covers hosts only visited during
     # a LATER workflow capture, so the declared header never gets captured).
-    if login_credential_headers and profile_slug:
+    #
+    # Gated on the *workflow's own* auth headers, NOT on having successfully read
+    # the login profile's declared ones. `_fetch_login_credential_headers` needs
+    # an Editor+ token and returns None on any failure — inside the harness, or
+    # with only an agent token, it always does. Gating on its result meant the
+    # one step that widens capture scope silently never ran in exactly the
+    # environments that need it, and the skill 401'd at runtime with a HEALTHY
+    # session. When the login's declared headers are unknown, fall back to the
+    # headers this workflow was actually observed sending.
+    if profile_slug and declared_strategy != "static_secret_header":
         try:
             from noui_core.activate.register import extend_login_scope_for_workflow
             from noui_core.compile.auth_plan import (
@@ -163,14 +172,25 @@ def compile_workflow_bundle(
                 _extract_target_domains,
             )
 
-            observed_headers = [
-                h for h in login_credential_headers if h in _extract_observed_auth_headers(har)
-            ]
-            result["scope_extension"] = extend_login_scope_for_workflow(
-                profile_slug,
-                target_domains=_extract_target_domains(har),
-                required_headers=observed_headers,
+            observed = _extract_observed_auth_headers(har)
+            observed_headers = (
+                [h for h in login_credential_headers if h in observed]
+                if login_credential_headers
+                else list(observed)
             )
+            if not observed_headers:
+                # Cookie-only app: the browser session carries the auth itself,
+                # so there is no declared header whose capture scope to widen.
+                result["scope_extension"] = {
+                    "status": "skipped",
+                    "reason": "workflow sends no non-cookie auth header",
+                }
+            else:
+                result["scope_extension"] = extend_login_scope_for_workflow(
+                    profile_slug,
+                    target_domains=_extract_target_domains(har),
+                    required_headers=observed_headers,
+                )
         except Exception as exc:  # noqa: BLE001 — never break compilation over this
             result["scope_extension"] = {
                 "status": "skipped",
