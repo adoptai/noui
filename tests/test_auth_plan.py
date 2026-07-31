@@ -150,6 +150,41 @@ class TestAuthPlanStrategy:
         )
         assert plan["strategy"] == "static_secret_header"
 
+    def test_non_sandbox_static_secret_name_unprefixed(self) -> None:
+        """Default (local/tabby) mode keeps the bare secret name for back-compat."""
+        plan = generate_auth_plan(
+            har=_make_har([_bearer_entry()]),
+            auth_info=self._auth_info_with_bearer(),
+            profile_slug="example-bank",
+            profile_db_id="",
+            app_slug="example-bank",
+        )
+        fb = plan["fallbacks"][0]
+        assert fb["secret_env_var"] == "EXAMPLE_BANK_API_KEY"
+        assert fb["secret_ref"] == "example_bank_api_key"
+
+    def test_sandbox_static_secret_name_is_prefixed(self) -> None:
+        """Harness/sandbox mode must SANDBOX_-prefix the secret so the sandbox
+        (list_sandbox_secrets is hard-scoped to SANDBOX_) can resolve it. The
+        prefix stays uppercase; the base keeps the lowercase ${SECRET:...} token."""
+        from noui_core.compile.harness_md_generator import _secret_placeholder_headers
+
+        plan = generate_auth_plan(
+            har=_make_har([_bearer_entry()]),
+            auth_info=self._auth_info_with_bearer(),
+            profile_slug="example-bank",
+            profile_db_id="",
+            app_slug="example-bank",
+            sandbox_secrets=True,
+        )
+        fb = plan["fallbacks"][0]
+        assert fb["secret_env_var"] == "SANDBOX_EXAMPLE_BANK_API_KEY"
+        assert fb["secret_ref"] == "SANDBOX_example_bank_api_key"
+        # The rendered harness placeholder must reference the exact vault key,
+        # SANDBOX_ prefix casing preserved (not lowercased to sandbox_...).
+        headers = _secret_placeholder_headers(plan)
+        assert "${SECRET:SANDBOX_example_bank_api_key}" in headers["Authorization"]
+
     def test_session_cookie_app_gets_tabby_strategy(self) -> None:
         entry = _make_entry(
             response_headers=[_set_cookie_response()],

@@ -83,7 +83,10 @@ def _secret_placeholder_headers(auth_plan: dict | None) -> dict[str, str]:
         if not header:
             continue
         env_var = fb.get("secret_env_var", "") or header.upper().replace("-", "_")
-        name = env_var.lower()
+        # Prefer the verbatim secret_ref (the exact vault key) so a SANDBOX_ prefix
+        # survives with its casing; fall back to the legacy lowercase derivation for
+        # auth_plans generated before secret_ref existed.
+        name = fb.get("secret_ref") or env_var.lower()
         template = fb.get("value_template") or ""
         if template and env_var and ("${" + env_var + "}") in template:
             out[header] = template.replace("${" + env_var + "}", "${SECRET:" + name + "}")

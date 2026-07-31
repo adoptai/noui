@@ -144,6 +144,9 @@ def compile_workflow(
             login_credential_headers=login_credential_headers,
             declared_strategy=declared_strategy,
             static_secret_headers=static_secret_headers,
+            # Harness skills run in the sandbox, which can only read SANDBOX_-prefixed
+            # vault secrets — emit the prefixed secret name so it resolves there.
+            sandbox_secrets=(execution_mode == "harness"),
         )
 
     # ── 3. Write noui_runtime/auth.py (and execute.py under tabby mode) ───────
