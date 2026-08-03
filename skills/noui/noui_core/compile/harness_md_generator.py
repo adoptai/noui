@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import urlsplit
 
 from noui_core.compile.skill_md_generator import (
     _escape_yaml_scalar,
@@ -108,6 +109,32 @@ def secret_names(auth_plan: dict | None) -> list[str]:
     return names
 
 
+def is_api_key_auth(auth_plan: dict | None) -> bool:
+    """True when the skill authenticates with a static secret header (an API
+    key), rather than (or in addition to) a recorded browser session. Such a
+    skill self-authenticates, so the harness can call it server-side."""
+    return bool(auth_plan and auth_plan.get("strategy") == "static_secret_header")
+
+
+def api_hosts_for(tool_defs: list[dict]) -> list[str]:
+    """Distinct API hosts this skill's operations target, in first-seen order.
+
+    Emitted into an api-key skill's frontmatter as ``api_hosts`` — the harness
+    reads it as BOTH the opt-in to its direct (non-browser) call path AND the
+    egress allowlist for it. A static-key REST API whose API host differs from
+    the app's SPA origin CORS-fails in the browser (the Rocketlane case), so it
+    must be called server-side; declaring the host here is what lets the harness
+    do that safely, with no per-deployment config. Cross-domain ops are kept
+    (a workflow can legitimately span an auth host + an api host)."""
+    hosts: list[str] = []
+    for td in tool_defs:
+        base = td.get("base_url") or ""
+        host = urlsplit(base).hostname or urlsplit(f"{base}{td.get('path', '')}").hostname
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
 def build_operation_recipe(td: dict, *, profile_slug: str, auth_plan: dict | None = None) -> dict:
     """Build the machine-readable request recipe for one recorded operation."""
     method = td["method"].upper()
@@ -189,12 +216,24 @@ def render_harness_skill_md(
         workflow_name=workflow_name,
         tool_defs=tool_defs,
         profile_slug=profile_slug,
-        requires_auth=bool(auth_plan),
+        auth_plan=auth_plan,
     )
+
+    # An api-key skill declares its auth mode + API host(s) in frontmatter so
+    # the harness routes call_web_api server-side (direct httpx) instead of
+    # through the browser session, which cross-origin-CORS-fails for a static-
+    # key REST API (the Rocketlane case). api_hosts is both the opt-in and the
+    # egress allowlist; it ships with the skill via install_skill, so no
+    # per-app deployment config is needed. Non-api-key skills are unchanged.
+    auth_lines = ""
+    if is_api_key_auth(auth_plan):
+        hosts = api_hosts_for(tool_defs)
+        host_block = "".join(f"\n  - {_escape_yaml_scalar(h)}" for h in hosts)
+        auth_lines = f"\nauth: api-key\napi_hosts:{host_block}" if hosts else "\nauth: api-key"
 
     frontmatter = f"""---
 name: {skill_id}
-description: {_escape_yaml_scalar(description)}
+description: {_escape_yaml_scalar(description)}{auth_lines}
 ---
 """
     body = _render_body(
