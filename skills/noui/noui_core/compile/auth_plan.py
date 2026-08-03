@@ -116,6 +116,7 @@ def generate_auth_plan(
     login_credential_headers: list[str] | None = None,
     declared_strategy: str | None = None,
     static_secret_headers: list[str] | None = None,
+    sandbox_secrets: bool = False,
 ) -> dict:
     """Generate an auth_plan dict from a workflow HAR and auth signal analysis.
 
@@ -188,7 +189,19 @@ def generate_auth_plan(
     fallbacks: list[dict] = []
     if is_static:
         for header_name in required_headers:
-            env_var = _env_var_name(app_slug, header_name)
+            base_env_var = _env_var_name(app_slug, header_name)
+            if sandbox_secrets:
+                # Harness/sandbox execution can ONLY read vault secrets whose key
+                # is prefixed with SANDBOX_ (the platform's list_sandbox_secrets is
+                # hard-scoped to that prefix). Emit the prefixed name so an admin
+                # registers exactly this key and the sandbox can inject it. The
+                # prefix stays uppercase (the inject scope is literally "SANDBOX_");
+                # the base keeps the lowercase ${SECRET:...} token convention.
+                env_var = f"SANDBOX_{base_env_var}"
+                secret_ref = f"SANDBOX_{base_env_var.lower()}"
+            else:
+                env_var = base_env_var
+                secret_ref = base_env_var.lower()
             scheme = observed.get(header_name, {}).get("scheme")
             value_template = f"{scheme} ${{{env_var}}}" if scheme else f"${{{env_var}}}"
             fallbacks.append(
@@ -197,6 +210,11 @@ def generate_auth_plan(
                     "header": header_name,
                     "value_template": value_template,
                     "secret_env_var": env_var,
+                    # Exact ${SECRET:<name>} token the harness must resolve — the
+                    # vault key, verbatim (case preserved). Consumers must use this
+                    # rather than re-deriving via secret_env_var.lower(), so a
+                    # SANDBOX_ prefix survives casing.
+                    "secret_ref": secret_ref,
                 }
             )
 

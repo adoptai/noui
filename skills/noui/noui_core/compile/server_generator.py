@@ -144,6 +144,10 @@ def compile_workflow(
             login_credential_headers=login_credential_headers,
             declared_strategy=declared_strategy,
             static_secret_headers=static_secret_headers,
+            # No sandbox_secrets here: this MCP-server path only supports
+            # execution_mode in ("tabby", "http") — never "harness" — so the
+            # SANDBOX_ prefix is irrelevant. Harness compilation runs through
+            # skill_generator.generate_skill, which sets it.
         )
 
     # ── 3. Write noui_runtime/auth.py (and execute.py under tabby mode) ───────
