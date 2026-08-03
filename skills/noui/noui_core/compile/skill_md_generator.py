@@ -113,9 +113,12 @@ def _synthesize_description(
     # browser session — so the old "Requires an authenticated Tabby session"
     # line was misleading for it (the Rocketlane case).
     if auth_plan and auth_plan.get("strategy") == "static_secret_header":
+        # Location-neutral: the harness resolves the key server-side, the http
+        # execution mode reads it from a local env var — either way it's a
+        # static key, not a browser sign-in.
         auth_caveat = (
-            f" Authenticates with a static API key (configured server-side), not a "
-            f"browser sign-in, and calls {hostname} directly."
+            f" Authenticates with a static API key rather than a browser sign-in, "
+            f"and calls {hostname} directly."
         )
     elif auth_plan:
         auth_caveat = (

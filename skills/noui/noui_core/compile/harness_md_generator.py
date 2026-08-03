@@ -265,13 +265,28 @@ def _render_body(
     auth_plan: dict,
     profile_slug: str,
 ) -> str:
+    # An api-key skill is called server-side (direct httpx to its api_hosts), not
+    # through the Tabby browser — so its prose must NOT claim a live session/profile
+    # or advise re-recording login for CORS, which would loop authors back into the
+    # re-sign trap this whole change removes.
+    is_api_key = is_api_key_auth(auth_plan)
     authed = bool(profile_slug)
     secrets = secret_names(auth_plan)
     sections: list[str] = []
 
     sections.append(f"# {app_name}")
     sections.append("")
-    if authed:
+    if is_api_key:
+        sections.append(
+            f"Skill for {app_name}, targeting the **Adopt Agent Harness**. Operations are "
+            f"executed by calling the harness `call_web_api` tool — there are no scripts to "
+            f"run and nothing to install. This API authenticates with a **static API key**, so "
+            f"the harness calls it **directly, server-side**: it substitutes the "
+            f"`${{SECRET:...}}` header worker-side and fetches the API host (declared in this "
+            f"skill's `api_hosts` frontmatter) directly. No Tabby profile, member sign-in, or "
+            f"browser session is involved."
+        )
+    elif authed:
         sections.append(
             f"Skill for {app_name}, targeting the **Adopt Agent Harness**. Operations are "
             f"executed by calling the harness `call_web_api` tool — there are no scripts to "
@@ -290,7 +305,24 @@ def _render_body(
     # Prerequisites
     sections.append("## Prerequisites")
     sections.append("")
-    if authed:
+    if is_api_key:
+        items: list[str] = []
+        if secrets:
+            names = ", ".join(f"`{n}`" for n in secrets)
+            items.append(
+                f"The API key secret(s) {names} are configured in the harness secret store "
+                f"(`AGENT_HARNESS_WEB_API_SECRETS`, or the org secret vault). The operation "
+                f"cards carry the key as a `${{SECRET:name}}` placeholder — **pass it verbatim, "
+                f"never a real key**; an unconfigured secret returns an actionable error naming it."
+            )
+        items.append(
+            "The skill's `api_hosts` frontmatter lists the API host(s) the harness may reach "
+            "directly. No Tabby profile, session, or member sign-in is required — the key "
+            "authenticates every call."
+        )
+        for i, item in enumerate(items, 1):
+            sections.append(f"{i}. {item}")
+    elif authed:
         sections.append(
             f"1. The Tabby profile **`{profile_slug}`** is **ACTIVE** and listed in the "
             f"harness agent client's `allowed_profiles` (a `forbidden` result means it is "
@@ -379,7 +411,28 @@ def _render_body(
     # Troubleshooting
     sections.append("## Troubleshooting")
     sections.append("")
-    if authed:
+    if is_api_key:
+        sections.append(
+            "- **`cors_blocked` / `Failed to fetch`** — the call was attempted through the "
+            "browser and blocked cross-origin. This is **not** a login problem: do **not** "
+            "re-record a login or retry with `wait_for_login`. It means this URL's host is not "
+            "in the skill's `api_hosts` frontmatter — add the host and re-install so the call "
+            "routes server-side."
+        )
+        sections.append(
+            "- **HTTP 401 / 403 from the API** — the API key is missing, wrong, or lacks the "
+            "needed scope; this is a key/permission problem, not a session one. Check the "
+            "configured secret, not sign-in."
+        )
+        sections.append(
+            "- **Unconfigured secret** — a `${SECRET:name}` with no stored value returns an "
+            "error naming it; an admin adds it to the harness secret store."
+        )
+        sections.append(
+            "- **Truncated response** — the result hit the harness text cap. Narrow the query "
+            "(filters, pagination params) instead of re-fetching the same URL."
+        )
+    elif authed:
         sections.append(
             "- **`forbidden`** — the profile is not in the harness agent client's "
             "`allowed_profiles`, or is not ACTIVE. An admin must fix the profile; this is "

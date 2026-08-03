@@ -84,6 +84,25 @@ def test_session_description_keeps_tabby_session_caveat():
     assert "authenticated Tabby session" in desc
 
 
+def test_api_key_body_describes_server_side_not_resign():
+    # The generated body for an api-key skill must agree with the api_hosts
+    # frontmatter: server-side routing, no Tabby session, and NO advice to
+    # re-record login on a CORS/Failed-to-fetch (which would loop authors).
+    md = _render(_STATIC_PLAN)
+    body = md.split("---\n", 2)[2]  # after frontmatter
+    assert "directly, server-side" in body
+    tshoot = body.split("## Troubleshooting", 1)[1].split("<!-- custom", 1)[0]
+    assert "cors_blocked" in tshoot.lower() or "failed to fetch" in tshoot.lower()
+    assert "do **not** re-record" in tshoot  # steers away from the re-sign loop
+    assert "re-record the login if needed" not in tshoot  # the old session advice is gone
+    assert "api_hosts" in tshoot
+
+
+def test_session_body_still_mentions_tabby_profile():
+    body = _render(_SESSION_PLAN).split("---\n", 2)[2]
+    assert "Tabby profile" in body
+
+
 def test_api_hosts_dedupes_across_operations_in_order():
     from noui_core.compile.harness_md_generator import api_hosts_for
 
