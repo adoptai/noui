@@ -145,7 +145,12 @@ deterministic):
    `python operations/<tool>.py …` or `activate_verify.py`), **2–3 times each**, and
    confirm it returns the expected data.
 3. **Fix or drop** failures (empty creds → healthy session; 429 → browser-side
-   execute; wrong/empty body → recompile from the saved bundle), then **rename**
+   execute; wrong/empty body → recompile from the saved bundle;
+   **`cors_blocked` / `TypeError: Failed to fetch` → the app's page blocks the
+   cross-origin call — this is NOT a login/session fault, so do NOT re-sign or
+   re-record; recompile as an api-key skill** (`--auth-type api-key
+   --api-key-header <header>`, `${SECRET:...}`), or capture the in-page bearer
+   via `request_header_allowlist` if the app mints its own), then **rename**
    cryptic tools/params to natural language and **parameterize** hardcoded values.
 4. **Loop** until every remaining operation passes 2–3 clean runs — only then install.
 
