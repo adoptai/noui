@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import urlsplit
 
 from noui_core.compile.skill_md_generator import (
     _escape_yaml_scalar,
@@ -108,6 +109,32 @@ def secret_names(auth_plan: dict | None) -> list[str]:
     return names
 
 
+def is_api_key_auth(auth_plan: dict | None) -> bool:
+    """True when the skill authenticates with a static secret header (an API
+    key), rather than (or in addition to) a recorded browser session. Such a
+    skill self-authenticates, so the harness can call it server-side."""
+    return bool(auth_plan and auth_plan.get("strategy") == "static_secret_header")
+
+
+def api_hosts_for(tool_defs: list[dict]) -> list[str]:
+    """Distinct API hosts this skill's operations target, in first-seen order.
+
+    Emitted into an api-key skill's frontmatter as ``api_hosts`` — the harness
+    reads it as BOTH the opt-in to its direct (non-browser) call path AND the
+    egress allowlist for it. A static-key REST API whose API host differs from
+    the app's SPA origin CORS-fails in the browser (the Rocketlane case), so it
+    must be called server-side; declaring the host here is what lets the harness
+    do that safely, with no per-deployment config. Cross-domain ops are kept
+    (a workflow can legitimately span an auth host + an api host)."""
+    hosts: list[str] = []
+    for td in tool_defs:
+        base = td.get("base_url") or ""
+        host = urlsplit(base).hostname or urlsplit(f"{base}{td.get('path', '')}").hostname
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
 def build_operation_recipe(td: dict, *, profile_slug: str, auth_plan: dict | None = None) -> dict:
     """Build the machine-readable request recipe for one recorded operation."""
     method = td["method"].upper()
@@ -189,12 +216,24 @@ def render_harness_skill_md(
         workflow_name=workflow_name,
         tool_defs=tool_defs,
         profile_slug=profile_slug,
-        requires_auth=bool(auth_plan),
+        auth_plan=auth_plan,
     )
+
+    # An api-key skill declares its auth mode + API host(s) in frontmatter so
+    # the harness routes call_web_api server-side (direct httpx) instead of
+    # through the browser session, which cross-origin-CORS-fails for a static-
+    # key REST API (the Rocketlane case). api_hosts is both the opt-in and the
+    # egress allowlist; it ships with the skill via install_skill, so no
+    # per-app deployment config is needed. Non-api-key skills are unchanged.
+    auth_lines = ""
+    if is_api_key_auth(auth_plan):
+        hosts = api_hosts_for(tool_defs)
+        host_block = "".join(f"\n  - {_escape_yaml_scalar(h)}" for h in hosts)
+        auth_lines = f"\nauth: api-key\napi_hosts:{host_block}" if hosts else "\nauth: api-key"
 
     frontmatter = f"""---
 name: {skill_id}
-description: {_escape_yaml_scalar(description)}
+description: {_escape_yaml_scalar(description)}{auth_lines}
 ---
 """
     body = _render_body(
@@ -226,13 +265,28 @@ def _render_body(
     auth_plan: dict,
     profile_slug: str,
 ) -> str:
+    # An api-key skill is called server-side (direct httpx to its api_hosts), not
+    # through the Tabby browser — so its prose must NOT claim a live session/profile
+    # or advise re-recording login for CORS, which would loop authors back into the
+    # re-sign trap this whole change removes.
+    is_api_key = is_api_key_auth(auth_plan)
     authed = bool(profile_slug)
     secrets = secret_names(auth_plan)
     sections: list[str] = []
 
     sections.append(f"# {app_name}")
     sections.append("")
-    if authed:
+    if is_api_key:
+        sections.append(
+            f"Skill for {app_name}, targeting the **Adopt Agent Harness**. Operations are "
+            f"executed by calling the harness `call_web_api` tool — there are no scripts to "
+            f"run and nothing to install. This API authenticates with a **static API key**, so "
+            f"the harness calls it **directly, server-side**: it substitutes the "
+            f"`${{SECRET:...}}` header worker-side and fetches the API host (declared in this "
+            f"skill's `api_hosts` frontmatter) directly. No Tabby profile, member sign-in, or "
+            f"browser session is involved."
+        )
+    elif authed:
         sections.append(
             f"Skill for {app_name}, targeting the **Adopt Agent Harness**. Operations are "
             f"executed by calling the harness `call_web_api` tool — there are no scripts to "
@@ -251,7 +305,24 @@ def _render_body(
     # Prerequisites
     sections.append("## Prerequisites")
     sections.append("")
-    if authed:
+    if is_api_key:
+        items: list[str] = []
+        if secrets:
+            names = ", ".join(f"`{n}`" for n in secrets)
+            items.append(
+                f"The API key secret(s) {names} are configured in the harness secret store "
+                f"(`AGENT_HARNESS_WEB_API_SECRETS`, or the org secret vault). The operation "
+                f"cards carry the key as a `${{SECRET:name}}` placeholder — **pass it verbatim, "
+                f"never a real key**; an unconfigured secret returns an actionable error naming it."
+            )
+        items.append(
+            "The skill's `api_hosts` frontmatter lists the API host(s) the harness may reach "
+            "directly. No Tabby profile, session, or member sign-in is required — the key "
+            "authenticates every call."
+        )
+        for i, item in enumerate(items, 1):
+            sections.append(f"{i}. {item}")
+    elif authed:
         sections.append(
             f"1. The Tabby profile **`{profile_slug}`** is **ACTIVE** and listed in the "
             f"harness agent client's `allowed_profiles` (a `forbidden` result means it is "
@@ -340,7 +411,28 @@ def _render_body(
     # Troubleshooting
     sections.append("## Troubleshooting")
     sections.append("")
-    if authed:
+    if is_api_key:
+        sections.append(
+            "- **`cors_blocked` / `Failed to fetch`** — the call was attempted through the "
+            "browser and blocked cross-origin. This is **not** a login problem: do **not** "
+            "re-record a login or retry with `wait_for_login`. It means this URL's host is not "
+            "in the skill's `api_hosts` frontmatter — add the host and re-install so the call "
+            "routes server-side."
+        )
+        sections.append(
+            "- **HTTP 401 / 403 from the API** — the API key is missing, wrong, or lacks the "
+            "needed scope; this is a key/permission problem, not a session one. Check the "
+            "configured secret, not sign-in."
+        )
+        sections.append(
+            "- **Unconfigured secret** — a `${SECRET:name}` with no stored value returns an "
+            "error naming it; an admin adds it to the harness secret store."
+        )
+        sections.append(
+            "- **Truncated response** — the result hit the harness text cap. Narrow the query "
+            "(filters, pagination params) instead of re-fetching the same URL."
+        )
+    elif authed:
         sections.append(
             "- **`forbidden`** — the profile is not in the harness agent client's "
             "`allowed_profiles`, or is not ACTIVE. An admin must fix the profile; this is "

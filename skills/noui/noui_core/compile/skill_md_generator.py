@@ -49,7 +49,7 @@ def render_skill_md(
         workflow_name=workflow_name,
         tool_defs=tool_defs,
         profile_slug=profile_slug,
-        requires_auth=bool(auth_plan),
+        auth_plan=auth_plan,
     )
 
     body = _render_body(
@@ -90,7 +90,7 @@ def _synthesize_description(
     workflow_name: str,
     tool_defs: list[dict],
     profile_slug: str,
-    requires_auth: bool,
+    auth_plan: dict | None,
 ) -> str:
     """Draft a description + trigger phrases from the recording metadata."""
     actions = [_tool_to_action(td) for td in tool_defs if _tool_to_action(td)]
@@ -108,12 +108,25 @@ def _synthesize_description(
     )[:4]
     trigger_str = ", ".join(f'"{t}"' for t in triggers)
 
-    auth_caveat = (
-        f" Requires an authenticated Tabby session for the `{profile_slug or app_name.lower()}` "
-        f"profile; not usable as a generic {hostname} tool."
-        if requires_auth
-        else ""
-    )
+    # The caveat must match how the skill actually authenticates: an api-key
+    # (static_secret_header) skill calls the API directly with a key — no
+    # browser session — so the old "Requires an authenticated Tabby session"
+    # line was misleading for it (the Rocketlane case).
+    if auth_plan and auth_plan.get("strategy") == "static_secret_header":
+        # Location-neutral: the harness resolves the key server-side, the http
+        # execution mode reads it from a local env var — either way it's a
+        # static key, not a browser sign-in.
+        auth_caveat = (
+            f" Authenticates with a static API key rather than a browser sign-in, "
+            f"and calls {hostname} directly."
+        )
+    elif auth_plan:
+        auth_caveat = (
+            f" Requires an authenticated Tabby session for the `{profile_slug or app_name.lower()}` "
+            f"profile; not usable as a generic {hostname} tool."
+        )
+    else:
+        auth_caveat = ""
 
     return (
         f"Use this skill when the user wants to {action_phrase} on {app_name}. "
