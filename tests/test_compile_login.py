@@ -453,7 +453,10 @@ def test_landing_page_follows_same_origin_settling_bounce():
     ])
     res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
     hc = res["application_draft"]["keepalive_config"]["health_checks"][0]
-    assert hc["url"] == "https://x.com/?challengeReferer=noref"
+    # Query string dropped: a recorded landing URL's params are frequently
+    # one-time and session-bound (see _stable_url), so anything replayed later
+    # must use the path alone.
+    assert hc["url"] == "https://x.com/"
 
 
 def test_health_check_can_actually_fail():
@@ -653,3 +656,42 @@ def test_bound_harness_skill_routes_every_operation_through_call_web_api(tmp_pat
     assert manifest["auth"]["execution_strategy"] == "harness_call_web_api"
     tools = {o["tool"] for o in ops["operations"]}
     assert tools == {"call_web_api"}, f"manifest says browser routing but ops use {tools}"
+
+
+def test_replayed_urls_drop_one_time_tokens():
+    """ICICI's recorded landing URL carried a one-time UX_TOKEN. Replaying it —
+    the keepalive `goto` did, every 300s — navigated the live browser onto a
+    dead-token error page, kicking the user off whatever they were doing."""
+    from noui_core.compile.login import compile_login_bundle
+
+    landing = (
+        "https://infinity.icici.bank.in/corp/AuthenticationController"
+        "?FORMSGROUP_ID__=AuthenticationFG&UX_TOKEN=RE%2B5MjthAGhn&CTA_FLAG=CCPSTM"
+    )
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [
+            {"to_url": "https://infinity.icici.bank.in/corp/Login"},
+            {"to_url": landing},
+        ],
+        "click_events": [],
+        "har": {"log": {"entries": [{
+            "request": {"url": landing, "headers": [{"name": "xsrf-token", "value": "t"}]},
+            "response": {"headers": []},
+        }]}},
+        "cookies": [],
+    }
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="icici", manual_takeover=True)
+    ka = res["application_draft"]["keepalive_config"]
+
+    goto = [a for a in ka["actions"] if a.get("action") == "goto"]
+    assert goto, "expected a keepalive goto for a dynamic-header app"
+    for a in goto:
+        assert "UX_TOKEN" not in a["url"], "keepalive replays a one-time token"
+        assert "?" not in a["url"]
+        assert a["url"] == "https://infinity.icici.bank.in/corp/AuthenticationController"
+
+    # The health probe hits a URL too — same reasoning.
+    hc = ka["health_checks"][0]
+    if hc.get("url"):
+        assert "UX_TOKEN" not in hc["url"] and "?" not in hc["url"]

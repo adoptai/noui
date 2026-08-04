@@ -134,6 +134,27 @@ def _build_selector(ev: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _stable_url(url: str) -> str:
+    """Drop query + fragment, keeping scheme://host/path.
+
+    Recorded landing URLs routinely carry one-time, session-bound material —
+    ICICI's post-login URL was
+    ``.../corp/AuthenticationController?...&UX_TOKEN=<one-time>&CTA_FLAG=CCPSTM``.
+    Anything that REPLAYS such a URL later is asking for a token that died with
+    the recording session: the keepalive `goto` navigated the live browser onto a
+    dead-token error page every interval (kicking the user off whatever they were
+    doing), and a health probe against it would fail for reasons unrelated to
+    health. The path alone is the durable part.
+    """
+    try:
+        p = urlparse(url)
+        if not p.scheme or not p.netloc:
+            return url
+        return f"{p.scheme}://{p.netloc}{p.path}"
+    except Exception:
+        return url
+
+
 def _url_origin(url: str) -> str:
     try:
         p = urlparse(url)
@@ -1040,7 +1061,7 @@ def generate(
         keepalive_health_checks.append(
             {
                 "type": "url_check",
-                "url": post_login_url,
+                "url": _stable_url(post_login_url),
                 "expect_status": 200,
                 "auth_redirect_pattern": "|".join(dict.fromkeys(_auth_patterns)),
                 "timeout_ms": 15000,
@@ -1075,7 +1096,7 @@ def generate(
         # this, a captured header can go stale (or never populate) if nothing
         # else on the session happens to hit an instrumented route between
         # keepalive cycles.
-        keepalive_actions.append({"action": "goto", "url": post_login_url})
+        keepalive_actions.append({"action": "goto", "url": _stable_url(post_login_url)})
 
     keepalive_config: dict[str, Any] = {
         "interval_seconds": 300,
