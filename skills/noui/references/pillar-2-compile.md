@@ -19,6 +19,15 @@ Outputs go under `NOUI_WORKBENCH_DIR` (default `skills/noui/workbench/`): `mcp_s
 
 The vendored `noui_runtime/execute.py` (from `noui_core.activate.execute_adapter`) is what makes a generated asset self-contained and Tabby-`/execute`-backed.
 
+### Browser-driven skills (`--browser-driven`) — for apps replay can't reach
+Some single-page apps encrypt **every request body in the page's JavaScript** with a per-session key fetched at load time (and/or stamp each request with rotating per-request headers). A recorded request is then unreplayable: the body is an opaque `{data, key}` blob only the live page can produce, and the headers die with the recording. ICICI net-banking is the canonical case — a normal HAR-replay skill compiles dozens of operations that **all 403 at run time**, and even a perfect capture of the target endpoint is dead on arrival.
+
+For those apps, compile a **browser-driven** skill: it drives the page (`navigate` → `get_page_summary`) via the harness `call_web_browser` tool and reads the DOM the page already fetched and decrypted, so the encryption is irrelevant. Its "operations" are the readable data pages from the recording, not replayed API calls. Requires a bound `--profile-slug` (it drives an authenticated session).
+
+**This is auto-detected — you usually don't pass the flag.** `capture_import` inspects the HAR for the unreplayable fingerprint (opaque `{data,key}` bodies on the app's own origin + a key-fetch endpoint like `/getKeys`) via `noui_core.compile.unreplayable.detect_unreplayable`, and switches to browser mode on its own, printing *why* (surfaced under `result["browser_detection"]`). Overrides: `--browser-driven` forces it on; `--no-auto-browser` forces the legacy replay compile off.
+
+**When a user asks you to build a skill for a bank or other portal that encrypts its traffic, expect browser mode** — let the auto-detection choose, and tell the user the skill will read the rendered page rather than replay APIs (so it needs them to sign in through the sign-in card, and reads promptly because such portals idle out fast).
+
 ### Auth model (`--auth-type`) — declared, not guessed
 How the app authenticates is **declared** at compile, not inferred from the HAR:
 

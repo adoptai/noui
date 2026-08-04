@@ -115,6 +115,7 @@ def compile_workflow_bundle(
     api_key_header: str = "",
     allow_unbound_profile: bool = False,
     browser_driven: bool = False,
+    auto_detect_browser: bool = True,
 ) -> dict:
     """Compile a workflow bundle to ``target`` ("mcp" | "skill" | "both").
 
@@ -124,6 +125,11 @@ def compile_workflow_bundle(
         replayed — SPAs that mint per-request encryption or per-session headers
         in JavaScript (ICICI's {data,key} bodies). Only affects the "skill"
         target; requires a bound profile_slug. The MCP target is unaffected.
+    auto_detect_browser: when browser_driven is not already set, inspect the HAR
+        for the unreplayable fingerprint (opaque {data,key} bodies + a key-fetch
+        endpoint) and switch to browser mode automatically if it fires. The
+        decision and its reasons are returned under result["browser_detection"].
+        Set False to force the legacy replay compile regardless of the signal.
 
     Args:
         login_credential_headers: Header names already declared on the paired
@@ -194,6 +200,32 @@ def compile_workflow_bundle(
     root = Path(output_root or settings.workbench_dir)
 
     result: dict = {}
+
+    # Auto-route unreplayable apps to browser mode. A HAR-replay skill is useless
+    # when the app encrypts every body in-page (the recorded request is an opaque
+    # {data,key} blob only the live page can produce), and nothing downstream
+    # notices until every call 403s at run time. Detect the fingerprint here and
+    # switch, unless the caller already chose a mode. Skill target only.
+    browser_detection: dict | None = None
+    if (
+        not browser_driven
+        and auto_detect_browser
+        and auth_type != "api-key"
+        and target in ("skill", "both")
+    ):
+        from noui_core.compile.unreplayable import detect_unreplayable
+
+        app_origin = ""
+        _first = start_url or next((u.get("to_url", "") for u in urls if u.get("to_url")), "")
+        if _first:
+            from urllib.parse import urlparse as _urlparse
+
+            _p = _urlparse(_first)
+            app_origin = f"{_p.scheme}://{_p.netloc}"
+        browser_detection = detect_unreplayable(har, app_origin=app_origin)
+        if browser_detection.get("unreplayable"):
+            browser_driven = True
+
     if target in ("mcp", "both"):
         result["mcp"] = compile_workflow(
             session_id=session_id,
@@ -282,5 +314,10 @@ def compile_workflow_bundle(
                 "status": "skipped",
                 "reason": f"{type(exc).__name__}: {exc}",
             }
+
+    # Surface the auto-detection so the caller (capture_import / the harness) can
+    # tell the user WHY browser mode was chosen, rather than switching silently.
+    if browser_detection is not None:
+        result["browser_detection"] = browser_detection
 
     return result

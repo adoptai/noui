@@ -102,6 +102,15 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
         print(f"MCP server: {mcp.get('server_id', '?')} ({len(mcp.get('tools', []))} tool(s))")
     if skill:
         print(f"Skill: {skill.get('skill_id', '?')} ({len(skill.get('operations', []))} op(s))")
+    # Tell the operator when the app was auto-routed to browser mode, and why —
+    # this is the recommendation surfaced to a user authoring a skill in the
+    # harness, so browser mode is never picked silently.
+    det = result.get("browser_detection") or {}
+    if det.get("unreplayable"):
+        from noui_core.compile.unreplayable import recommendation_message
+
+        app = (skill.get("skill_id") if skill else None) or "this app"
+        print("Browser mode auto-selected —", recommendation_message(det, app_name=app), file=sys.stderr)
     if args.auth_type == "api-key":
         secrets = (skill.get("secrets_required") if skill else None) or (
             mcp.get("secrets_required") if mcp else None
@@ -145,6 +154,7 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
                 auth_type=args.auth_type,
                 api_key_header=args.api_key_header,
                 browser_driven=getattr(args, "browser_driven", False),
+                auto_detect_browser=getattr(args, "auto_detect_browser", True),
             )
         except Exception as exc:  # noqa: BLE001
             print(f"Workflow compile failed: {exc}", file=sys.stderr)
@@ -195,6 +205,7 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             auth_type="session",
             login_credential_headers=login_headers,
             browser_driven=getattr(args, "browser_driven", False),
+            auto_detect_browser=getattr(args, "auto_detect_browser", True),
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Workflow compile failed: {exc}", file=sys.stderr)
@@ -221,6 +232,17 @@ def main() -> int:
         dest="execution_mode",
         choices=["tabby", "http", "harness"],
         default="tabby",
+    )
+    p.add_argument(
+        "--no-auto-browser",
+        dest="auto_detect_browser",
+        action="store_false",
+        help=(
+            "Disable automatic browser-mode detection. By default, if the capture "
+            "shows the app encrypts its requests in-page (opaque {data,key} bodies "
+            "+ a key-fetch endpoint), the skill is compiled browser-driven because "
+            "replay cannot work. This forces the legacy replay compile anyway."
+        ),
     )
     p.add_argument(
         "--browser-driven",
@@ -342,6 +364,7 @@ def main() -> int:
                 auth_type=args.auth_type,
                 api_key_header=args.api_key_header,
                 browser_driven=getattr(args, "browser_driven", False),
+                auto_detect_browser=getattr(args, "auto_detect_browser", True),
             )
         except Exception as exc:  # noqa: BLE001 — surface any compile failure
             print(f"Workflow compile failed: {exc}", file=sys.stderr)
