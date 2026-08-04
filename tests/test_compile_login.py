@@ -403,3 +403,88 @@ def test_bound_profile_compiles_normally(tmp_path):
         login_credential_headers=[],
     )
     assert res.get("skill")
+
+
+# ---------------------------------------------------------------------------
+# Landing-page inference + health check
+# ---------------------------------------------------------------------------
+
+def _login_bundle(url_events):
+    return {
+        "recording_mode": "login",
+        "url_events": url_events,
+        "click_events": [],
+        "har": {"log": {"entries": []}},
+        "cookies": [],
+    }
+
+
+def test_landing_page_stops_at_the_first_origin_change():
+    """A multi-host recording must not wait on the LAST host visited.
+
+    ICICI retail login produced wait_for_url "https://infinity.icici.bank.in/corp**"
+    — the CORPORATE portal — because stable_urls[-1] was where the human finished
+    the workflow. A retail login can never reach it, so wait_for_url timed out on
+    every session and the human was asked to "finish logging in" after they had.
+    """
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = _login_bundle([
+        {"to_url": "https://retail.bank.in/login-page"},
+        {"to_url": "https://retail.bank.in/dashboard"},   # ← the landing page
+        {"to_url": "https://corp.bank.in/corp/Finacle"},  # ← later workflow host
+    ])
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
+    steps = res["application_draft"]["login_config"]["steps"]
+    wait = next(s for s in steps if s["action"] == "wait_for_url")
+    assert "retail.bank.in" in wait["pattern"]
+    assert "corp.bank.in" not in wait["pattern"]
+
+
+def test_landing_page_follows_same_origin_settling_bounce():
+    """Logins commonly settle through one more same-origin hop, so do not just
+    take stable_urls[0] (classify.py documents Expedia's /onboarding -> /?ref)."""
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = _login_bundle([
+        {"to_url": "https://x.com/login"},
+        {"to_url": "https://x.com/onboarding?originUrl=a"},
+        {"to_url": "https://x.com/?challengeReferer=noref"},
+    ])
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
+    hc = res["application_draft"]["keepalive_config"]["health_checks"][0]
+    assert hc["url"] == "https://x.com/?challengeReferer=noref"
+
+
+def test_health_check_can_actually_fail():
+    """dom_check on body passes on the login page too, so a signed-out session
+    reported HEALTHY forever and consumers only found out via 401/403."""
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = _login_bundle([
+        {"to_url": "https://x.com/login-page"},
+        {"to_url": "https://x.com/dashboard"},
+    ])
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
+    checks = res["application_draft"]["keepalive_config"]["health_checks"]
+    assert [c["type"] for c in checks] == ["url_check"]
+    hc = checks[0]
+    assert hc["url"] == "https://x.com/dashboard"
+    assert hc["expect_status"] == 200
+    # Must catch a bounce back to this app's own login path, which the built-in
+    # heuristic (login|signin|sso|…) would miss for a non-standard path.
+    import re as _re
+    assert _re.search(hc["auth_redirect_pattern"], "https://x.com/login-page", _re.I)
+    assert not _re.search(hc["auth_redirect_pattern"], "https://x.com/dashboard", _re.I)
+
+
+def test_unverifiable_health_check_is_flagged_when_no_landing_page():
+    from noui_core.compile.login import compile_login_bundle
+
+    # Only the login page itself → no post-login URL can be inferred.
+    bundle = _login_bundle([{"to_url": "https://x.com/login"}])
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
+    checks = res["application_draft"]["keepalive_config"]["health_checks"]
+    assert checks[0]["type"] == "dom_check"
+    kinds = {i["type"] for i in res["review_items"]}
+    assert "unverifiable_health_check" in kinds

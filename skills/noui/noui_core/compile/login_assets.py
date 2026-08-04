@@ -853,7 +853,29 @@ def generate(
         if not _is_redirect_hop(from_url, to_url) and to_url != first_url
     ]
     if stable_urls:
-        post_login_url = stable_urls[-1]
+        # The landing page is the end of the FIRST same-origin run of stable URLs,
+        # not the last URL of the recording.
+        #
+        # stable_urls[-1] took wherever the human finished. On a combined capture
+        # that is the end of the *workflow*, and on a multi-host portal it is a
+        # different host entirely — ICICI retail login produced
+        # "https://infinity.icici.bank.in/corp**" (the CORPORATE/Finacle portal),
+        # a URL a retail login can never reach. wait_for_url then timed out on every
+        # single session and fell through to request_help, so the human was asked to
+        # "finish logging in" after they already had, and nothing ever verified the
+        # login.
+        #
+        # Taking stable_urls[0] outright would be wrong too: logins commonly settle
+        # through one more same-origin bounce (classify.py documents Expedia's
+        # /onboarding?originUrl=… -> /?challengeReferer=noref). So walk forward while
+        # the origin holds and stop at the first origin change — that change is the
+        # human navigating on, or an SSO hand-off that has already completed.
+        post_login_url = stable_urls[0]
+        landing_origin = _url_origin(post_login_url)
+        for candidate in stable_urls[1:]:
+            if _url_origin(candidate) != landing_origin:
+                break
+            post_login_url = candidate
         # Add wait_for_url step — Tabby requires a "pattern" key.
         # Ensure the URL has a scheme before parsing (bare host:port strings
         # confuse urlparse, making the host land in scheme).
@@ -916,8 +938,14 @@ def generate(
         # logged-in page from the login page (else it would match immediately and
         # falsely auto-resolve). Same-origin root-path apps need an explicit pattern.
         pattern = post_login_url_pattern
-        if not pattern and stable_urls:
-            pattern = _derive_post_login_pattern(first_url, stable_urls[-1])
+        if not pattern and post_login_url:
+            # post_login_url, not stable_urls[-1]: the latter is wherever the human
+            # finished, which on a multi-host portal is a different host than the
+            # login lands on. That produced ICICI's
+            # "https://infinity.icici.bank.in/corp**" — the corporate portal — for a
+            # retail login, so auto-resolve could never fire and every session fell
+            # through to request_help.
+            pattern = _derive_post_login_pattern(first_url, post_login_url)
         if pattern:
             takeover_steps.append(
                 {
@@ -993,16 +1021,53 @@ def generate(
     keepalive_actions: list[dict] = []
     keepalive_health_checks: list[dict] = []
 
-    # Use a dom_check on body as the primary health check — it verifies the
-    # browser page is rendered without making a separate HTTP request that
-    # can be rate-limited (429) or redirected by the target site.
-    keepalive_health_checks.append(
-        {
-            "type": "dom_check",
-            "selector": "body",
-            "exists": True,
-        }
-    )
+    # A health check must be able to FAIL, or the session's health signal is a
+    # constant. The previous dom_check on "body" could not: <body> is present on
+    # the login page exactly as on the dashboard, so a session that never signed
+    # in — or whose cookies expired — still reported HEALTHY/PASS forever. Every
+    # downstream consumer then believed the session was authenticated and only
+    # discovered otherwise as 401/403 from the target.
+    #
+    # Prefer a url_check against the landing page: Tabby's runner returns AUTH_FAIL
+    # when the request lands on an auth URL, which is what drives re-login. The
+    # explicit auth_redirect_pattern matters because the built-in heuristic only
+    # matches login|signin|sso|oauth|saml|authgw|identity in the host+path, so a
+    # bounce to a bare "/" root goes undetected without one.
+    if post_login_url:
+        _login_path = urlparse(login_url).path.rstrip("/") if login_url else ""
+        _auth_patterns = [re.escape(_login_path)] if _login_path and _login_path != "" else []
+        _auth_patterns += ["/login", "/signin", "/sign-in", "/sso", "/auth"]
+        keepalive_health_checks.append(
+            {
+                "type": "url_check",
+                "url": post_login_url,
+                "expect_status": 200,
+                "auth_redirect_pattern": "|".join(dict.fromkeys(_auth_patterns)),
+                "timeout_ms": 15000,
+            }
+        )
+    else:
+        # No landing page inferred, so there is nothing meaningful to probe. Keep
+        # the old dom_check rather than invent a URL, and flag it: this session's
+        # health signal cannot detect a lost login.
+        keepalive_health_checks.append(
+            {
+                "type": "dom_check",
+                "selector": "body",
+                "exists": True,
+            }
+        )
+        review_items.append(
+            {
+                "type": "unverifiable_health_check",
+                "severity": "warning",
+                "message": (
+                    "No post-login URL inferred, so health falls back to dom_check on "
+                    "body — which always passes. This session will report HEALTHY even "
+                    "when signed out; add a url_check against an authenticated page."
+                ),
+            }
+        )
 
     if has_dynamic_headers and post_login_url:
         # Periodically revisit the post-login page so there's guaranteed real
