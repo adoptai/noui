@@ -60,6 +60,7 @@ def compile_workflow_bundle(
     login_credential_headers: list[str] | None = None,
     auth_type: str = "auto",
     api_key_header: str = "",
+    allow_unbound_profile: bool = False,
 ) -> dict:
     """Compile a workflow bundle to ``target`` ("mcp" | "skill" | "both").
 
@@ -147,6 +148,7 @@ def compile_workflow_bundle(
             login_credential_headers=login_credential_headers,
             declared_strategy=declared_strategy,
             static_secret_headers=static_secret_headers,
+            allow_unbound_profile=allow_unbound_profile,
         )
 
     # Best-effort: if this workflow's auth headers are already dynamically

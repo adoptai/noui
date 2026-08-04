@@ -70,6 +70,7 @@ def compile_workflow_to_skill(
     login_credential_headers: list[str] | None = None,
     declared_strategy: str | None = None,
     static_secret_headers: list[str] | None = None,
+    allow_unbound_profile: bool = False,
 ) -> dict:
     """Compile a recorded workflow session into an installable Claude Code skill.
 
@@ -100,6 +101,32 @@ def compile_workflow_to_skill(
         workflow_name=session_name,
         tabby_profile_id=effective_slug,
     )
+
+    # A session-authenticated workflow with no profile bound is a skill that can
+    # never authenticate. --profile-slug defaults to "", so this happens silently
+    # whenever the caller forgets it or the capture was classified workflow-only
+    # (no App Template registered, hence no slug to pass). The artifact still
+    # compiles and installs; api_doc_generator renders its auth as "none", and the
+    # breakage first shows up as 401/403 at run time — or as the assistant asking
+    # the user which Tabby profile to use, because the skill does not know.
+    #
+    # Refuse to emit it. An unauthenticated capture (no auth cookies or headers on
+    # any operation) is unaffected and still compiles without a profile.
+    if not effective_slug and not allow_unbound_profile:
+        authed = sorted({
+            t.get("name", "?")
+            for t in tool_defs
+            if t.get("auth_cookies") or t.get("auth_headers")
+        })
+        if authed:
+            raise ValueError(
+                f"{len(authed)} operation(s) in this capture are session-authenticated "
+                f"({', '.join(authed[:3])}{'…' if len(authed) > 3 else ''}) but no Tabby "
+                "profile was bound, so the skill could not authenticate.\n"
+                "Pass --profile-slug <slug> with the App Template's profile "
+                "(re-import the login capture with --mode login if none exists yet), "
+                "or --allow-unbound-profile to emit it anyway."
+            )
 
     # Record the workflow's start URL in the manifest so downstream tooling
     # (e.g. `noui tabby session ensure --skill <id>`) can navigate the browser

@@ -275,3 +275,131 @@ def test_enrich_noop_without_bundle_cookies():
     result = {"service_profile_draft": {"credential_types": {"cookies": []}}}
     _enrich_credential_types_from_cookies(result, {})  # no cookies field
     assert result["service_profile_draft"]["credential_types"]["cookies"] == []
+
+
+def _har_with_request_header(name: str, value: str = "tok", url: str = "https://x.com/api/thing"):
+    return {"log": {"entries": [{
+        "request": {"url": url, "headers": [{"name": name, "value": value}]},
+        "response": {"headers": []},
+    }]}}
+
+
+def test_dynamic_auth_header_emits_request_header_allowlist():
+    """A declared credential header is useless without the allowlist that captures it.
+
+    Tabby's registerRequestHeaderCapture() early-returns on an empty
+    export_policy.request_header_allowlist, so the listener is never attached and
+    nothing is captured — silently. credential_types.headers only controls which
+    *captured* headers get surfaced. Emitting one without the other produced
+    profiles that looked correct, returned 200 from /execute/fetch with no auth
+    header attached, and 403'd at the target.
+    """
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [{"to_url": "https://x.com/login"}, {"to_url": "https://x.com/home"}],
+        "click_events": [],
+        "har": _har_with_request_header("xsrf-token"),
+        "cookies": [],
+    }
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
+    ep = res["application_draft"]["export_policy"]
+
+    assert "xsrf-token" in ep["request_header_allowlist"], (
+        "capture allowlist missing — header would never be captured"
+    )
+    # Declared-vs-captured must agree, or the surfaced set is empty at runtime.
+    declared = res["service_profile_draft"]["credential_types"]["headers"]
+    assert set(declared) == set(ep["request_header_allowlist"])
+    assert ep["refresh_interval_seconds"] == 180
+
+
+def test_allowlist_preserves_the_on_the_wire_header_spelling():
+    """Names come from the HAR verbatim; do not normalise or prefix them."""
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [{"to_url": "https://x.com/login"}, {"to_url": "https://x.com/home"}],
+        "click_events": [],
+        "har": _har_with_request_header("X-Custom-Csrf"),
+        "cookies": [],
+    }
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
+    assert "X-Custom-Csrf" in res["application_draft"]["export_policy"]["request_header_allowlist"]
+
+
+def test_no_dynamic_headers_leaves_allowlist_unset():
+    """Cookie-only apps must not get an empty allowlist — Tabby's validator
+    rejects request_header_allowlist: [] as a non-empty-array violation."""
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [{"to_url": "https://x.com/login"}],
+        "click_events": [],
+        "har": {"log": {"entries": []}},
+        "cookies": [],
+    }
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
+    assert "request_header_allowlist" not in res["application_draft"]["export_policy"]
+
+
+# ---------------------------------------------------------------------------
+# Profile binding guard
+# ---------------------------------------------------------------------------
+
+def _authed_workflow_bundle():
+    """A workflow whose operations carry a session cookie — i.e. needs a profile."""
+    return {
+        "recording_mode": "workflow",
+        "url_events": [{"to_url": "https://x.com/home"}],
+        "click_events": [],
+        "cookies": [],
+        "har": {"log": {"entries": [{
+            "request": {
+                "method": "GET",
+                "url": "https://x.com/api/accounts",
+                "headers": [{"name": "cookie", "value": "SESSION=abc"}],
+            },
+            "response": {"status": 200, "headers": [], "content": {"mimeType": "application/json", "text": "{}"}},
+        }]}},
+    }
+
+
+def test_authed_workflow_without_profile_slug_is_rejected(tmp_path):
+    """--profile-slug defaults to "", so an authenticated workflow silently compiled
+    into a skill that could never authenticate: api_doc rendered auth as "none",
+    and at run time the assistant had to ask the user which profile to use."""
+    import pytest
+    from noui_core.compile.workflow import compile_workflow_bundle
+
+    with pytest.raises(ValueError, match="no Tabby profile was bound"):
+        compile_workflow_bundle(
+            session_id="s", bundle=_authed_workflow_bundle(), name="x",
+            target="skill", profile_slug="", output_root=str(tmp_path),
+            login_credential_headers=[],
+        )
+
+
+def test_allow_unbound_profile_escape_hatch(tmp_path):
+    from noui_core.compile.workflow import compile_workflow_bundle
+
+    res = compile_workflow_bundle(
+        session_id="s", bundle=_authed_workflow_bundle(), name="x",
+        target="skill", profile_slug="", output_root=str(tmp_path),
+        login_credential_headers=[], allow_unbound_profile=True,
+    )
+    assert res.get("skill")
+
+
+def test_bound_profile_compiles_normally(tmp_path):
+    from noui_core.compile.workflow import compile_workflow_bundle
+
+    res = compile_workflow_bundle(
+        session_id="s", bundle=_authed_workflow_bundle(), name="x",
+        target="skill", profile_slug="x-profile", output_root=str(tmp_path),
+        login_credential_headers=[],
+    )
+    assert res.get("skill")

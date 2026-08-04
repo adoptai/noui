@@ -1031,6 +1031,20 @@ def generate(
         "target_urls": target_urls,
     }
     if has_dynamic_headers:
+        # THE allowlist that turns header capture on. Without it the worker's
+        # registerRequestHeaderCapture() early-returns and never attaches a
+        # listener, so nothing is ever captured — no error, just an empty
+        # bundle. Declaring credential_types.headers (below) only says which
+        # captured headers to *surface*; it does not cause capture. Omitting
+        # this while declaring those is silent breakage: /execute/fetch returns
+        # 200 with no auth header attached and the target 401s/403s, which
+        # reads as a login problem rather than a config one.
+        #
+        # Names are the literal ones observed in the HAR (see _analyze_har), so
+        # the on-the-wire spelling is preserved — Tabby matches case-insensitively
+        # but surfaces the configured casing back to the consumer.
+        export_policy["request_header_allowlist"] = list(har_analysis["auth_header_names"])
+
         # Client-managed bearer/CSRF tokens are typically short-lived
         # (silent-refresh OAuth patterns); re-capture often enough to keep the
         # value usable. 180s sits in Tabby's own documented 120-300s guidance
