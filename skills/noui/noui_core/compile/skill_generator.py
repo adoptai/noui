@@ -346,6 +346,34 @@ def compile_workflow_to_skill(
     else:
         execution_strategy = resolved_auth_strategy
 
+    # Manifest and operations must agree on how calls are routed. build_operation_recipe
+    # picks the tool purely from the slug (`"call_web_api" if profile_slug else "bash"`),
+    # while the manifest's auth block is derived independently — so an empty slug produced
+    # a skill declaring strategy=tabby_credentials + execution_strategy=harness_call_web_api
+    # while every operation ran bash/curl. Observed live on icici-credit-card: 8/8
+    # operations on "bash", profile_slug None, against a bank that requires a session.
+    #
+    # That self-contradiction is the shape that hides the bug: the manifest looks right,
+    # so nothing downstream questions it, and the skill fails as 403s with no sign-in card
+    # (call_web_api is never invoked, so the login_required path that renders the card
+    # never runs).
+    #
+    # allow_unbound_profile is the deliberate opt-out and stays honest: it does not
+    # suppress this, because a skill that declares browser routing and emits curl is
+    # broken regardless of intent — it declares api-key/no-auth instead.
+    if (
+        resolved_auth_strategy == "tabby_credentials"
+        and execution_strategy == "harness_call_web_api"
+        and not effective_slug
+    ):
+        raise ValueError(
+            "manifest would declare strategy=tabby_credentials + "
+            "execution_strategy=harness_call_web_api, but with no profile bound every "
+            "operation is emitted as tool=bash (curl) and can never carry the browser "
+            "session. Pass --profile-slug <slug>, or compile with --auth-type api-key if "
+            "this app genuinely does not need a session."
+        )
+
     manifest: dict = {
         "schema_version": "1",
         "skill_id": skill_id,

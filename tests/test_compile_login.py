@@ -599,3 +599,57 @@ def test_lookup_failure_is_unknown_not_absent(monkeypatch):
     monkeypatch.setattr(register, "resolve_admin_token", lambda: "tok")
     monkeypatch.setattr(tabby_client, "get_service_profile_by_slug", _boom)
     assert wf._profile_slug_resolves("anything") is None
+
+
+# ---------------------------------------------------------------------------
+# Manifest / operations routing agreement
+# ---------------------------------------------------------------------------
+
+def _read_skill_artifacts(out_root, skill_id="x"):
+    """Return (manifest, operations) for a compiled skill under out_root."""
+    import json
+    from pathlib import Path
+
+    md = next(Path(out_root).rglob("manifest.json"))
+    ops = next(Path(out_root).rglob("operations.json"))
+    return json.loads(md.read_text()), json.loads(ops.read_text())
+
+
+def test_manifest_and_operations_agree_on_routing(tmp_path, monkeypatch):
+    """A manifest declaring browser routing while every operation emits curl is the
+    shape that hid this bug: the manifest reads correctly so nothing questions it,
+    and the skill fails as 403s with no sign-in card (call_web_api is never invoked,
+    so the login_required path that renders the card never runs).
+
+    Observed live on icici-credit-card: 8/8 operations tool=bash, profile_slug None,
+    strategy tabby_credentials, execution_strategy harness_call_web_api.
+    """
+    import pytest
+    from noui_core.compile import workflow as wf
+
+    monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: True)
+
+    with pytest.raises(ValueError, match="tool=bash"):
+        wf.compile_workflow_bundle(
+            session_id="s", bundle=_authed_workflow_bundle(), name="x",
+            target="skill", profile_slug="", execution_mode="harness",
+            output_root=str(tmp_path), login_credential_headers=[],
+            allow_unbound_profile=True,   # even the opt-out must not permit this
+        )
+
+
+def test_bound_harness_skill_routes_every_operation_through_call_web_api(tmp_path, monkeypatch):
+    from noui_core.compile import workflow as wf
+
+    monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: True)
+    wf.compile_workflow_bundle(
+        session_id="s", bundle=_authed_workflow_bundle(), name="x",
+        target="skill", profile_slug="real-profile", execution_mode="harness",
+        output_root=str(tmp_path), login_credential_headers=[],
+    )
+    manifest, ops = _read_skill_artifacts(tmp_path)
+
+    assert manifest["auth"]["profile_slug"] == "real-profile"
+    assert manifest["auth"]["execution_strategy"] == "harness_call_web_api"
+    tools = {o["tool"] for o in ops["operations"]}
+    assert tools == {"call_web_api"}, f"manifest says browser routing but ops use {tools}"
