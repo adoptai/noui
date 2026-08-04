@@ -47,6 +47,59 @@ def _fetch_login_credential_headers(profile_slug: str) -> list[str] | None:
         return None
 
 
+def _profile_slug_resolves(profile_slug: str) -> bool | None:
+    """Does ``profile_slug`` name something Tabby can actually resolve?
+
+    Three-valued on purpose:
+      True  — a ServiceProfile or an App Template matches the slug.
+      False — the lookup ran and found neither, so a skill bound to it would
+              resolve to nothing at run time.
+      None  — we could not check (no admin token, Tabby unreachable, anything
+              unexpected). Callers must treat this as "unknown", never as absent:
+              compiling offline is legitimate and must not start failing.
+
+    An App Template counts as existing even with no ServiceProfile yet — Tabby
+    auto-provisions the profile from a matching ``profile_name_pattern`` on first
+    credential request, so binding to it is valid ahead of time.
+    """
+    if not profile_slug:
+        return None
+    try:
+        from noui_core import tabby_client
+        from noui_core.activate.register import resolve_admin_token
+
+        # /admin/* is Editor+-gated; the agent token cannot see it.
+        token = resolve_admin_token()
+    except Exception:
+        return None
+    try:
+        if tabby_client.get_service_profile_by_slug(profile_slug, token):
+            return True
+        if tabby_client.get_app_template_by_profile_slug(profile_slug, token):
+            return True
+        return False
+    except Exception:
+        return None
+
+
+def _known_profile_slugs() -> list[str]:
+    """Slugs to suggest when a binding does not resolve. Best-effort, never raises."""
+    try:
+        from noui_core import tabby_client
+        from noui_core.activate.register import resolve_admin_token
+
+        token = resolve_admin_token()
+        return sorted(
+            {
+                str(t.get("profile_name_pattern") or "").strip()
+                for t in (tabby_client.list_app_templates(token) or [])
+                if str(t.get("profile_name_pattern") or "").strip()
+            }
+        )
+    except Exception:
+        return []
+
+
 def compile_workflow_bundle(
     *,
     session_id: str,
@@ -89,6 +142,26 @@ def compile_workflow_bundle(
         raise ValueError(f"target must be mcp|skill|both, got {target!r}")
     if auth_type not in ("auto", "session", "api-key"):
         raise ValueError(f"auth_type must be auto|session|api-key, got {auth_type!r}")
+
+    # A bound-but-wrong slug is as broken as an unbound one, and harder to spot:
+    # the skill routes through call_web_api and looks correct, but Tabby resolves
+    # the name to nothing, so every call comes back as login_required and the
+    # assistant tells the user to sign in to a profile that does not exist. Seen
+    # live with a skill compiled as "icici-credit-card" against a profile actually
+    # named "icici-retail-netbanking".
+    #
+    # Only fail on a definite negative — _profile_slug_resolves returns None when
+    # it could not check, and an offline compile must still work.
+    if profile_slug and not allow_unbound_profile:
+        if _profile_slug_resolves(profile_slug) is False:
+            known = _known_profile_slugs()
+            hint = f" Known profiles: {', '.join(known)}." if known else ""
+            raise ValueError(
+                f"Tabby profile {profile_slug!r} does not exist, so the compiled skill "
+                f"would resolve to nothing at run time and every call would report "
+                f"login_required.{hint} Pass an existing --profile-slug, register the "
+                "App Template first, or --allow-unbound-profile to skip this check."
+            )
 
     declared_strategy: str | None = {
         "session": "tabby_credentials",

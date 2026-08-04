@@ -488,3 +488,114 @@ def test_unverifiable_health_check_is_flagged_when_no_landing_page():
     assert checks[0]["type"] == "dom_check"
     kinds = {i["type"] for i in res["review_items"]}
     assert "unverifiable_health_check" in kinds
+
+
+# ---------------------------------------------------------------------------
+# Profile-slug existence check
+# ---------------------------------------------------------------------------
+
+def test_nonexistent_profile_slug_is_rejected(tmp_path, monkeypatch):
+    """A bound-but-wrong slug is harder to spot than an unbound one: the skill
+    routes through call_web_api and looks right, but Tabby resolves the name to
+    nothing so every call reports login_required and the user is told to sign in
+    to a profile that does not exist."""
+    import pytest
+    from noui_core.compile import workflow as wf
+
+    monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: False)
+    monkeypatch.setattr(wf, "_known_profile_slugs", lambda: ["icici-retail-netbanking"])
+
+    with pytest.raises(ValueError, match="does not exist") as exc:
+        wf.compile_workflow_bundle(
+            session_id="s", bundle=_authed_workflow_bundle(), name="x",
+            target="skill", profile_slug="icici-credit-card",
+            output_root=str(tmp_path), login_credential_headers=[],
+        )
+    # The remedy must name what IS available, or the user is left guessing.
+    assert "icici-retail-netbanking" in str(exc.value)
+
+
+def test_unknown_profile_lookup_does_not_block_compile(tmp_path, monkeypatch):
+    """None means 'could not check' (offline, no admin token) — compiling must
+    still work rather than failing on an unverifiable binding."""
+    from noui_core.compile import workflow as wf
+
+    monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: None)
+    res = wf.compile_workflow_bundle(
+        session_id="s", bundle=_authed_workflow_bundle(), name="x",
+        target="skill", profile_slug="whatever", output_root=str(tmp_path),
+        login_credential_headers=[],
+    )
+    assert res.get("skill")
+
+
+def test_existing_profile_slug_compiles(tmp_path, monkeypatch):
+    from noui_core.compile import workflow as wf
+
+    monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: True)
+    res = wf.compile_workflow_bundle(
+        session_id="s", bundle=_authed_workflow_bundle(), name="x",
+        target="skill", profile_slug="real-profile", output_root=str(tmp_path),
+        login_credential_headers=[],
+    )
+    assert res.get("skill")
+
+
+def test_allow_unbound_profile_also_skips_the_existence_check(tmp_path, monkeypatch):
+    from noui_core.compile import workflow as wf
+
+    monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: False)
+    res = wf.compile_workflow_bundle(
+        session_id="s", bundle=_authed_workflow_bundle(), name="x",
+        target="skill", profile_slug="ghost", output_root=str(tmp_path),
+        login_credential_headers=[], allow_unbound_profile=True,
+    )
+    assert res.get("skill")
+
+
+def test_template_without_profile_counts_as_resolvable(monkeypatch):
+    """Tabby auto-provisions a profile from a matching App Template on first use,
+    so binding to a template that has no profile yet is legitimate."""
+    from noui_core import tabby_client
+    from noui_core.activate import register
+    from noui_core.compile import workflow as wf
+
+    seen = {}
+    monkeypatch.setattr(register, "resolve_admin_token", lambda: "tok")
+    monkeypatch.setattr(
+        tabby_client, "get_service_profile_by_slug",
+        lambda slug, token: seen.setdefault("profile", slug) and None,
+    )
+    monkeypatch.setattr(
+        tabby_client, "get_app_template_by_profile_slug",
+        lambda slug, token: (seen.setdefault("template", slug), {"id": "tpl-1"})[1],
+    )
+
+    assert wf._profile_slug_resolves("only-a-template") is True
+    assert seen == {"profile": "only-a-template", "template": "only-a-template"}
+
+
+def test_resolves_false_only_when_both_lookups_come_back_empty(monkeypatch):
+    from noui_core import tabby_client
+    from noui_core.activate import register
+    from noui_core.compile import workflow as wf
+
+    monkeypatch.setattr(register, "resolve_admin_token", lambda: "tok")
+    monkeypatch.setattr(tabby_client, "get_service_profile_by_slug", lambda s, t: None)
+    monkeypatch.setattr(tabby_client, "get_app_template_by_profile_slug", lambda s, t: None)
+    assert wf._profile_slug_resolves("ghost") is False
+
+
+def test_lookup_failure_is_unknown_not_absent(monkeypatch):
+    """Tabby unreachable must not be mistaken for 'profile does not exist' —
+    that would fail every offline compile."""
+    from noui_core import tabby_client
+    from noui_core.activate import register
+    from noui_core.compile import workflow as wf
+
+    def _boom(*a, **k):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(register, "resolve_admin_token", lambda: "tok")
+    monkeypatch.setattr(tabby_client, "get_service_profile_by_slug", _boom)
+    assert wf._profile_slug_resolves("anything") is None
