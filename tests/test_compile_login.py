@@ -720,3 +720,34 @@ def test_stable_landing_url_still_gets_a_keepalive_goto():
     gotos = [a for a in res["application_draft"]["keepalive_config"]["actions"]
              if a.get("action") == "goto"]
     assert gotos and gotos[0]["url"] == landing
+
+
+def test_keepalive_interval_holds_aggressive_idle_sessions():
+    """The keepalive goto must fire before the app's server-side idle timer.
+
+    It's a real navigation (an HTTP request that resets the idle timer), so it
+    only holds the session if the interval is shorter than the idle window. Bank
+    portals idle out fast — ICICI drops an untouched session in under ~2 minutes.
+    A 300s interval meant the first keepalive tick never arrived in time and the
+    session was already on /session-expire. Keep it tight.
+    """
+    from noui_core.compile.login import compile_login_bundle
+
+    res = compile_login_bundle(
+        session_id="s",
+        bundle={
+            "recording_mode": "login",
+            "url_events": [
+                {"from_url": "", "to_url": "https://bank.test/login-page"},
+                {"from_url": "https://bank.test/login-page", "to_url": "https://bank.test/dashboard"},
+            ],
+            "click_events": [],
+            "har": {"log": {"entries": []}},
+            "cookies": [],
+        },
+        name="bank",
+        login_url="https://bank.test/login-page",
+        manual_takeover=True,
+    )
+    ka = res["application_draft"]["keepalive_config"]
+    assert ka["interval_seconds"] <= 120, ka["interval_seconds"]

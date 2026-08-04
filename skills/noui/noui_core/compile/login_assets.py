@@ -1141,8 +1141,17 @@ def generate(
         else:
             keepalive_actions.append({"action": "goto", "url": post_login_url})
 
+    # 120s, not 300s. The keepalive goto is a REAL navigation (an HTTP request
+    # that resets the app's server-side idle timer), so it only holds the session
+    # if it fires BEFORE that timer expires. Bank/enterprise portals idle out
+    # aggressively — ICICI drops an untouched session in under ~2 minutes, so a
+    # 300s interval meant the very first keepalive tick never arrived in time and
+    # the session was already on /session-expire. 120s sits under that idle
+    # window while staying within Tabby's documented 120-300s guidance, and it
+    # matches the refresh_interval_seconds below so a keepalive navigation and a
+    # credential refresh stay roughly in step.
     keepalive_config: dict[str, Any] = {
-        "interval_seconds": 300,
+        "interval_seconds": 120,
         "actions": keepalive_actions,
         "health_checks": keepalive_health_checks,
         "policy": "all",
