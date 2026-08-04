@@ -134,25 +134,34 @@ def _build_selector(ev: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _stable_url(url: str) -> str:
-    """Drop query + fragment, keeping scheme://host/path.
+# Query params whose value is minted per session/request. A URL carrying one is
+# not replayable: the value died with the recording.
+_VOLATILE_QUERY_PARAM = re.compile(
+    r"(token|jsessionid|sessionid|sid|nonce|ticket|otp|csrf|xsrf|auth|signature|sig|"
+    r"timestamp|_ts|expires)", re.I
+)
 
-    Recorded landing URLs routinely carry one-time, session-bound material —
-    ICICI's post-login URL was
+
+def _has_volatile_query(url: str) -> bool:
+    """True when the URL's query carries session-bound, one-time material.
+
+    ICICI's recorded landing URL was
     ``.../corp/AuthenticationController?...&UX_TOKEN=<one-time>&CTA_FLAG=CCPSTM``.
-    Anything that REPLAYS such a URL later is asking for a token that died with
-    the recording session: the keepalive `goto` navigated the live browser onto a
-    dead-token error page every interval (kicking the user off whatever they were
-    doing), and a health probe against it would fail for reasons unrelated to
-    health. The path alone is the durable part.
+    Replaying it later asks for a token that expired with the recording session.
+
+    Stripping the query does NOT rescue such a URL: in Finacle/JSP-style apps the
+    query IS the routing (FORMSGROUP_ID__, __START_TRAN_FLAG__, ACTION.LOAD), so
+    the bare path returns "Page temporarily unavailable". Verified on the live
+    portal — both forms fail. There is no replayable variant, so callers must not
+    emit one at all rather than emit a broken one.
     """
     try:
-        p = urlparse(url)
-        if not p.scheme or not p.netloc:
-            return url
-        return f"{p.scheme}://{p.netloc}{p.path}"
+        q = urlparse(url).query
     except Exception:
-        return url
+        return False
+    if not q:
+        return False
+    return any(_VOLATILE_QUERY_PARAM.search(part.split("=", 1)[0]) for part in q.split("&"))
 
 
 def _url_origin(url: str) -> str:
@@ -1061,7 +1070,7 @@ def generate(
         keepalive_health_checks.append(
             {
                 "type": "url_check",
-                "url": _stable_url(post_login_url),
+                "url": post_login_url,
                 "expect_status": 200,
                 "auth_redirect_pattern": "|".join(dict.fromkeys(_auth_patterns)),
                 "timeout_ms": 15000,
@@ -1096,7 +1105,26 @@ def generate(
         # this, a captured header can go stale (or never populate) if nothing
         # else on the session happens to hit an instrumented route between
         # keepalive cycles.
-        keepalive_actions.append({"action": "goto", "url": _stable_url(post_login_url)})
+        if _has_volatile_query(post_login_url):
+            # Navigating to a URL whose token died with the recording is worse than
+            # not navigating: every interval it threw the live browser onto an error
+            # page, discarding whatever the user had signed into.
+            review_items.append(
+                {
+                    "type": "keepalive_goto_skipped",
+                    "severity": "warning",
+                    "message": (
+                        "The recorded landing URL carries one-time query material "
+                        f"({post_login_url.split('?')[0]}?...), so no keepalive goto was "
+                        "emitted — replaying it would navigate the live session onto an "
+                        "expired-token error page. Header capture therefore relies on "
+                        "organic traffic; set a stable authenticated URL by hand if the "
+                        "captured headers go stale."
+                    ),
+                }
+            )
+        else:
+            keepalive_actions.append({"action": "goto", "url": post_login_url})
 
     keepalive_config: dict[str, Any] = {
         "interval_seconds": 300,

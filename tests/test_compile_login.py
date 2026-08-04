@@ -453,10 +453,9 @@ def test_landing_page_follows_same_origin_settling_bounce():
     ])
     res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
     hc = res["application_draft"]["keepalive_config"]["health_checks"][0]
-    # Query string dropped: a recorded landing URL's params are frequently
-    # one-time and session-bound (see _stable_url), so anything replayed later
-    # must use the path alone.
-    assert hc["url"] == "https://x.com/"
+    # Kept verbatim: this query carries no session-bound material, and stripping
+    # it would break apps whose query IS the routing (see _has_volatile_query).
+    assert hc["url"] == "https://x.com/?challengeReferer=noref"
 
 
 def test_health_check_can_actually_fail():
@@ -658,10 +657,16 @@ def test_bound_harness_skill_routes_every_operation_through_call_web_api(tmp_pat
     assert tools == {"call_web_api"}, f"manifest says browser routing but ops use {tools}"
 
 
-def test_replayed_urls_drop_one_time_tokens():
-    """ICICI's recorded landing URL carried a one-time UX_TOKEN. Replaying it —
-    the keepalive `goto` did, every 300s — navigated the live browser onto a
-    dead-token error page, kicking the user off whatever they were doing."""
+def test_unreplayable_landing_url_emits_no_keepalive_goto():
+    """ICICI's recorded landing URL carried a one-time UX_TOKEN, and replaying it
+    every 300s threw the live browser onto an expired-token error page — silently
+    discarding whatever the user had signed into.
+
+    Stripping the query does not rescue it either: in Finacle/JSP-style apps the
+    query IS the routing, so the bare path returns "Page temporarily unavailable"
+    (verified against the live portal). With no replayable form, emit nothing and
+    say so rather than emit something broken.
+    """
     from noui_core.compile.login import compile_login_bundle
 
     landing = (
@@ -682,16 +687,33 @@ def test_replayed_urls_drop_one_time_tokens():
         "cookies": [],
     }
     res = compile_login_bundle(session_id="s", bundle=bundle, name="icici", manual_takeover=True)
-    ka = res["application_draft"]["keepalive_config"]
 
-    goto = [a for a in ka["actions"] if a.get("action") == "goto"]
-    assert goto, "expected a keepalive goto for a dynamic-header app"
-    for a in goto:
-        assert "UX_TOKEN" not in a["url"], "keepalive replays a one-time token"
-        assert "?" not in a["url"]
-        assert a["url"] == "https://infinity.icici.bank.in/corp/AuthenticationController"
+    gotos = [a for a in res["application_draft"]["keepalive_config"]["actions"]
+             if a.get("action") == "goto"]
+    assert gotos == [], "a URL with one-time query material must not be replayed"
+    assert "keepalive_goto_skipped" in {i["type"] for i in res["review_items"]}
 
-    # The health probe hits a URL too — same reasoning.
-    hc = ka["health_checks"][0]
-    if hc.get("url"):
-        assert "UX_TOKEN" not in hc["url"] and "?" not in hc["url"]
+
+def test_stable_landing_url_still_gets_a_keepalive_goto():
+    """The skip is targeted: a landing URL with no session-bound material keeps its
+    goto, which is what guarantees traffic for request-header capture."""
+    from noui_core.compile.login import compile_login_bundle
+
+    landing = "https://app.example.com/home?tab=overview"
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [
+            {"to_url": "https://app.example.com/login"},
+            {"to_url": landing},
+        ],
+        "click_events": [],
+        "har": {"log": {"entries": [{
+            "request": {"url": landing, "headers": [{"name": "authorization", "value": "Bearer x"}]},
+            "response": {"headers": []},
+        }]}},
+        "cookies": [],
+    }
+    res = compile_login_bundle(session_id="s", bundle=bundle, name="app", manual_takeover=True)
+    gotos = [a for a in res["application_draft"]["keepalive_config"]["actions"]
+             if a.get("action") == "goto"]
+    assert gotos and gotos[0]["url"] == landing
