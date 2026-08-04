@@ -1069,7 +1069,19 @@ def generate(
     if post_login_url:
         _login_path = urlparse(login_url).path.rstrip("/") if login_url else ""
         _auth_patterns = [re.escape(_login_path)] if _login_path and _login_path != "" else []
-        _auth_patterns += ["/login", "/signin", "/sign-in", "/sso", "/auth"]
+        # Login routes, plus the session-expiry landing pages portals bounce to
+        # when the cookie dies. Those are the ones that actually bite: a bank
+        # serves them with HTTP 200 and a path that contains no auth-looking
+        # word, so both expect_status and the login patterns above are satisfied
+        # and health reports PASS on a page that says "Your session has expired".
+        # Observed on ICICI (/session-expire), which sat HEALTHY for 41 minutes —
+        # and because the controller only opens a HITL step on AUTH_FAIL, the
+        # human had no "Mark as Resolved" button to recover with.
+        _auth_patterns += [
+            "/login", "/signin", "/sign-in", "/sso", "/auth",
+            "/session-expire", "/session-expired", "/sessionexpired",
+            "/session-timeout", "/sessiontimeout", "/expired", "/timeout", "/logout",
+        ]
         keepalive_health_checks.append(
             {
                 "type": "url_check",

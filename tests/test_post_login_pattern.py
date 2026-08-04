@@ -136,3 +136,42 @@ class TestAccepted:
         assert _derive_post_login_pattern("https://app.test/login", "app.test/home") == (
             "http://app.test/home**"
         )
+
+
+def test_auth_redirect_pattern_catches_session_expiry_pages():
+    """A dead cookie must fail health, even when the portal says 200.
+
+    Regression: the pattern only listed login-ish paths, so ICICI's
+    /session-expire — served with HTTP 200, no auth word anywhere in the path —
+    satisfied both expect_status and the redirect check. The session reported
+    HEALTHY for 41 minutes while the browser sat on "Your session has expired",
+    and because the controller only opens a HITL step on AUTH_FAIL, the human
+    had no "Mark as Resolved" button to recover with.
+    """
+    import re
+    from noui_core.compile.login import compile_login_bundle
+
+    res = compile_login_bundle(
+        session_id="s",
+        bundle={
+            "recording_mode": "login",
+            "url_events": [
+                {"from_url": "", "to_url": "https://bank.test/login-page"},
+                {"from_url": "https://bank.test/login-page", "to_url": "https://bank.test/dashboard"},
+            ],
+            "click_events": [],
+            "har": {"log": {"entries": []}},
+            "cookies": [],
+        },
+        name="bank",
+        login_url="https://bank.test/login-page",
+        manual_takeover=True,
+    )
+    check = res["application_draft"]["keepalive_config"]["health_checks"][0]
+    assert check["type"] == "url_check"
+    pattern = check["auth_redirect_pattern"]
+
+    for expired in ("/session-expire", "/session-expired", "/session-timeout", "/expired", "/logout"):
+        assert re.search(pattern, f"https://bank.test{expired}", re.I), expired
+    # The authenticated page must still pass.
+    assert not re.search(pattern, "https://bank.test/dashboard", re.I)
