@@ -147,8 +147,11 @@ def test_manual_takeover_autoresolve_wait_for_url():
     assert [s["action"] for s in steps] == ["goto", "request_human_input", "wait_for_url"]
     wfu = steps[2]
     assert "lightning" in wfu["pattern"]
-    assert wfu["on_failure"]["action"] == "request_help"
-    assert wfu["on_failure"]["input_type"] == "confirm"
+    # A miss must NOT re-prompt the human: the preceding request_human_input is
+    # already a human attestation that they logged in, and the pattern is derived
+    # from a single observed landing route that portals are free to vary per user
+    # or product. Asking twice is what ICICI sessions actually did.
+    assert wfu["on_failure"] == {"action": "skip"}
 
     # Explicit pattern wins even for same-origin apps.
     res2 = compile_login_bundle(

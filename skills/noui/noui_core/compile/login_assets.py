@@ -983,15 +983,18 @@ def generate(
                     "pattern": pattern,
                     "timeout_ms": 30000,
                     "retry_count": 0,
-                    "on_failure": {
-                        "action": "request_help",
-                        "message": (
-                            "Login could not be auto-verified. Finish logging in and reach "
-                            "the home/dashboard, then click 'Mark as Resolved'."
-                        ),
-                        "input_type": "confirm",
-                        "timeout_ms": 600000,
-                    },
+                    # skip, not request_help. This step is preceded by a human-attested
+                    # `request_human_input` confirm, so a second prompt asks the human to
+                    # re-answer a question they already answered — and the pattern it
+                    # guards is only ever ONE observed landing route, which portals do not
+                    # promise to be stable. ICICI recorded a landing on /dashboard and then
+                    # signed real users in to /credit-card, so the glob could never match:
+                    # every session timed out for 30s, flipped health to AUTH_FAIL, and
+                    # demanded a second "Mark as Resolved" from someone already logged in.
+                    # Matching stays a fast-path confirmation; failing to match is not
+                    # evidence of a failed login, and the keepalive health check is the
+                    # authority on whether the session is really authenticated.
+                    "on_failure": {"action": "skip"},
                 }
             )
         else:
