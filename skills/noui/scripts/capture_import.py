@@ -144,6 +144,7 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
                 execution_mode=args.execution_mode,
                 auth_type=args.auth_type,
                 api_key_header=args.api_key_header,
+                browser_driven=getattr(args, "browser_driven", False),
             )
         except Exception as exc:  # noqa: BLE001
             print(f"Workflow compile failed: {exc}", file=sys.stderr)
@@ -193,6 +194,7 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             execution_mode=args.execution_mode,
             auth_type="session",
             login_credential_headers=login_headers,
+            browser_driven=getattr(args, "browser_driven", False),
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Workflow compile failed: {exc}", file=sys.stderr)
@@ -219,6 +221,19 @@ def main() -> int:
         dest="execution_mode",
         choices=["tabby", "http", "harness"],
         default="tabby",
+    )
+    p.add_argument(
+        "--browser-driven",
+        dest="browser_driven",
+        action="store_true",
+        help=(
+            "Emit a browser-driven skill (drives the page via call_web_browser "
+            "and reads the rendered DOM) instead of a HAR-replay call_web_api "
+            "skill. Use for apps whose requests cannot be replayed — SPAs that "
+            "mint per-request encryption or per-session headers in JS (e.g. a "
+            "bank wrapping every body in a per-session key). Requires "
+            "--profile-slug."
+        ),
     )
     p.add_argument(
         "--auth-type",
@@ -326,6 +341,7 @@ def main() -> int:
                 start_url=args.url,
                 auth_type=args.auth_type,
                 api_key_header=args.api_key_header,
+                browser_driven=getattr(args, "browser_driven", False),
             )
         except Exception as exc:  # noqa: BLE001 — surface any compile failure
             print(f"Workflow compile failed: {exc}", file=sys.stderr)

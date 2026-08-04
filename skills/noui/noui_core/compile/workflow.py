@@ -114,8 +114,16 @@ def compile_workflow_bundle(
     auth_type: str = "auto",
     api_key_header: str = "",
     allow_unbound_profile: bool = False,
+    browser_driven: bool = False,
 ) -> dict:
     """Compile a workflow bundle to ``target`` ("mcp" | "skill" | "both").
+
+    browser_driven: emit a browser-driven skill (drives the page via the
+        call_web_browser harness tool and reads the rendered DOM) instead of a
+        HAR-replay call_web_api skill. Use for apps whose requests cannot be
+        replayed — SPAs that mint per-request encryption or per-session headers
+        in JavaScript (ICICI's {data,key} bodies). Only affects the "skill"
+        target; requires a bound profile_slug. The MCP target is unaffected.
 
     Args:
         login_credential_headers: Header names already declared on the paired
@@ -204,25 +212,48 @@ def compile_workflow_bundle(
             static_secret_headers=static_secret_headers,
         )
     if target in ("skill", "both"):
-        result["skill"] = compile_workflow_to_skill(
-            session_id=session_id,
-            session_name=name,
-            app_slug=slug,
-            tabby_profile_id="",
-            har=har,
-            click_events=clicks,
-            url_events=urls,
-            output_dir=str(root / "skills" / slug),
-            profile_slug=profile_slug,
-            profile_db_id="",
-            description_override="",
-            execution_mode=execution_mode,
-            start_url=start_url,
-            login_credential_headers=login_credential_headers,
-            declared_strategy=declared_strategy,
-            static_secret_headers=static_secret_headers,
-            allow_unbound_profile=allow_unbound_profile,
-        )
+        if browser_driven:
+            # Browser-driven: read the rendered page via call_web_browser instead
+            # of replaying requests. For apps whose bodies/headers are minted
+            # in-page and cannot be replayed. Derive the login/app origin from
+            # start_url or the first recorded URL so page selection can keep the
+            # app's own origin and drop login/third-party pages.
+            from noui_core.compile.browser_skill import generate_browser_skill
+
+            login_url = start_url or next(
+                (u.get("to_url", "") for u in urls if u.get("to_url")), ""
+            )
+            result["skill"] = generate_browser_skill(
+                app_slug=slug,
+                app_name=slug.replace("-", " ").replace("_", " ").title(),
+                workflow_name=name,
+                profile_slug=profile_slug,
+                url_events=urls,
+                login_url=login_url,
+                output_dir=str(root / "skills" / slug),
+                session_id=session_id,
+                start_url=start_url,
+            )
+        else:
+            result["skill"] = compile_workflow_to_skill(
+                session_id=session_id,
+                session_name=name,
+                app_slug=slug,
+                tabby_profile_id="",
+                har=har,
+                click_events=clicks,
+                url_events=urls,
+                output_dir=str(root / "skills" / slug),
+                profile_slug=profile_slug,
+                profile_db_id="",
+                description_override="",
+                execution_mode=execution_mode,
+                start_url=start_url,
+                login_credential_headers=login_credential_headers,
+                declared_strategy=declared_strategy,
+                static_secret_headers=static_secret_headers,
+                allow_unbound_profile=allow_unbound_profile,
+            )
 
     # Best-effort: if this workflow's auth headers are already dynamically
     # captured by the paired login profile (login_credential_headers non-empty),

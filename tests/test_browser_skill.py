@@ -144,3 +144,61 @@ def test_generate_refuses_without_profile(tmp_path):
             app_slug="x", app_name="X", workflow_name="w", profile_slug="",
             url_events=ICICI_EVENTS, login_url=LOGIN, output_dir=str(tmp_path),
         )
+
+
+def test_compile_workflow_bundle_browser_driven(tmp_path):
+    """The --browser-driven path through the top-level compiler emits a browser
+    skill without touching the HAR-replay path."""
+    from noui_core.compile.workflow import compile_workflow_bundle
+
+    bundle = {
+        "har": {"log": {"entries": []}},
+        "click_events": [],
+        "url_events": ICICI_EVENTS,
+    }
+    res = compile_workflow_bundle(
+        session_id="deadbeef1234",
+        bundle=bundle,
+        name="icici credit card",
+        target="skill",
+        profile_slug="icici-credit-card",
+        start_url=LOGIN,
+        output_root=str(tmp_path),
+        browser_driven=True,
+        allow_unbound_profile=True,  # offline test can't reach Tabby to verify
+    )
+    m = res["skill"]
+    assert m["runtime"]["operation_style"] == "browser"
+    assert [o["name"] for o in m["operations"]] == ["read_overview", "read_credit_card"]
+    assert all(o["tool"] == "call_web_browser" for o in m["operations"])
+
+
+def test_compile_workflow_bundle_default_stays_call_web_api(tmp_path):
+    """Regression guard: without browser_driven the skill path is unchanged."""
+    from noui_core.compile.workflow import compile_workflow_bundle
+
+    bundle = {
+        "har": {"log": {"entries": [{
+            "startedDateTime": "2026-08-05T00:00:00.000Z",
+            "request": {
+                "method": "GET",
+                "url": "https://retailnetbanking.icici.bank.in/dashboardAPI/creditCardSummary",
+                "headers": [{"name": "accept", "value": "application/json"}],
+            },
+            "response": {"status": 200, "content": {"mimeType": "application/json", "text": "{}"}},
+        }]}},
+        "click_events": [],
+        "url_events": ICICI_EVENTS,
+    }
+    res = compile_workflow_bundle(
+        session_id="deadbeef1234",
+        bundle=bundle,
+        name="icici credit card",
+        target="skill",
+        profile_slug="icici-credit-card",
+        start_url=LOGIN,
+        output_root=str(tmp_path),
+        allow_unbound_profile=True,
+    )
+    # default skill is NOT a browser skill
+    assert res["skill"]["runtime"]["operation_style"] != "browser"
