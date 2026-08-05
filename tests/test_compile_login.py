@@ -857,7 +857,10 @@ def test_activity_keepalive_style_holds_session_without_reload():
     ka = res["application_draft"]["keepalive_config"]
     assert [a["action"] for a in ka["actions"]] == ["activity"]
     assert not any(a.get("action") == "goto" for a in ka["actions"])
-    assert ka["interval_seconds"] <= 60
+    # Must satisfy Tabby's floor: dsl.validator rejects interval_seconds < 60, so
+    # anything tighter makes every call_web_browser 400 and the session never
+    # provisions. Keep it tight (not the 120s goto default) but >= 60.
+    assert 60 <= ka["interval_seconds"] < 120
 
 
 def test_keepalive_interval_default_goto():

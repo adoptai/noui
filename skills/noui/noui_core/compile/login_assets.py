@@ -1129,13 +1129,15 @@ def generate(
     # Two keepalive styles, chosen by the skill kind (see keepalive_style):
     #
     #   "activity" (browser-driven default) — a small trusted mouse-move + scroll
-    #     every 45s. Proven live on ICICI: portals detect idle via DOM interaction
-    #     events (mousemove/scroll reset a client-side countdown that redirects to
-    #     /session-expire), NOT HTTP — a page left idle died in <=90s, but with the
-    #     activity nudge held HEALTHY for 11+ minutes. Safe on any page (no clicks/
-    #     keys/navigation; Playwright input is trusted), so it never disrupts the
-    #     user or trips a refresh-sensitive expiry. A browser skill reads the DOM,
-    #     so it needs no header-capture navigation.
+    #     every 60s. Portals detect idle via DOM interaction events (mousemove/
+    #     scroll reset a client-side countdown that redirects to /session-expire),
+    #     NOT HTTP — a page left idle died in <=90s, but the activity nudge held
+    #     ICICI HEALTHY for 11+ minutes. 60s is the tightest interval Tabby
+    #     accepts (validateKeepaliveConfig rejects interval_seconds < 60); it fires
+    #     comfortably before the ~90s idle death. Safe on any page (no clicks/keys/
+    #     navigation; Playwright input is trusted), so it never disrupts the user
+    #     or trips a refresh-sensitive expiry. A browser skill reads the DOM, so it
+    #     needs no header-capture navigation.
     #
     #   "goto" (HAR-replay default) — revisit the post-login page so there's
     #     guaranteed real traffic for the request-header-capture listener; without
@@ -1143,7 +1145,10 @@ def generate(
     #     is what a call_web_api skill's dynamic bearers rely on.
     if keepalive_style == "activity":
         keepalive_actions.append({"action": "activity"})
-        keepalive_interval = 45
+        # 60s is Tabby's floor (dsl.validator rejects interval_seconds < 60) and
+        # still fires well under the ~90s idle death. A tighter value fails app
+        # validation → every call_web_browser 400s and the session never provisions.
+        keepalive_interval = 60
     else:  # "goto"
         if has_dynamic_headers and post_login_url:
             if _has_volatile_query(post_login_url):
