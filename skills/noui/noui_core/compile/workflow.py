@@ -75,9 +75,7 @@ def _profile_slug_resolves(profile_slug: str) -> bool | None:
     try:
         if tabby_client.get_service_profile_by_slug(profile_slug, token):
             return True
-        if tabby_client.get_app_template_by_profile_slug(profile_slug, token):
-            return True
-        return False
+        return bool(tabby_client.get_app_template_by_profile_slug(profile_slug, token))
     except Exception:
         return None
 

@@ -171,13 +171,15 @@ def render_browser_operations_json(pages: list[dict], *, profile_slug: str) -> s
     """
     operations = []
     for p in pages:
-        operations.append({
-            "name": p["name"],
-            "description": f"Read the rendered contents of {p['url']}",
-            "tool": "call_web_browser",
-            "profile_slug": profile_slug,
-            "steps": _steps_for_page(p),
-        })
+        operations.append(
+            {
+                "name": p["name"],
+                "description": f"Read the rendered contents of {p['url']}",
+                "tool": "call_web_browser",
+                "profile_slug": profile_slug,
+                "steps": _steps_for_page(p),
+            }
+        )
     return json.dumps(
         {"schema_version": "1", "style": "browser", "operations": operations},
         indent=2,
@@ -205,12 +207,17 @@ def render_browser_skill_md(
 
     def _page_line(p: dict) -> str:
         nav = p.get("nav")
-        how = f'click "{nav["text"]}"' if nav and nav.get("text") else "the page you land on after login"
+        how = (
+            f'click "{nav["text"]}"'
+            if nav and nav.get("text")
+            else "the page you land on after login"
+        )
         return f"- **{p['name']}** — `{p['url']}` (reach it via {how})"
 
-    page_lines = "\n".join(
-        _page_line(p) for p in pages
-    ) or "- (no data pages were captured; re-record reaching the target screen)"
+    page_lines = (
+        "\n".join(_page_line(p) for p in pages)
+        or "- (no data pages were captured; re-record reaching the target screen)"
+    )
 
     frontmatter = (
         "---\n"

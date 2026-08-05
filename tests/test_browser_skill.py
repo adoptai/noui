@@ -24,19 +24,44 @@ _H = "https://retailnetbanking.icici.bank.in"
 ICICI_EVENTS = [
     {"from_url": "about:blank", "to_url": f"{_H}/login-page", "timestamp": "2026-08-04T22:16:24Z"},
     # login auto-redirect to the landing page (no click) → landing, no nav
-    {"from_url": f"{_H}/login-page", "to_url": f"{_H}/overview", "timestamp": "2026-08-04T22:17:24Z"},
+    {
+        "from_url": f"{_H}/login-page",
+        "to_url": f"{_H}/overview",
+        "timestamp": "2026-08-04T22:17:24Z",
+    },
     # in-app click drove this route change → nav = click "Credit Cards"
-    {"from_url": f"{_H}/overview", "to_url": f"{_H}/credit-card", "timestamp": "2026-08-04T22:17:29.485Z"},
+    {
+        "from_url": f"{_H}/overview",
+        "to_url": f"{_H}/credit-card",
+        "timestamp": "2026-08-04T22:17:29.485Z",
+    },
     # same page, different query — one readable page
-    {"from_url": f"{_H}/credit-card", "to_url": f"{_H}/credit-card?tab=statements", "timestamp": "2026-08-04T22:17:40Z"},
+    {
+        "from_url": f"{_H}/credit-card",
+        "to_url": f"{_H}/credit-card?tab=statements",
+        "timestamp": "2026-08-04T22:17:40Z",
+    },
     # third-party widget/telemetry origin — must NOT be treated as a data page
-    {"from_url": f"{_H}/credit-card", "to_url": "https://www.icici.bank.in/analytics", "timestamp": "2026-08-04T22:17:41Z"},
+    {
+        "from_url": f"{_H}/credit-card",
+        "to_url": "https://www.icici.bank.in/analytics",
+        "timestamp": "2026-08-04T22:17:41Z",
+    },
     # one-shot token in the query — navigating here later lands on an error
-    {"from_url": f"{_H}/credit-card", "to_url": f"{_H}/pay?token=ONESHOTTOKEN123456", "timestamp": "2026-08-04T22:17:45Z"},
+    {
+        "from_url": f"{_H}/credit-card",
+        "to_url": f"{_H}/pay?token=ONESHOTTOKEN123456",
+        "timestamp": "2026-08-04T22:17:45Z",
+    },
 ]
 ICICI_CLICKS = [
-    {"event_type": "click", "text_content": "Credit Cards", "selector": "div.submenu-text",
-     "url": f"{_H}/overview", "timestamp": "2026-08-04T22:17:29.461Z"},
+    {
+        "event_type": "click",
+        "text_content": "Credit Cards",
+        "selector": "div.submenu-text",
+        "url": f"{_H}/overview",
+        "timestamp": "2026-08-04T22:17:29.461Z",
+    },
 ]
 LOGIN = f"{_H}/login-page"
 
@@ -93,7 +118,10 @@ def test_operations_json_uses_clicks_never_navigate():
     # landing page: read only, no navigation
     assert [s["command"] for s in ops["read_overview"]["steps"]] == ["get_page_summary"]
     # in-app page: click_by_text then read — a client-side route change, no reload
-    assert [s["command"] for s in ops["read_credit_card"]["steps"]] == ["click_by_text", "get_page_summary"]
+    assert [s["command"] for s in ops["read_credit_card"]["steps"]] == [
+        "click_by_text",
+        "get_page_summary",
+    ]
     assert ops["read_credit_card"]["steps"][0]["params"]["text"] == "Credit Cards"
     # a full-page navigate/goto must NEVER be emitted (it reloads → session expiry)
     all_cmds = [st["command"] for o in doc["operations"] for st in o["steps"]]
@@ -146,23 +174,34 @@ def test_generate_browser_skill_writes_installable_dir(tmp_path):
 
 def test_generate_refuses_when_no_readable_page(tmp_path):
     import pytest
+
     with pytest.raises(ValueError, match="never left the login"):
-        generate_browser_skill_no_pages = None
         from noui_core.compile.browser_skill import generate_browser_skill
+
         generate_browser_skill(
-            app_slug="x", app_name="X", workflow_name="w", profile_slug="x-prof",
+            app_slug="x",
+            app_name="X",
+            workflow_name="w",
+            profile_slug="x-prof",
             url_events=[{"to_url": "https://b.test/login-page"}],
-            login_url="https://b.test/login-page", output_dir=str(tmp_path),
+            login_url="https://b.test/login-page",
+            output_dir=str(tmp_path),
         )
 
 
 def test_generate_refuses_without_profile(tmp_path):
     import pytest
     from noui_core.compile.browser_skill import generate_browser_skill
+
     with pytest.raises(ValueError, match="requires a profile_slug"):
         generate_browser_skill(
-            app_slug="x", app_name="X", workflow_name="w", profile_slug="",
-            url_events=ICICI_EVENTS, login_url=LOGIN, output_dir=str(tmp_path),
+            app_slug="x",
+            app_name="X",
+            workflow_name="w",
+            profile_slug="",
+            url_events=ICICI_EVENTS,
+            login_url=LOGIN,
+            output_dir=str(tmp_path),
         )
 
 
@@ -198,15 +237,24 @@ def test_compile_workflow_bundle_default_stays_call_web_api(tmp_path):
     from noui_core.compile.workflow import compile_workflow_bundle
 
     bundle = {
-        "har": {"log": {"entries": [{
-            "startedDateTime": "2026-08-05T00:00:00.000Z",
-            "request": {
-                "method": "GET",
-                "url": "https://retailnetbanking.icici.bank.in/dashboardAPI/creditCardSummary",
-                "headers": [{"name": "accept", "value": "application/json"}],
-            },
-            "response": {"status": 200, "content": {"mimeType": "application/json", "text": "{}"}},
-        }]}},
+        "har": {
+            "log": {
+                "entries": [
+                    {
+                        "startedDateTime": "2026-08-05T00:00:00.000Z",
+                        "request": {
+                            "method": "GET",
+                            "url": "https://retailnetbanking.icici.bank.in/dashboardAPI/creditCardSummary",
+                            "headers": [{"name": "accept", "value": "application/json"}],
+                        },
+                        "response": {
+                            "status": 200,
+                            "content": {"mimeType": "application/json", "text": "{}"},
+                        },
+                    }
+                ]
+            }
+        },
         "click_events": [],
         "url_events": ICICI_EVENTS,
     }

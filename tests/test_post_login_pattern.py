@@ -149,6 +149,7 @@ def test_auth_redirect_pattern_catches_session_expiry_pages():
     had no "Mark as Resolved" button to recover with.
     """
     import re
+
     from noui_core.compile.login import compile_login_bundle
 
     res = compile_login_bundle(
@@ -157,7 +158,10 @@ def test_auth_redirect_pattern_catches_session_expiry_pages():
             "recording_mode": "login",
             "url_events": [
                 {"from_url": "", "to_url": "https://bank.test/login-page"},
-                {"from_url": "https://bank.test/login-page", "to_url": "https://bank.test/dashboard"},
+                {
+                    "from_url": "https://bank.test/login-page",
+                    "to_url": "https://bank.test/dashboard",
+                },
             ],
             "click_events": [],
             "har": {"log": {"entries": []}},
@@ -171,7 +175,13 @@ def test_auth_redirect_pattern_catches_session_expiry_pages():
     assert check["type"] == "url_check"
     pattern = check["auth_redirect_pattern"]
 
-    for expired in ("/session-expire", "/session-expired", "/session-timeout", "/expired", "/logout"):
+    for expired in (
+        "/session-expire",
+        "/session-expired",
+        "/session-timeout",
+        "/expired",
+        "/logout",
+    ):
         assert re.search(pattern, f"https://bank.test{expired}", re.I), expired
     # The authenticated page must still pass.
     assert not re.search(pattern, "https://bank.test/dashboard", re.I)

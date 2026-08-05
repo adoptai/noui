@@ -25,7 +25,8 @@ def _post(url, body):
     return {
         "startedDateTime": "2026-08-05T00:00:00.000Z",
         "request": {
-            "method": "POST", "url": url,
+            "method": "POST",
+            "url": url,
             "headers": [{"name": "content-type", "value": "application/json"}],
             "postData": {"text": body},
         },
@@ -52,8 +53,9 @@ CIPHER = "A" * 40  # stand-in ciphertext (>=16 chars)
 def test_fires_on_encrypted_bodies_plus_key_endpoint():
     entries = [_get(f"{ORIGIN}/getKeys")]
     for i in range(5):
-        entries.append(_post(f"{ORIGIN}/dashboardAPI/op{i}",
-                             f'{{"data":"{CIPHER}","key":"{CIPHER}"}}'))
+        entries.append(
+            _post(f"{ORIGIN}/dashboardAPI/op{i}", f'{{"data":"{CIPHER}","key":"{CIPHER}"}}')
+        )
     r = detect_unreplayable(_har(entries), app_origin=ORIGIN)
     assert r["unreplayable"] is True
     assert r["key_endpoints"] == ["/getkeys"]
@@ -65,8 +67,9 @@ def test_fires_on_encrypted_bodies_plus_key_endpoint():
 def test_fires_on_high_envelope_ratio_without_named_key_endpoint():
     # Some apps mint keys inline (no /getKeys path), but nearly every body is an
     # opaque envelope — encryption is clearly the norm.
-    entries = [_post(f"{ORIGIN}/api/op{i}", f'{{"data":"{CIPHER}","key":"{CIPHER}"}}')
-               for i in range(6)]
+    entries = [
+        _post(f"{ORIGIN}/api/op{i}", f'{{"data":"{CIPHER}","key":"{CIPHER}"}}') for i in range(6)
+    ]
     entries.append(_post(f"{ORIGIN}/api/plain", '{"q":"hello"}'))
     r = detect_unreplayable(_har(entries), app_origin=ORIGIN)
     assert r["unreplayable"] is True  # 6/7 envelopes, ratio >= 0.25
@@ -100,9 +103,10 @@ def test_third_party_encrypted_telemetry_does_not_trip_it():
 
 
 def test_two_incidental_envelopes_below_threshold():
-    entries = [_post(f"{ORIGIN}/api/op{i}", f'{{"data":"{CIPHER}","key":"{CIPHER}"}}')
-               for i in range(2)]
-    entries += [_post(f"{ORIGIN}/api/real{i}", '{"id":%d}' % i) for i in range(8)]
+    entries = [
+        _post(f"{ORIGIN}/api/op{i}", f'{{"data":"{CIPHER}","key":"{CIPHER}"}}') for i in range(2)
+    ]
+    entries += [_post(f"{ORIGIN}/api/real{i}", f'{{"id":{i}}}') for i in range(8)]
     r = detect_unreplayable(_har(entries), app_origin=ORIGIN)
     assert r["unreplayable"] is False  # only 2 envelopes, under _MIN_ENVELOPE_POSTS
 
@@ -123,6 +127,7 @@ def test_empty_data_envelope_not_counted():
 
 # --- auto-detection wired through compile_workflow_bundle --------------------
 
+
 def _bundle(entries, url_events):
     return {"har": {"log": {"entries": entries}}, "click_events": [], "url_events": url_events}
 
@@ -131,13 +136,20 @@ def test_compile_auto_selects_browser_for_unreplayable(tmp_path):
     from noui_core.compile.workflow import compile_workflow_bundle
 
     entries = [_get(f"{ORIGIN}/getKeys")]
-    entries += [_post(f"{ORIGIN}/dashboardAPI/op{i}", f'{{"data":"{CIPHER}","key":"{CIPHER}"}}')
-                for i in range(5)]
+    entries += [
+        _post(f"{ORIGIN}/dashboardAPI/op{i}", f'{{"data":"{CIPHER}","key":"{CIPHER}"}}')
+        for i in range(5)
+    ]
     urls = [{"to_url": f"{ORIGIN}/login-page"}, {"to_url": f"{ORIGIN}/dashboard"}]
     res = compile_workflow_bundle(
-        session_id="deadbeef1234", bundle=_bundle(entries, urls), name="bank",
-        target="skill", profile_slug="bank-prof", start_url=f"{ORIGIN}/login-page",
-        output_root=str(tmp_path), allow_unbound_profile=True,
+        session_id="deadbeef1234",
+        bundle=_bundle(entries, urls),
+        name="bank",
+        target="skill",
+        profile_slug="bank-prof",
+        start_url=f"{ORIGIN}/login-page",
+        output_root=str(tmp_path),
+        allow_unbound_profile=True,
         # browser_driven NOT passed — auto-detection must choose it
     )
     assert res["browser_detection"]["unreplayable"] is True
@@ -150,9 +162,14 @@ def test_compile_stays_replay_for_normal_app(tmp_path):
     entries = [_post(f"{ORIGIN}/api/contacts", '{"name":"Ada","email":"a@x.com"}')]
     urls = [{"to_url": f"{ORIGIN}/login-page"}, {"to_url": f"{ORIGIN}/dashboard"}]
     res = compile_workflow_bundle(
-        session_id="deadbeef1234", bundle=_bundle(entries, urls), name="crm",
-        target="skill", profile_slug="crm-prof", start_url=f"{ORIGIN}/login-page",
-        output_root=str(tmp_path), allow_unbound_profile=True,
+        session_id="deadbeef1234",
+        bundle=_bundle(entries, urls),
+        name="crm",
+        target="skill",
+        profile_slug="crm-prof",
+        start_url=f"{ORIGIN}/login-page",
+        output_root=str(tmp_path),
+        allow_unbound_profile=True,
     )
     assert res["browser_detection"]["unreplayable"] is False
     assert res["skill"]["runtime"]["operation_style"] != "browser"
@@ -162,13 +179,20 @@ def test_no_auto_browser_override_forces_replay(tmp_path):
     from noui_core.compile.workflow import compile_workflow_bundle
 
     entries = [_get(f"{ORIGIN}/getKeys")]
-    entries += [_post(f"{ORIGIN}/dashboardAPI/op{i}", f'{{"data":"{CIPHER}","key":"{CIPHER}"}}')
-                for i in range(5)]
+    entries += [
+        _post(f"{ORIGIN}/dashboardAPI/op{i}", f'{{"data":"{CIPHER}","key":"{CIPHER}"}}')
+        for i in range(5)
+    ]
     urls = [{"to_url": f"{ORIGIN}/login-page"}, {"to_url": f"{ORIGIN}/dashboard"}]
     res = compile_workflow_bundle(
-        session_id="deadbeef1234", bundle=_bundle(entries, urls), name="bank",
-        target="skill", profile_slug="bank-prof", start_url=f"{ORIGIN}/login-page",
-        output_root=str(tmp_path), allow_unbound_profile=True,
+        session_id="deadbeef1234",
+        bundle=_bundle(entries, urls),
+        name="bank",
+        target="skill",
+        profile_slug="bank-prof",
+        start_url=f"{ORIGIN}/login-page",
+        output_root=str(tmp_path),
+        allow_unbound_profile=True,
         auto_detect_browser=False,  # explicit override
     )
     # detector never ran; the replay path was used

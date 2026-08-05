@@ -110,7 +110,11 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
         from noui_core.compile.unreplayable import recommendation_message
 
         app = (skill.get("skill_id") if skill else None) or "this app"
-        print("Browser mode auto-selected —", recommendation_message(det, app_name=app), file=sys.stderr)
+        print(
+            "Browser mode auto-selected —",
+            recommendation_message(det, app_name=app),
+            file=sys.stderr,
+        )
     if args.auth_type == "api-key":
         secrets = (skill.get("secrets_required") if skill else None) or (
             mcp.get("secrets_required") if mcp else None
@@ -149,7 +153,9 @@ def _resolve_keepalive_style(args: argparse.Namespace, workflow_bundle: dict) ->
             urls = workflow_bundle.get("url_events", []) or []
             first = args.url or next((u.get("to_url", "") for u in urls if u.get("to_url")), "")
             origin = _url_origin(first) if first else ""
-            if detect_unreplayable(workflow_bundle.get("har"), app_origin=origin).get("unreplayable"):
+            if detect_unreplayable(workflow_bundle.get("har"), app_origin=origin).get(
+                "unreplayable"
+            ):
                 return "activity"
         except Exception:  # noqa: BLE001 — detection is best-effort; default to goto
             pass

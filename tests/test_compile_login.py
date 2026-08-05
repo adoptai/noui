@@ -283,10 +283,16 @@ def test_enrich_noop_without_bundle_cookies():
 
 
 def _har_with_request_header(name: str, value: str = "tok", url: str = "https://x.com/api/thing"):
-    return {"log": {"entries": [{
-        "request": {"url": url, "headers": [{"name": name, "value": value}]},
-        "response": {"headers": []},
-    }]}}
+    return {
+        "log": {
+            "entries": [
+                {
+                    "request": {"url": url, "headers": [{"name": name, "value": value}]},
+                    "response": {"headers": []},
+                }
+            ]
+        }
+    }
 
 
 def test_dynamic_auth_header_emits_request_header_allowlist():
@@ -355,6 +361,7 @@ def test_no_dynamic_headers_leaves_allowlist_unset():
 # Profile binding guard
 # ---------------------------------------------------------------------------
 
+
 def _authed_workflow_bundle():
     """A workflow whose operations carry a session cookie — i.e. needs a profile."""
     return {
@@ -362,14 +369,24 @@ def _authed_workflow_bundle():
         "url_events": [{"to_url": "https://x.com/home"}],
         "click_events": [],
         "cookies": [],
-        "har": {"log": {"entries": [{
-            "request": {
-                "method": "GET",
-                "url": "https://x.com/api/accounts",
-                "headers": [{"name": "cookie", "value": "SESSION=abc"}],
-            },
-            "response": {"status": 200, "headers": [], "content": {"mimeType": "application/json", "text": "{}"}},
-        }]}},
+        "har": {
+            "log": {
+                "entries": [
+                    {
+                        "request": {
+                            "method": "GET",
+                            "url": "https://x.com/api/accounts",
+                            "headers": [{"name": "cookie", "value": "SESSION=abc"}],
+                        },
+                        "response": {
+                            "status": 200,
+                            "headers": [],
+                            "content": {"mimeType": "application/json", "text": "{}"},
+                        },
+                    }
+                ]
+            }
+        },
     }
 
 
@@ -382,8 +399,12 @@ def test_authed_workflow_without_profile_slug_is_rejected(tmp_path):
 
     with pytest.raises(ValueError, match="no Tabby profile was bound"):
         compile_workflow_bundle(
-            session_id="s", bundle=_authed_workflow_bundle(), name="x",
-            target="skill", profile_slug="", output_root=str(tmp_path),
+            session_id="s",
+            bundle=_authed_workflow_bundle(),
+            name="x",
+            target="skill",
+            profile_slug="",
+            output_root=str(tmp_path),
             login_credential_headers=[],
         )
 
@@ -392,9 +413,14 @@ def test_allow_unbound_profile_escape_hatch(tmp_path):
     from noui_core.compile.workflow import compile_workflow_bundle
 
     res = compile_workflow_bundle(
-        session_id="s", bundle=_authed_workflow_bundle(), name="x",
-        target="skill", profile_slug="", output_root=str(tmp_path),
-        login_credential_headers=[], allow_unbound_profile=True,
+        session_id="s",
+        bundle=_authed_workflow_bundle(),
+        name="x",
+        target="skill",
+        profile_slug="",
+        output_root=str(tmp_path),
+        login_credential_headers=[],
+        allow_unbound_profile=True,
     )
     assert res.get("skill")
 
@@ -403,8 +429,12 @@ def test_bound_profile_compiles_normally(tmp_path):
     from noui_core.compile.workflow import compile_workflow_bundle
 
     res = compile_workflow_bundle(
-        session_id="s", bundle=_authed_workflow_bundle(), name="x",
-        target="skill", profile_slug="x-profile", output_root=str(tmp_path),
+        session_id="s",
+        bundle=_authed_workflow_bundle(),
+        name="x",
+        target="skill",
+        profile_slug="x-profile",
+        output_root=str(tmp_path),
         login_credential_headers=[],
     )
     assert res.get("skill")
@@ -413,6 +443,7 @@ def test_bound_profile_compiles_normally(tmp_path):
 # ---------------------------------------------------------------------------
 # Landing-page inference + health check
 # ---------------------------------------------------------------------------
+
 
 def _login_bundle(url_events):
     return {
@@ -434,11 +465,13 @@ def test_landing_page_stops_at_the_first_origin_change():
     """
     from noui_core.compile.login import compile_login_bundle
 
-    bundle = _login_bundle([
-        {"to_url": "https://retail.bank.in/login-page"},
-        {"to_url": "https://retail.bank.in/dashboard"},   # ← the landing page
-        {"to_url": "https://corp.bank.in/corp/Finacle"},  # ← later workflow host
-    ])
+    bundle = _login_bundle(
+        [
+            {"to_url": "https://retail.bank.in/login-page"},
+            {"to_url": "https://retail.bank.in/dashboard"},  # ← the landing page
+            {"to_url": "https://corp.bank.in/corp/Finacle"},  # ← later workflow host
+        ]
+    )
     res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
     steps = res["application_draft"]["login_config"]["steps"]
     wait = next(s for s in steps if s["action"] == "wait_for_url")
@@ -451,11 +484,13 @@ def test_landing_page_follows_same_origin_settling_bounce():
     take stable_urls[0] (classify.py documents Expedia's /onboarding -> /?ref)."""
     from noui_core.compile.login import compile_login_bundle
 
-    bundle = _login_bundle([
-        {"to_url": "https://x.com/login"},
-        {"to_url": "https://x.com/onboarding?originUrl=a"},
-        {"to_url": "https://x.com/?challengeReferer=noref"},
-    ])
+    bundle = _login_bundle(
+        [
+            {"to_url": "https://x.com/login"},
+            {"to_url": "https://x.com/onboarding?originUrl=a"},
+            {"to_url": "https://x.com/?challengeReferer=noref"},
+        ]
+    )
     res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
     hc = res["application_draft"]["keepalive_config"]["health_checks"][0]
     # Kept verbatim: this query carries no session-bound material, and stripping
@@ -468,10 +503,12 @@ def test_health_check_can_actually_fail():
     reported HEALTHY forever and consumers only found out via 401/403."""
     from noui_core.compile.login import compile_login_bundle
 
-    bundle = _login_bundle([
-        {"to_url": "https://x.com/login-page"},
-        {"to_url": "https://x.com/dashboard"},
-    ])
+    bundle = _login_bundle(
+        [
+            {"to_url": "https://x.com/login-page"},
+            {"to_url": "https://x.com/dashboard"},
+        ]
+    )
     res = compile_login_bundle(session_id="s", bundle=bundle, name="x", manual_takeover=True)
     checks = res["application_draft"]["keepalive_config"]["health_checks"]
     assert [c["type"] for c in checks] == ["url_check"]
@@ -481,6 +518,7 @@ def test_health_check_can_actually_fail():
     # Must catch a bounce back to this app's own login path, which the built-in
     # heuristic (login|signin|sso|…) would miss for a non-standard path.
     import re as _re
+
     assert _re.search(hc["auth_redirect_pattern"], "https://x.com/login-page", _re.I)
     assert not _re.search(hc["auth_redirect_pattern"], "https://x.com/dashboard", _re.I)
 
@@ -501,6 +539,7 @@ def test_unverifiable_health_check_is_flagged_when_no_landing_page():
 # Profile-slug existence check
 # ---------------------------------------------------------------------------
 
+
 def test_nonexistent_profile_slug_is_rejected(tmp_path, monkeypatch):
     """A bound-but-wrong slug is harder to spot than an unbound one: the skill
     routes through call_web_api and looks right, but Tabby resolves the name to
@@ -514,9 +553,13 @@ def test_nonexistent_profile_slug_is_rejected(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="does not exist") as exc:
         wf.compile_workflow_bundle(
-            session_id="s", bundle=_authed_workflow_bundle(), name="x",
-            target="skill", profile_slug="icici-credit-card",
-            output_root=str(tmp_path), login_credential_headers=[],
+            session_id="s",
+            bundle=_authed_workflow_bundle(),
+            name="x",
+            target="skill",
+            profile_slug="icici-credit-card",
+            output_root=str(tmp_path),
+            login_credential_headers=[],
         )
     # The remedy must name what IS available, or the user is left guessing.
     assert "icici-retail-netbanking" in str(exc.value)
@@ -529,8 +572,12 @@ def test_unknown_profile_lookup_does_not_block_compile(tmp_path, monkeypatch):
 
     monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: None)
     res = wf.compile_workflow_bundle(
-        session_id="s", bundle=_authed_workflow_bundle(), name="x",
-        target="skill", profile_slug="whatever", output_root=str(tmp_path),
+        session_id="s",
+        bundle=_authed_workflow_bundle(),
+        name="x",
+        target="skill",
+        profile_slug="whatever",
+        output_root=str(tmp_path),
         login_credential_headers=[],
     )
     assert res.get("skill")
@@ -541,8 +588,12 @@ def test_existing_profile_slug_compiles(tmp_path, monkeypatch):
 
     monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: True)
     res = wf.compile_workflow_bundle(
-        session_id="s", bundle=_authed_workflow_bundle(), name="x",
-        target="skill", profile_slug="real-profile", output_root=str(tmp_path),
+        session_id="s",
+        bundle=_authed_workflow_bundle(),
+        name="x",
+        target="skill",
+        profile_slug="real-profile",
+        output_root=str(tmp_path),
         login_credential_headers=[],
     )
     assert res.get("skill")
@@ -553,9 +604,14 @@ def test_allow_unbound_profile_also_skips_the_existence_check(tmp_path, monkeypa
 
     monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: False)
     res = wf.compile_workflow_bundle(
-        session_id="s", bundle=_authed_workflow_bundle(), name="x",
-        target="skill", profile_slug="ghost", output_root=str(tmp_path),
-        login_credential_headers=[], allow_unbound_profile=True,
+        session_id="s",
+        bundle=_authed_workflow_bundle(),
+        name="x",
+        target="skill",
+        profile_slug="ghost",
+        output_root=str(tmp_path),
+        login_credential_headers=[],
+        allow_unbound_profile=True,
     )
     assert res.get("skill")
 
@@ -570,11 +626,13 @@ def test_template_without_profile_counts_as_resolvable(monkeypatch):
     seen = {}
     monkeypatch.setattr(register, "resolve_admin_token", lambda: "tok")
     monkeypatch.setattr(
-        tabby_client, "get_service_profile_by_slug",
+        tabby_client,
+        "get_service_profile_by_slug",
         lambda slug, token: seen.setdefault("profile", slug) and None,
     )
     monkeypatch.setattr(
-        tabby_client, "get_app_template_by_profile_slug",
+        tabby_client,
+        "get_app_template_by_profile_slug",
         lambda slug, token: (seen.setdefault("template", slug), {"id": "tpl-1"})[1],
     )
 
@@ -612,6 +670,7 @@ def test_lookup_failure_is_unknown_not_absent(monkeypatch):
 # Manifest / operations routing agreement
 # ---------------------------------------------------------------------------
 
+
 def _read_skill_artifacts(out_root, skill_id="x"):
     """Return (manifest, operations) for a compiled skill under out_root."""
     import json
@@ -638,10 +697,15 @@ def test_manifest_and_operations_agree_on_routing(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="tool=bash"):
         wf.compile_workflow_bundle(
-            session_id="s", bundle=_authed_workflow_bundle(), name="x",
-            target="skill", profile_slug="", execution_mode="harness",
-            output_root=str(tmp_path), login_credential_headers=[],
-            allow_unbound_profile=True,   # even the opt-out must not permit this
+            session_id="s",
+            bundle=_authed_workflow_bundle(),
+            name="x",
+            target="skill",
+            profile_slug="",
+            execution_mode="harness",
+            output_root=str(tmp_path),
+            login_credential_headers=[],
+            allow_unbound_profile=True,  # even the opt-out must not permit this
         )
 
 
@@ -650,9 +714,14 @@ def test_bound_harness_skill_routes_every_operation_through_call_web_api(tmp_pat
 
     monkeypatch.setattr(wf, "_profile_slug_resolves", lambda slug: True)
     wf.compile_workflow_bundle(
-        session_id="s", bundle=_authed_workflow_bundle(), name="x",
-        target="skill", profile_slug="real-profile", execution_mode="harness",
-        output_root=str(tmp_path), login_credential_headers=[],
+        session_id="s",
+        bundle=_authed_workflow_bundle(),
+        name="x",
+        target="skill",
+        profile_slug="real-profile",
+        execution_mode="harness",
+        output_root=str(tmp_path),
+        login_credential_headers=[],
     )
     manifest, ops = _read_skill_artifacts(tmp_path)
 
@@ -685,16 +754,28 @@ def test_unreplayable_landing_url_emits_no_keepalive_goto():
             {"to_url": landing},
         ],
         "click_events": [],
-        "har": {"log": {"entries": [{
-            "request": {"url": landing, "headers": [{"name": "xsrf-token", "value": "t"}]},
-            "response": {"headers": []},
-        }]}},
+        "har": {
+            "log": {
+                "entries": [
+                    {
+                        "request": {
+                            "url": landing,
+                            "headers": [{"name": "xsrf-token", "value": "t"}],
+                        },
+                        "response": {"headers": []},
+                    }
+                ]
+            }
+        },
         "cookies": [],
     }
     res = compile_login_bundle(session_id="s", bundle=bundle, name="icici", manual_takeover=True)
 
-    gotos = [a for a in res["application_draft"]["keepalive_config"]["actions"]
-             if a.get("action") == "goto"]
+    gotos = [
+        a
+        for a in res["application_draft"]["keepalive_config"]["actions"]
+        if a.get("action") == "goto"
+    ]
     assert gotos == [], "a URL with one-time query material must not be replayed"
     assert "keepalive_goto_skipped" in {i["type"] for i in res["review_items"]}
 
@@ -712,15 +793,27 @@ def test_stable_landing_url_still_gets_a_keepalive_goto():
             {"to_url": landing},
         ],
         "click_events": [],
-        "har": {"log": {"entries": [{
-            "request": {"url": landing, "headers": [{"name": "authorization", "value": "Bearer x"}]},
-            "response": {"headers": []},
-        }]}},
+        "har": {
+            "log": {
+                "entries": [
+                    {
+                        "request": {
+                            "url": landing,
+                            "headers": [{"name": "authorization", "value": "Bearer x"}],
+                        },
+                        "response": {"headers": []},
+                    }
+                ]
+            }
+        },
         "cookies": [],
     }
     res = compile_login_bundle(session_id="s", bundle=bundle, name="app", manual_takeover=True)
-    gotos = [a for a in res["application_draft"]["keepalive_config"]["actions"]
-             if a.get("action") == "goto"]
+    gotos = [
+        a
+        for a in res["application_draft"]["keepalive_config"]["actions"]
+        if a.get("action") == "goto"
+    ]
     assert gotos and gotos[0]["url"] == landing
 
 
@@ -739,14 +832,26 @@ def test_activity_keepalive_style_holds_session_without_reload():
         "click_events": [],
         # dynamic header present — under 'goto' this would emit a reload; under
         # 'activity' it must NOT (browser skills read the DOM, need no header nav).
-        "har": {"log": {"entries": [{
-            "request": {"url": landing, "headers": [{"name": "authorization", "value": "Bearer x"}]},
-            "response": {"headers": []},
-        }]}},
+        "har": {
+            "log": {
+                "entries": [
+                    {
+                        "request": {
+                            "url": landing,
+                            "headers": [{"name": "authorization", "value": "Bearer x"}],
+                        },
+                        "response": {"headers": []},
+                    }
+                ]
+            }
+        },
         "cookies": [],
     }
     res = compile_login_bundle(
-        session_id="s", bundle=bundle, name="app", manual_takeover=True,
+        session_id="s",
+        bundle=bundle,
+        name="app",
+        manual_takeover=True,
         keepalive_style="activity",
     )
     ka = res["application_draft"]["keepalive_config"]
@@ -765,7 +870,10 @@ def test_keepalive_interval_default_goto():
             "recording_mode": "login",
             "url_events": [
                 {"from_url": "", "to_url": "https://bank.test/login-page"},
-                {"from_url": "https://bank.test/login-page", "to_url": "https://bank.test/dashboard"},
+                {
+                    "from_url": "https://bank.test/login-page",
+                    "to_url": "https://bank.test/dashboard",
+                },
             ],
             "click_events": [],
             "har": {"log": {"entries": []}},

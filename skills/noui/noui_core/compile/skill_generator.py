@@ -113,11 +113,13 @@ def compile_workflow_to_skill(
     # Refuse to emit it. An unauthenticated capture (no auth cookies or headers on
     # any operation) is unaffected and still compiles without a profile.
     if not effective_slug and not allow_unbound_profile:
-        authed = sorted({
-            t.get("name", "?")
-            for t in tool_defs
-            if t.get("auth_cookies") or t.get("auth_headers")
-        })
+        authed = sorted(
+            {
+                t.get("name", "?")
+                for t in tool_defs
+                if t.get("auth_cookies") or t.get("auth_headers")
+            }
+        )
         if authed:
             raise ValueError(
                 f"{len(authed)} operation(s) in this capture are session-authenticated "

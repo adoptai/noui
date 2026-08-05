@@ -138,7 +138,8 @@ def _build_selector(ev: dict) -> str:
 # not replayable: the value died with the recording.
 _VOLATILE_QUERY_PARAM = re.compile(
     r"(token|jsessionid|sessionid|sid|nonce|ticket|otp|csrf|xsrf|auth|signature|sig|"
-    r"timestamp|_ts|expires)", re.I
+    r"timestamp|_ts|expires)",
+    re.I,
 )
 
 
@@ -1079,9 +1080,19 @@ def generate(
         # and because the controller only opens a HITL step on AUTH_FAIL, the
         # human had no "Mark as Resolved" button to recover with.
         _auth_patterns += [
-            "/login", "/signin", "/sign-in", "/sso", "/auth",
-            "/session-expire", "/session-expired", "/sessionexpired",
-            "/session-timeout", "/sessiontimeout", "/expired", "/timeout", "/logout",
+            "/login",
+            "/signin",
+            "/sign-in",
+            "/sso",
+            "/auth",
+            "/session-expire",
+            "/session-expired",
+            "/sessionexpired",
+            "/session-timeout",
+            "/sessiontimeout",
+            "/expired",
+            "/timeout",
+            "/logout",
         ]
         keepalive_health_checks.append(
             {
