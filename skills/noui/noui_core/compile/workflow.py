@@ -261,6 +261,7 @@ def compile_workflow_bundle(
                 workflow_name=name,
                 profile_slug=profile_slug,
                 url_events=urls,
+                click_events=clicks,
                 login_url=login_url,
                 output_dir=str(root / "skills" / slug),
                 session_id=session_id,

@@ -20,25 +20,41 @@ from noui_core.compile.browser_skill import (  # noqa: E402
     render_browser_skill_md,
 )
 
+_H = "https://retailnetbanking.icici.bank.in"
 ICICI_EVENTS = [
-    {"to_url": "https://retailnetbanking.icici.bank.in/login-page"},
-    {"to_url": "https://retailnetbanking.icici.bank.in/overview"},
-    {"to_url": "https://retailnetbanking.icici.bank.in/credit-card"},
+    {"from_url": "about:blank", "to_url": f"{_H}/login-page", "timestamp": "2026-08-04T22:16:24Z"},
+    # login auto-redirect to the landing page (no click) → landing, no nav
+    {"from_url": f"{_H}/login-page", "to_url": f"{_H}/overview", "timestamp": "2026-08-04T22:17:24Z"},
+    # in-app click drove this route change → nav = click "Credit Cards"
+    {"from_url": f"{_H}/overview", "to_url": f"{_H}/credit-card", "timestamp": "2026-08-04T22:17:29.485Z"},
     # same page, different query — one readable page
-    {"to_url": "https://retailnetbanking.icici.bank.in/credit-card?tab=statements"},
-    # third-party widget/telemetry origin — the DevRev/Dynatrace noise that
-    # poisoned the HAR-replay skill; must NOT be treated as a data page
-    {"to_url": "https://www.icici.bank.in/analytics"},
+    {"from_url": f"{_H}/credit-card", "to_url": f"{_H}/credit-card?tab=statements", "timestamp": "2026-08-04T22:17:40Z"},
+    # third-party widget/telemetry origin — must NOT be treated as a data page
+    {"from_url": f"{_H}/credit-card", "to_url": "https://www.icici.bank.in/analytics", "timestamp": "2026-08-04T22:17:41Z"},
     # one-shot token in the query — navigating here later lands on an error
-    {"to_url": "https://retailnetbanking.icici.bank.in/pay?token=ONESHOTTOKEN123456"},
+    {"from_url": f"{_H}/credit-card", "to_url": f"{_H}/pay?token=ONESHOTTOKEN123456", "timestamp": "2026-08-04T22:17:45Z"},
 ]
-LOGIN = "https://retailnetbanking.icici.bank.in/login-page"
+ICICI_CLICKS = [
+    {"event_type": "click", "text_content": "Credit Cards", "selector": "div.submenu-text",
+     "url": f"{_H}/overview", "timestamp": "2026-08-04T22:17:29.461Z"},
+]
+LOGIN = f"{_H}/login-page"
 
 
 def test_derive_pages_keeps_only_readable_app_pages():
-    pages = derive_browser_pages(ICICI_EVENTS, login_url=LOGIN)
+    pages = derive_browser_pages(ICICI_EVENTS, ICICI_CLICKS, login_url=LOGIN)
     assert [p["name"] for p in pages] == ["read_overview", "read_credit_card"]
     assert pages[1]["url"] == "https://retailnetbanking.icici.bank.in/credit-card"
+
+
+def test_derive_pages_attaches_in_app_click_not_reload():
+    # The landing page (post-login redirect) needs no nav; a page reached by an
+    # in-app click carries that click — so the skill routes there WITHOUT a reload
+    # (the ICICI failure: the skill's own navigate/goto expired the session).
+    pages = derive_browser_pages(ICICI_EVENTS, ICICI_CLICKS, login_url=LOGIN)
+    overview, credit = pages[0], pages[1]
+    assert overview["nav"] is None
+    assert credit["nav"]["text"] == "Credit Cards"
 
 
 def test_derive_pages_drops_login_flow_even_with_suffix():
@@ -68,16 +84,20 @@ def test_derive_pages_respects_max():
     assert len(pages) == 5
 
 
-def test_operations_json_shape():
-    pages = derive_browser_pages(ICICI_EVENTS, login_url=LOGIN)
+def test_operations_json_uses_clicks_never_navigate():
+    pages = derive_browser_pages(ICICI_EVENTS, ICICI_CLICKS, login_url=LOGIN)
     doc = json.loads(render_browser_operations_json(pages, profile_slug="icici-credit-card"))
     assert doc["style"] == "browser"
-    op = doc["operations"][0]
-    assert op["tool"] == "call_web_browser"
-    assert op["profile_slug"] == "icici-credit-card"
-    # navigate then read
-    assert [s["command"] for s in op["steps"]] == ["navigate", "get_page_summary"]
-    assert op["steps"][0]["params"]["url"].startswith("https://")
+    ops = {o["name"]: o for o in doc["operations"]}
+    assert all(o["tool"] == "call_web_browser" for o in doc["operations"])
+    # landing page: read only, no navigation
+    assert [s["command"] for s in ops["read_overview"]["steps"]] == ["get_page_summary"]
+    # in-app page: click_by_text then read — a client-side route change, no reload
+    assert [s["command"] for s in ops["read_credit_card"]["steps"]] == ["click_by_text", "get_page_summary"]
+    assert ops["read_credit_card"]["steps"][0]["params"]["text"] == "Credit Cards"
+    # a full-page navigate/goto must NEVER be emitted (it reloads → session expiry)
+    all_cmds = [st["command"] for o in doc["operations"] for st in o["steps"]]
+    assert "navigate" not in all_cmds
 
 
 def test_skill_md_declares_browser_auth_and_tool():

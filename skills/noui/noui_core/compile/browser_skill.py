@@ -46,25 +46,69 @@ def _slug_from_path(url: str) -> str:
     return slug or "home"
 
 
+def _page_key(url: str) -> str:
+    """origin + path (query dropped) — the identity of a page."""
+    return _url_origin(url) + urlparse(url).path.rstrip("/")
+
+
+def _is_login_flow_url(url: str) -> bool:
+    seg = _first_path_segment(url)
+    seg_tokens = [t for t in re.split(r"[^a-z0-9]+", seg) if t]
+    return seg in _LOGIN_FLOW_SEGMENTS or any(t in _LOGIN_FLOW_SEGMENTS for t in seg_tokens)
+
+
+def _nav_click_for(from_url: str, to_ts: str, click_events: list[dict]) -> dict | None:
+    """The recorded click that drove an in-app navigation FROM from_url.
+
+    A browser skill must NOT reach a data page with a full-page navigate/goto:
+    that is a reload, and refresh-sensitive portals (ICICI) expire the session on
+    it — the skill's own read then lands on /session-expire. The recording already
+    captured how a human got there: a click on the app's own nav that triggers a
+    client-side SPA route change (no reload). This finds the latest click on
+    from_url at or before the navigation's timestamp that carries usable text.
+    """
+    from_key = _page_key(from_url)
+    best: dict | None = None
+    for c in click_events or []:
+        if (c.get("event_type") or "click") != "click":
+            continue
+        cu = c.get("url") or ""
+        if not cu or _page_key(cu) != from_key:
+            continue
+        text = (c.get("text_content") or "").strip()
+        if not text:
+            continue
+        cts = c.get("timestamp") or ""
+        if to_ts and cts and cts > to_ts:  # click happened after the nav — not its cause
+            continue
+        if best is None or cts >= (best.get("timestamp") or ""):
+            best = {"text": text, "selector": c.get("selector") or "", "timestamp": cts}
+    return best
+
+
 def derive_browser_pages(
     url_events: list[dict],
+    click_events: list[dict] | None = None,
     *,
     login_url: str,
     max_pages: int = 12,
 ) -> list[dict]:
-    """Pick the readable data pages from a recording's URL history.
+    """Pick the readable data pages from a recording's URL history, and — for each
+    — the in-app CLICK that reaches it (so the skill navigates without a reload).
 
-    Keeps distinct pages on the app's own origin, in first-seen order, dropping:
-      - the login/auth flow pages (a browser skill reads DATA, not the login UI;
-        the login itself is handled by the Tabby session before any command);
-      - pages whose query string is volatile (a one-shot token that will not
-        replay — navigating there later lands on an error, exactly the Finacle
-        keepalive trap documented in login_assets).
+    Keeps distinct pages on the app's own origin, in first-seen order, dropping
+    login/auth-flow pages and pages whose query string is volatile.
 
-    Returns [{name, url, title_hint}] — the operations the skill will expose.
-    Empty list means the recording never left the login flow, which the caller
-    must treat as "nothing to compile" rather than emit a skill with no reads.
+    Each page is {name, url, nav}. ``nav`` is:
+      - None for the post-login LANDING page (the session lands there after login;
+        the skill just reads it — no navigation, no reload), and
+      - {"text": ...} for a page reached by clicking within the app (emit
+        click_by_text — a client-side route change that preserves the session).
+
+    Empty list means the recording never left the login flow — the caller must
+    treat that as "nothing to compile".
     """
+    click_events = click_events or []
     app_origin = _url_origin(login_url) if login_url else ""
     seen: set[str] = set()
     pages: list[dict] = []
@@ -72,43 +116,58 @@ def derive_browser_pages(
         url = (ev or {}).get("to_url") or ""
         if not url or not url.startswith(("http://", "https://")):
             continue
-        # Same-origin as the login page only. A workflow can legitimately span
-        # hosts, but the readable-data host is the app's own; third-party widget
-        # and telemetry origins (the DevRev/Dynatrace noise that poisoned the
-        # HAR-replay skill's identity) are exactly what we must not treat as
-        # pages to read.
+        # Same-origin as the login page only. Third-party widget/telemetry origins
+        # (the DevRev/Dynatrace noise that poisoned the HAR-replay skill's
+        # identity) must not be treated as pages to read.
         if app_origin and _url_origin(url) != app_origin:
             continue
-        seg = _first_path_segment(url)
-        # Match login-flow routes even when the segment carries a suffix, e.g.
-        # "login-page" / "signin_v2": split on non-alphanumerics and reject if
-        # any leading token is a login word. A bare `seg in set` misses these,
-        # and ICICI's post-login pages hang off /login-page's sibling routes.
-        seg_tokens = [t for t in re.split(r"[^a-z0-9]+", seg) if t]
-        if seg in _LOGIN_FLOW_SEGMENTS or any(
-            t in _LOGIN_FLOW_SEGMENTS for t in seg_tokens
-        ):
+        if _is_login_flow_url(url):
             continue
         if _has_volatile_query(url):
             continue
-        # Dedupe on origin+path (ignore query): the same page with different
-        # query params is one readable page.
-        key = _url_origin(url) + urlparse(url).path.rstrip("/")
+        key = _page_key(url)
         if key in seen:
             continue
         seen.add(key)
-        pages.append({"name": f"read_{_slug_from_path(url)}", "url": url})
+        # How did the human reach this page? If the transition came FROM a login
+        # page, it's the post-login landing (auto-redirect) — no nav click. If it
+        # came from another app page, replay the click that drove the SPA route.
+        from_url = (ev or {}).get("from_url") or ""
+        to_ts = (ev or {}).get("timestamp") or ""
+        nav = None
+        if from_url and not _is_login_flow_url(from_url):
+            nav = _nav_click_for(from_url, to_ts, click_events)
+        pages.append({"name": f"read_{_slug_from_path(url)}", "url": url, "nav": nav})
         if len(pages) >= max_pages:
             break
     return pages
 
 
+def _steps_for_page(p: dict) -> list[dict]:
+    """Recipe to read a page WITHOUT a reload.
+
+    - landing page (nav is None): just get_page_summary — the session already
+      lands here after login.
+    - in-app page (nav has text): click_by_text (a client-side route change, no
+      reload) then get_page_summary.
+
+    A full-page navigate/goto is deliberately never emitted: it reloads the page,
+    and refresh-sensitive portals expire the session on it (the ICICI failure —
+    the skill's own read landed on /session-expire).
+    """
+    steps: list[dict] = []
+    nav = p.get("nav")
+    if nav and nav.get("text"):
+        steps.append({"command": "click_by_text", "params": {"text": nav["text"]}})
+    steps.append({"command": "get_page_summary"})
+    return steps
+
+
 def render_browser_operations_json(pages: list[dict], *, profile_slug: str) -> str:
-    """operations.json for a browser skill — one navigate+read recipe per page.
+    """operations.json for a browser skill — a click+read recipe per page.
 
     Shape mirrors the harness call_web_api operations.json (schema_version +
-    operations[]) so the installer and manifest routing treat it identically;
-    only the tool and step shape differ.
+    operations[]) so the installer and manifest routing treat it identically.
     """
     operations = []
     for p in pages:
@@ -117,11 +176,7 @@ def render_browser_operations_json(pages: list[dict], *, profile_slug: str) -> s
             "description": f"Read the rendered contents of {p['url']}",
             "tool": "call_web_browser",
             "profile_slug": profile_slug,
-            # Two-step recipe: go to the page, then read what it rendered.
-            "steps": [
-                {"command": "navigate", "params": {"url": p["url"]}},
-                {"command": "get_page_summary"},
-            ],
+            "steps": _steps_for_page(p),
         })
     return json.dumps(
         {"schema_version": "1", "style": "browser", "operations": operations},
@@ -148,8 +203,13 @@ def render_browser_skill_md(
         f"`call_web_browser` tool rather than calling APIs directly."
     )
 
+    def _page_line(p: dict) -> str:
+        nav = p.get("nav")
+        how = f'click "{nav["text"]}"' if nav and nav.get("text") else "the page you land on after login"
+        return f"- **{p['name']}** — `{p['url']}` (reach it via {how})"
+
     page_lines = "\n".join(
-        f"- **{p['name']}** — `{p['url']}`" for p in pages
+        _page_line(p) for p in pages
     ) or "- (no data pages were captured; re-record reaching the target screen)"
 
     frontmatter = (
@@ -183,16 +243,22 @@ user signs in rather than exploring first.
 
 ## Reading data
 
-Each readable page below is a two-step recipe: navigate to it, then read it.
+Navigate the app the way a human does — **click its own menu items**, never a
+full-page navigate. This app expires the session on a page reload, so a
+`navigate`/goto to a data page lands on its session-expired screen; an in-app
+click is a client-side route change that preserves the session.
 
-1. `call_web_browser` with `command: "navigate"`, `params: {{ "url": "<page url>" }}`
+For each readable page below:
+1. If it lists a click, `call_web_browser` with `command: "click_by_text"`,
+   `params: {{ "text": "<the menu item>" }}` to route there in-app.
 2. `call_web_browser` with `command: "get_page_summary"` — returns the page's
    headings, links, buttons and inputs (the rendered account/card/transaction
    values live in `headings`).
 
-If a value you need is not in the summary, `command: "click_by_text"` (e.g. a
-"view all" button) then read again, or `command: "screenshot"` to inspect
-visually.
+The landing page needs no click — just read it. If a value you need is not in the
+summary, `command: "click_by_text"` on the relevant control (e.g. a "view all"
+button) then read again, or `command: "screenshot"` to inspect visually. Do NOT
+use `command: "navigate"` on this app.
 
 ## Readable pages
 
@@ -216,6 +282,7 @@ def generate_browser_skill(
     url_events: list[dict],
     login_url: str,
     output_dir: str,
+    click_events: list[dict] | None = None,
     session_id: str = "",
     start_url: str = "",
     description_override: str = "",
@@ -241,7 +308,7 @@ def generate_browser_skill(
             "bound profile."
         )
 
-    pages = derive_browser_pages(url_events, login_url=login_url)
+    pages = derive_browser_pages(url_events, click_events or [], login_url=login_url)
     if not pages:
         raise ValueError(
             "No readable data page was captured for this browser skill — the "
