@@ -57,18 +57,45 @@ def _is_login_flow_url(url: str) -> bool:
     return seg in _LOGIN_FLOW_SEGMENTS or any(t in _LOGIN_FLOW_SEGMENTS for t in seg_tokens)
 
 
-def _nav_click_for(from_url: str, to_ts: str, click_events: list[dict]) -> dict | None:
-    """The recorded click that drove an in-app navigation FROM from_url.
+# A human reaches a submenu item by a short burst of clicks (expand the parent
+# group, then click the child that routes). Clicks this long before the route
+# change are treated as part of the same navigation gesture; earlier clicks are
+# unrelated. The chain is capped so a noisy recording can't emit a long run.
+_NAV_GESTURE_WINDOW_S = 20.0
+_NAV_MAX_CLICKS = 3
+
+
+def _parse_ts(ts: str) -> datetime | None:
+    """Parse a recording timestamp (ISO 8601, trailing 'Z' allowed). None on failure."""
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _nav_clicks_for(from_url: str, to_ts: str, click_events: list[dict]) -> list[dict]:
+    """The recorded click CHAIN that drove an in-app navigation FROM from_url.
 
     A browser skill must NOT reach a data page with a full-page navigate/goto:
     that is a reload, and refresh-sensitive portals (ICICI) expire the session on
     it — the skill's own read then lands on /session-expire. The recording already
-    captured how a human got there: a click on the app's own nav that triggers a
-    client-side SPA route change (no reload). This finds the latest click on
-    from_url at or before the navigation's timestamp that carries usable text.
+    captured how a human got there.
+
+    A single click is often not enough: portal navs are accordions. A human clicks
+    the parent group ("Cards") to expand the submenu, THEN the child ("Credit
+    Card") that actually routes — and only the child click changes the URL. Keying
+    off the route-change timestamp alone captures just the child, so the compiled
+    skill can never open the menu (the observed ICICI failure: the model clicked
+    "Cards" → strict-mode chaos, never reaching the statement). This returns the
+    full ordered gesture — parent-expand … child-navigate — so the skill can
+    reproduce the whole path. Falls back to the single navigating click when the
+    recording lacks reliable timestamps.
     """
     from_key = _page_key(from_url)
-    best: dict | None = None
+    nav_dt = _parse_ts(to_ts)
+    cands: list[dict] = []
     for c in click_events or []:
         if (c.get("event_type") or "click") != "click":
             continue
@@ -78,12 +105,30 @@ def _nav_click_for(from_url: str, to_ts: str, click_events: list[dict]) -> dict 
         text = (c.get("text_content") or "").strip()
         if not text:
             continue
-        cts = c.get("timestamp") or ""
-        if to_ts and cts and cts > to_ts:  # click happened after the nav — not its cause
+        cdt = _parse_ts(c.get("timestamp") or "")
+        if nav_dt and cdt and cdt > nav_dt:  # click happened after the nav — not its cause
             continue
-        if best is None or cts >= (best.get("timestamp") or ""):
-            best = {"text": text, "selector": c.get("selector") or "", "timestamp": cts}
-    return best
+        cands.append({"text": text, "selector": c.get("selector") or "", "dt": cdt})
+    if not cands:
+        return []
+
+    if all(c["dt"] is not None for c in cands):
+        cands.sort(key=lambda c: c["dt"])
+        anchor = cands[-1]["dt"]  # the navigating click
+        chain = [c for c in cands if (anchor - c["dt"]).total_seconds() <= _NAV_GESTURE_WINDOW_S]
+    else:
+        # Timestamps unreliable — can't bound the gesture, so keep only the
+        # navigating click (the recording-order last), i.e. the old behaviour.
+        chain = cands[-1:]
+
+    # Collapse consecutive identical labels (double-clicks, re-renders) and cap
+    # to the trailing N so only the immediate expand→navigate steps are emitted.
+    out: list[dict] = []
+    for c in chain:
+        if out and out[-1]["text"] == c["text"]:
+            continue
+        out.append({"text": c["text"], "selector": c["selector"]})
+    return out[-_NAV_MAX_CLICKS:]
 
 
 def derive_browser_pages(
@@ -102,8 +147,10 @@ def derive_browser_pages(
     Each page is {name, url, nav}. ``nav`` is:
       - None for the post-login LANDING page (the session lands there after login;
         the skill just reads it — no navigation, no reload), and
-      - {"text": ...} for a page reached by clicking within the app (emit
-        click_by_text — a client-side route change that preserves the session).
+      - a non-empty list of {"text": ..., "selector": ...} clicks for a page
+        reached by clicking within the app — the full gesture (e.g. expand
+        "Cards" → click "Credit Card"), each emitted as click_by_text (client-side
+        route changes that preserve the session).
 
     Empty list means the recording never left the login flow — the caller must
     treat that as "nothing to compile".
@@ -134,9 +181,9 @@ def derive_browser_pages(
         # came from another app page, replay the click that drove the SPA route.
         from_url = (ev or {}).get("from_url") or ""
         to_ts = (ev or {}).get("timestamp") or ""
-        nav = None
+        nav: list[dict] | None = None
         if from_url and not _is_login_flow_url(from_url):
-            nav = _nav_click_for(from_url, to_ts, click_events)
+            nav = _nav_clicks_for(from_url, to_ts, click_events) or None
         pages.append({"name": f"read_{_slug_from_path(url)}", "url": url, "nav": nav})
         if len(pages) >= max_pages:
             break
@@ -148,17 +195,18 @@ def _steps_for_page(p: dict) -> list[dict]:
 
     - landing page (nav is None): just get_page_summary — the session already
       lands here after login.
-    - in-app page (nav has text): click_by_text (a client-side route change, no
-      reload) then get_page_summary.
+    - in-app page (nav is a click chain): one click_by_text per click in the
+      gesture (e.g. expand "Cards" → click "Credit Card") — each a client-side
+      route change, no reload — then get_page_summary.
 
     A full-page navigate/goto is deliberately never emitted: it reloads the page,
     and refresh-sensitive portals expire the session on it (the ICICI failure —
     the skill's own read landed on /session-expire).
     """
     steps: list[dict] = []
-    nav = p.get("nav")
-    if nav and nav.get("text"):
-        steps.append({"command": "click_by_text", "params": {"text": nav["text"]}})
+    for click in p.get("nav") or []:
+        if click.get("text"):
+            steps.append({"command": "click_by_text", "params": {"text": click["text"]}})
     steps.append({"command": "get_page_summary"})
     return steps
 
@@ -207,11 +255,11 @@ def render_browser_skill_md(
 
     def _page_line(p: dict) -> str:
         nav = p.get("nav")
-        how = (
-            f'click "{nav["text"]}"'
-            if nav and nav.get("text")
-            else "the page you land on after login"
-        )
+        if nav:
+            clicks = " then ".join(f'click "{c["text"]}"' for c in nav if c.get("text"))
+            how = clicks or "the page you land on after login"
+        else:
+            how = "the page you land on after login"
         return f"- **{p['name']}** — `{p['url']}` (reach it via {how})"
 
     page_lines = (

@@ -79,7 +79,104 @@ def test_derive_pages_attaches_in_app_click_not_reload():
     pages = derive_browser_pages(ICICI_EVENTS, ICICI_CLICKS, login_url=LOGIN)
     overview, credit = pages[0], pages[1]
     assert overview["nav"] is None
-    assert credit["nav"]["text"] == "Credit Cards"
+    assert [c["text"] for c in credit["nav"]] == ["Credit Cards"]
+
+
+def test_derive_pages_captures_full_click_chain_for_submenu():
+    # ICICI's nav is an accordion: expand "Cards" (no URL change), then click
+    # "Credit Card" (routes). Both clicks must be emitted in order so the skill can
+    # open the menu — keying off the route-change alone captures only the child and
+    # the compiled skill can never reach the statement (the observed run: the model
+    # clicked "Cards" then flailed).
+    events = [
+        {
+            "from_url": "about:blank",
+            "to_url": f"{_H}/login-page",
+            "timestamp": "2026-08-04T22:16:24Z",
+        },
+        {
+            "from_url": f"{_H}/login-page",
+            "to_url": f"{_H}/overview",
+            "timestamp": "2026-08-04T22:17:00Z",
+        },
+        {
+            "from_url": f"{_H}/overview",
+            "to_url": f"{_H}/credit-card",
+            "timestamp": "2026-08-04T22:17:30Z",
+        },
+    ]
+    clicks = [
+        {
+            "event_type": "click",
+            "text_content": "Cards",
+            "selector": "a.mb-0",
+            "url": f"{_H}/overview",
+            "timestamp": "2026-08-04T22:17:25Z",
+        },  # expand parent
+        {
+            "event_type": "click",
+            "text_content": "Credit Card",
+            "selector": "a.submenu",
+            "url": f"{_H}/overview",
+            "timestamp": "2026-08-04T22:17:29Z",
+        },  # navigate child
+    ]
+    pages = derive_browser_pages(events, clicks, login_url=LOGIN)
+    credit = next(p for p in pages if p["name"] == "read_credit_card")
+    assert [c["text"] for c in credit["nav"]] == ["Cards", "Credit Card"]
+    # operations emit a click per gesture step, in order, then read
+    doc = json.loads(render_browser_operations_json(pages, profile_slug="icici-credit-card"))
+    ops = {o["name"]: o for o in doc["operations"]}
+    assert [s["command"] for s in ops["read_credit_card"]["steps"]] == [
+        "click_by_text",
+        "click_by_text",
+        "get_page_summary",
+    ]
+    assert [
+        s["params"]["text"]
+        for s in ops["read_credit_card"]["steps"]
+        if s["command"] == "click_by_text"
+    ] == ["Cards", "Credit Card"]
+
+
+def test_nav_gesture_window_excludes_stale_clicks():
+    # A click made long before the navigation (outside the gesture window) is not
+    # part of the menu path and must be dropped, not emitted as a spurious step.
+    events = [
+        {
+            "from_url": f"{_H}/login-page",
+            "to_url": f"{_H}/overview",
+            "timestamp": "2026-08-04T22:00:00Z",
+        },
+        {
+            "from_url": f"{_H}/overview",
+            "to_url": f"{_H}/credit-card",
+            "timestamp": "2026-08-04T22:17:30Z",
+        },
+    ]
+    clicks = [
+        {
+            "event_type": "click",
+            "text_content": "Some banner",
+            "url": f"{_H}/overview",
+            "timestamp": "2026-08-04T22:05:00Z",
+        },  # 12 min before the nav → stale, not the gesture
+        {
+            "event_type": "click",
+            "text_content": "Cards",
+            "url": f"{_H}/overview",
+            "timestamp": "2026-08-04T22:17:25Z",
+        },
+        {
+            "event_type": "click",
+            "text_content": "Credit Card",
+            "url": f"{_H}/overview",
+            "timestamp": "2026-08-04T22:17:29Z",
+        },
+    ]
+    pages = derive_browser_pages(events, clicks, login_url=LOGIN)
+    credit = next(p for p in pages if p["name"] == "read_credit_card")
+    assert [c["text"] for c in credit["nav"]] == ["Cards", "Credit Card"]  # banner dropped
 
 
 def test_derive_pages_drops_login_flow_even_with_suffix():
