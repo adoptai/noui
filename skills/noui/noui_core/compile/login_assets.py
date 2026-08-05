@@ -1114,44 +1114,28 @@ def generate(
             }
         )
 
-    if has_dynamic_headers and post_login_url:
-        # Periodically revisit the post-login page so there's guaranteed real
-        # traffic for the request-header-capture listener to observe — without
-        # this, a captured header can go stale (or never populate) if nothing
-        # else on the session happens to hit an instrumented route between
-        # keepalive cycles.
-        if _has_volatile_query(post_login_url):
-            # Navigating to a URL whose token died with the recording is worse than
-            # not navigating: every interval it threw the live browser onto an error
-            # page, discarding whatever the user had signed into.
-            review_items.append(
-                {
-                    "type": "keepalive_goto_skipped",
-                    "severity": "warning",
-                    "message": (
-                        "The recorded landing URL carries one-time query material "
-                        f"({post_login_url.split('?')[0]}?...), so no keepalive goto was "
-                        "emitted — replaying it would navigate the live session onto an "
-                        "expired-token error page. Header capture therefore relies on "
-                        "organic traffic; set a stable authenticated URL by hand if the "
-                        "captured headers go stale."
-                    ),
-                }
-            )
-        else:
-            keepalive_actions.append({"action": "goto", "url": post_login_url})
+    # Keepalive = HOLD the session, and do it the way a human does: a small
+    # trusted mouse-move + scroll ('activity'), not a page reload ('goto').
+    #
+    # Proven live on ICICI: portals detect idle via DOM interaction events
+    # (mousemove/scroll/keypress reset a client-side countdown that redirects to
+    # /session-expire), NOT via HTTP activity. A logged-in page left idle — no
+    # reload at all — died in <=90s; the same session with a 45s 'activity' nudge
+    # held for minutes. The old 'goto' reload didn't help (banks expire on refresh
+    # too) and was disruptive: it reloaded the page under the user every interval
+    # and, for refresh-sensitive portals, actively tripped the expiry. 'activity'
+    # is safe on ANY page (no clicks, no keys, no navigation) and Playwright input
+    # is trusted (isTrusted=true), so it looks exactly like a real user.
+    #
+    # Header freshness (the old goto's secondary job) is handled at call time by
+    # attach_captured_credentials + force_refresh, so dropping the goto does not
+    # stale a captured bearer between calls.
+    keepalive_actions.append({"action": "activity"})
 
-    # 120s, not 300s. The keepalive goto is a REAL navigation (an HTTP request
-    # that resets the app's server-side idle timer), so it only holds the session
-    # if it fires BEFORE that timer expires. Bank/enterprise portals idle out
-    # aggressively — ICICI drops an untouched session in under ~2 minutes, so a
-    # 300s interval meant the very first keepalive tick never arrived in time and
-    # the session was already on /session-expire. 120s sits under that idle
-    # window while staying within Tabby's documented 120-300s guidance, and it
-    # matches the refresh_interval_seconds below so a keepalive navigation and a
-    # credential refresh stay roughly in step.
+    # 45s: comfortably under the aggressive idle windows portals use (ICICI
+    # <=90s), so the activity nudge always lands before the timer fires.
     keepalive_config: dict[str, Any] = {
-        "interval_seconds": 120,
+        "interval_seconds": 45,
         "actions": keepalive_actions,
         "health_checks": keepalive_health_checks,
         "policy": "all",

@@ -225,10 +225,8 @@ def test_dynamic_header_widens_scope_to_post_login_origin():
     }
     assert set(profile["target_domains"]) == {"test.salesforce.com", "x.lightning.force.com"}
     assert app["export_policy"]["refresh_interval_seconds"] == 180
-    keepalive_goto_urls = [
-        a["url"] for a in app["keepalive_config"]["actions"] if a.get("action") == "goto"
-    ]
-    assert "https://x.lightning.force.com/lightning/page/home" in keepalive_goto_urls
+    # Keepalive holds the session via a human-like 'activity' nudge, not a reload.
+    assert [a["action"] for a in app["keepalive_config"]["actions"]] == ["activity"]
 
 
 def test_no_dynamic_headers_keeps_scope_to_login_origin_only():
@@ -258,7 +256,8 @@ def test_no_dynamic_headers_keeps_scope_to_login_origin_only():
     )
     app = res["application_draft"]
     assert "refresh_interval_seconds" not in app["export_policy"]
-    assert app["keepalive_config"]["actions"] == []
+    # Even a cookie-only login gets the activity keepalive to hold the session.
+    assert [a["action"] for a in app["keepalive_config"]["actions"]] == ["activity"]
 
 
 def test_resolve_panel_url():
@@ -691,15 +690,18 @@ def test_unreplayable_landing_url_emits_no_keepalive_goto():
     }
     res = compile_login_bundle(session_id="s", bundle=bundle, name="icici", manual_takeover=True)
 
-    gotos = [a for a in res["application_draft"]["keepalive_config"]["actions"]
-             if a.get("action") == "goto"]
-    assert gotos == [], "a URL with one-time query material must not be replayed"
-    assert "keepalive_goto_skipped" in {i["type"] for i in res["review_items"]}
+    actions = res["application_draft"]["keepalive_config"]["actions"]
+    # No goto is ever emitted now — the keepalive holds the session with a
+    # human-like 'activity' nudge, which is safe on any page (never replays a
+    # dead-token URL).
+    assert [a["action"] for a in actions] == ["activity"]
 
 
-def test_stable_landing_url_still_gets_a_keepalive_goto():
-    """The skip is targeted: a landing URL with no session-bound material keeps its
-    goto, which is what guarantees traffic for request-header capture."""
+def test_header_capture_app_uses_activity_keepalive_not_reload():
+    """Even a header-capture app (dynamic bearer) holds the session with the
+    'activity' nudge now, not a goto reload. Header freshness is handled at call
+    time by attach_captured_credentials + force_refresh, so no reload is needed —
+    and the reload was actively harmful on refresh-sensitive portals."""
     from noui_core.compile.login import compile_login_bundle
 
     landing = "https://app.example.com/home?tab=overview"
@@ -717,19 +719,15 @@ def test_stable_landing_url_still_gets_a_keepalive_goto():
         "cookies": [],
     }
     res = compile_login_bundle(session_id="s", bundle=bundle, name="app", manual_takeover=True)
-    gotos = [a for a in res["application_draft"]["keepalive_config"]["actions"]
-             if a.get("action") == "goto"]
-    assert gotos and gotos[0]["url"] == landing
+    actions = res["application_draft"]["keepalive_config"]["actions"]
+    assert [a["action"] for a in actions] == ["activity"]
+    assert not any(a.get("action") == "goto" for a in actions)
 
 
-def test_keepalive_interval_holds_aggressive_idle_sessions():
-    """The keepalive goto must fire before the app's server-side idle timer.
-
-    It's a real navigation (an HTTP request that resets the idle timer), so it
-    only holds the session if the interval is shorter than the idle window. Bank
-    portals idle out fast — ICICI drops an untouched session in under ~2 minutes.
-    A 300s interval meant the first keepalive tick never arrived in time and the
-    session was already on /session-expire. Keep it tight.
+def test_keepalive_is_activity_at_a_tight_interval():
+    """The keepalive nudge must fire before the app's idle timer. Banks idle out
+    fast (ICICI <=90s), so the interval must be tight, and the action is the
+    human-like 'activity' nudge (proven to hold ICICI), not a reload.
     """
     from noui_core.compile.login import compile_login_bundle
 
@@ -750,4 +748,5 @@ def test_keepalive_interval_holds_aggressive_idle_sessions():
         manual_takeover=True,
     )
     ka = res["application_draft"]["keepalive_config"]
-    assert ka["interval_seconds"] <= 120, ka["interval_seconds"]
+    assert ka["interval_seconds"] <= 60, ka["interval_seconds"]
+    assert [a["action"] for a in ka["actions"]] == ["activity"]
