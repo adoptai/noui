@@ -1233,6 +1233,16 @@ def generate(
         "login_config": login_config,
         "keepalive_config": keepalive_config,
         "export_policy": export_policy,
+        # Browser-driven skills read the DOM and may trigger in-page file exports
+        # (e.g. a statement PDF). The worker CANCELS downloads unless the app opts
+        # in, so enable them here; then call_web_browser's get_download captures
+        # the file into the conversation OUTPUTS. HAR-replay skills never download,
+        # so they keep the safe default (off).
+        "browser_policy": {
+            "clipboard": False,
+            "downloads": keepalive_style == "activity",
+            "file_chooser": False,
+        },
         "notification_config": {"channels": ["slack:#local-dev"]},
         "desired_session_count": 0,
         # execute_enabled must be true or the K8s worker Service + pod

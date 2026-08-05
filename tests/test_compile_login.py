@@ -861,6 +861,35 @@ def test_activity_keepalive_style_holds_session_without_reload():
     # anything tighter makes every call_web_browser 400 and the session never
     # provisions. Keep it tight (not the 120s goto default) but >= 60.
     assert 60 <= ka["interval_seconds"] < 120
+    # Browser skills must enable downloads or the worker cancels in-page exports
+    # (e.g. a statement PDF), so get_download can never capture them.
+    assert res["application_draft"]["browser_policy"]["downloads"] is True
+
+
+def test_goto_keepalive_keeps_downloads_off():
+    """HAR-replay skills never download — keep the safe default (off)."""
+    from noui_core.compile.login import compile_login_bundle
+
+    res = compile_login_bundle(
+        session_id="s",
+        bundle={
+            "recording_mode": "login",
+            "url_events": [
+                {"from_url": "", "to_url": "https://bank.test/login-page"},
+                {
+                    "from_url": "https://bank.test/login-page",
+                    "to_url": "https://bank.test/dashboard",
+                },
+            ],
+            "click_events": [],
+            "har": {"log": {"entries": []}},
+            "cookies": [],
+        },
+        name="bank",
+        login_url="https://bank.test/login-page",
+        manual_takeover=True,
+    )
+    assert res["application_draft"]["browser_policy"]["downloads"] is False
 
 
 def test_keepalive_interval_default_goto():
