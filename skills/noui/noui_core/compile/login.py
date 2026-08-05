@@ -66,8 +66,15 @@ def compile_login_bundle(
     manual_credentials: bool | None = None,
     manual_takeover: bool = False,
     post_login_url_pattern: str = "",
+    keepalive_style: str = "goto",
 ) -> dict[str, Any]:
     """Compile a login bundle into App/ServiceProfile drafts + review items.
+
+    keepalive_style: "goto" (default, HAR-replay: revisit the landing page to keep
+        captured request headers fresh) or "activity" (browser-driven: a trusted
+        mouse-move + scroll that holds the session without a reload — the right
+        choice for SPA/bank portals that expire idle or refresh-sensitive
+        sessions). See noui_core.compile.login_assets.generate.
 
     manual_credentials: True → `credential_ref: "manual:"` + request_human_input
     steps (no stored secret; the worker pod starts without a K8s secret mount and
@@ -97,6 +104,7 @@ def compile_login_bundle(
         manual_credentials=manual_credentials,
         manual_takeover=manual_takeover,
         post_login_url_pattern=post_login_url_pattern,
+        keepalive_style=keepalive_style,
     )
     _enrich_credential_types_from_cookies(result, bundle)
     return result

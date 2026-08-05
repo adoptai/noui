@@ -588,6 +588,7 @@ def generate(
     manual_credentials: bool | None = None,
     manual_takeover: bool = False,
     post_login_url_pattern: str = "",
+    keepalive_style: str = "goto",
 ) -> dict[str, Any]:
     """
     Generate an Application draft, ServiceProfile draft, and review items
@@ -1114,28 +1115,51 @@ def generate(
             }
         )
 
-    # Keepalive = HOLD the session, and do it the way a human does: a small
-    # trusted mouse-move + scroll ('activity'), not a page reload ('goto').
+    # Two keepalive styles, chosen by the skill kind (see keepalive_style):
     #
-    # Proven live on ICICI: portals detect idle via DOM interaction events
-    # (mousemove/scroll/keypress reset a client-side countdown that redirects to
-    # /session-expire), NOT via HTTP activity. A logged-in page left idle — no
-    # reload at all — died in <=90s; the same session with a 45s 'activity' nudge
-    # held for minutes. The old 'goto' reload didn't help (banks expire on refresh
-    # too) and was disruptive: it reloaded the page under the user every interval
-    # and, for refresh-sensitive portals, actively tripped the expiry. 'activity'
-    # is safe on ANY page (no clicks, no keys, no navigation) and Playwright input
-    # is trusted (isTrusted=true), so it looks exactly like a real user.
+    #   "activity" (browser-driven default) — a small trusted mouse-move + scroll
+    #     every 45s. Proven live on ICICI: portals detect idle via DOM interaction
+    #     events (mousemove/scroll reset a client-side countdown that redirects to
+    #     /session-expire), NOT HTTP — a page left idle died in <=90s, but with the
+    #     activity nudge held HEALTHY for 11+ minutes. Safe on any page (no clicks/
+    #     keys/navigation; Playwright input is trusted), so it never disrupts the
+    #     user or trips a refresh-sensitive expiry. A browser skill reads the DOM,
+    #     so it needs no header-capture navigation.
     #
-    # Header freshness (the old goto's secondary job) is handled at call time by
-    # attach_captured_credentials + force_refresh, so dropping the goto does not
-    # stale a captured bearer between calls.
-    keepalive_actions.append({"action": "activity"})
+    #   "goto" (HAR-replay default) — revisit the post-login page so there's
+    #     guaranteed real traffic for the request-header-capture listener; without
+    #     it a captured header can go stale (or never populate) between calls. This
+    #     is what a call_web_api skill's dynamic bearers rely on.
+    if keepalive_style == "activity":
+        keepalive_actions.append({"action": "activity"})
+        keepalive_interval = 45
+    else:  # "goto"
+        if has_dynamic_headers and post_login_url:
+            if _has_volatile_query(post_login_url):
+                # A URL whose token died with the recording is worse than nothing:
+                # every interval it threw the live browser onto an expired-token
+                # error page, discarding whatever the user had signed into.
+                review_items.append(
+                    {
+                        "type": "keepalive_goto_skipped",
+                        "severity": "warning",
+                        "message": (
+                            "The recorded landing URL carries one-time query material "
+                            f"({post_login_url.split('?')[0]}?...), so no keepalive goto "
+                            "was emitted — replaying it would navigate the live session "
+                            "onto an expired-token error page. Header capture relies on "
+                            "organic traffic; set a stable authenticated URL by hand if "
+                            "the captured headers go stale, or compile browser-driven "
+                            "(keepalive_style='activity')."
+                        ),
+                    }
+                )
+            else:
+                keepalive_actions.append({"action": "goto", "url": post_login_url})
+        keepalive_interval = 120
 
-    # 45s: comfortably under the aggressive idle windows portals use (ICICI
-    # <=90s), so the activity nudge always lands before the timer fires.
     keepalive_config: dict[str, Any] = {
-        "interval_seconds": 45,
+        "interval_seconds": keepalive_interval,
         "actions": keepalive_actions,
         "health_checks": keepalive_health_checks,
         "policy": "all",
