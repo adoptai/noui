@@ -198,7 +198,18 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
     login_bundle, workflow_bundle = parts
     manual_takeover, manual_credentials = _credential_flags(args.credential_mode)
     keepalive_style = _resolve_keepalive_style(args, workflow_bundle)
-    print(f"Keepalive style: {keepalive_style}.", file=sys.stderr)
+    # Single browser-vs-replay decision. _resolve_keepalive_style already folds in
+    # --browser-driven, --keepalive, and HAR auto-detect, so treat "activity" as
+    # THE authoritative "this is a browser skill" signal and drive BOTH the login
+    # app template (keepalive + downloads) AND the workflow skill kind from it.
+    # Deciding them separately is what let hsbcnet compile as a browser skill with
+    # a "goto" keepalive that reloaded — and duplicate-session-killed — the portal
+    # every 120s (DTC_AUTH_PL_1_075).
+    is_browser = keepalive_style == "activity"
+    print(
+        f"Keepalive style: {keepalive_style} (browser-driven={is_browser}).",
+        file=sys.stderr,
+    )
     try:
         compiled = compile_login_bundle(
             session_id=args.session_id,
@@ -210,6 +221,7 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             manual_takeover=manual_takeover,
             post_login_url_pattern=args.post_login_url_pattern,
             keepalive_style=keepalive_style,
+            enable_downloads=is_browser,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Login compile failed: {exc}", file=sys.stderr)
@@ -241,8 +253,11 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             execution_mode=args.execution_mode,
             auth_type="session",
             login_credential_headers=login_headers,
-            browser_driven=getattr(args, "browser_driven", False),
-            auto_detect_browser=getattr(args, "auto_detect_browser", True),
+            # Honor the single browser decision from the keepalive resolver so the
+            # skill kind can never disagree with the keepalive style (a browser
+            # skill paired with a reload-on-interval goto keepalive).
+            browser_driven=is_browser,
+            auto_detect_browser=False,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Workflow compile failed: {exc}", file=sys.stderr)

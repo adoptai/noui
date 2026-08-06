@@ -144,25 +144,52 @@ _VOLATILE_QUERY_PARAM = re.compile(
 
 
 def _has_volatile_query(url: str) -> bool:
-    """True when the URL's query carries session-bound, one-time material.
+    """True when the URL carries session-bound, one-time material — in its query
+    OR its path *matrix* params (``;jsessionid=…``).
 
     ICICI's recorded landing URL was
-    ``.../corp/AuthenticationController?...&UX_TOKEN=<one-time>&CTA_FLAG=CCPSTM``.
-    Replaying it later asks for a token that expired with the recording session.
+    ``.../corp/AuthenticationController?...&UX_TOKEN=<one-time>&CTA_FLAG=CCPSTM``
+    (a one-time token in the QUERY). HSBCnet's was
+    ``.../uims/portal/HSBCnet/Landing;jsessionid=<one-time>`` (a per-session token
+    in a PATH MATRIX param — ``urlparse().query`` is empty for it, which is why the
+    original query-only check missed it and a ``goto`` keepalive kept re-navigating
+    the live session onto the "already logged on" (DTC_AUTH_PL_1_075) page).
 
-    Stripping the query does NOT rescue such a URL: in Finacle/JSP-style apps the
+    Stripping the QUERY does NOT rescue such a URL: in Finacle/JSP-style apps the
     query IS the routing (FORMSGROUP_ID__, __START_TRAN_FLAG__, ACTION.LOAD), so
-    the bare path returns "Page temporarily unavailable". Verified on the live
-    portal — both forms fail. There is no replayable variant, so callers must not
-    emit one at all rather than emit a broken one.
+    the bare path returns "Page temporarily unavailable". There is no replayable
+    variant, so callers must not emit a ``goto`` at all rather than emit a broken
+    one. Matrix session tokens, by contrast, are pure binding and CAN be stripped
+    (see :func:`_strip_volatile_matrix_params`) — but a URL still carrying one is
+    unsafe to re-navigate as-is, so it is reported volatile here too.
     """
     try:
-        q = urlparse(url).query
+        query = urlparse(url).query
     except Exception:
-        return False
-    if not q:
-        return False
-    return any(_VOLATILE_QUERY_PARAM.search(part.split("=", 1)[0]) for part in q.split("&"))
+        query = ""
+    names: list[str] = []
+    if query:
+        names += [part.split("=", 1)[0] for part in query.split("&")]
+    # Matrix params (``;name=value`` groups) live in the path, before any ``?``.
+    names += re.findall(r";([^;/=?#]+)=", url.split("?", 1)[0])
+    return any(_VOLATILE_QUERY_PARAM.search(name) for name in names if name)
+
+
+def _strip_volatile_matrix_params(url: str) -> str:
+    """Drop session-bound matrix params (``;jsessionid=…``) from a URL's path,
+    leaving the query untouched.
+
+    A matrix session token is pure session binding, not routing, so the bare path
+    is the correct replayable form for a health probe (Tabby's ``url_check`` is a
+    cookie'd HTTP GET, so the live cookies re-establish the session). The query is
+    left intact because it CAN be routing (see :func:`_has_volatile_query`)."""
+    base, sep, query = url.partition("?")
+    base = re.sub(
+        r";([^;/=?#]+)=[^;/?#]*",
+        lambda m: "" if _VOLATILE_QUERY_PARAM.search(m.group(1)) else m.group(0),
+        base,
+    )
+    return base + sep + query
 
 
 def _url_origin(url: str) -> str:
@@ -590,6 +617,7 @@ def generate(
     manual_takeover: bool = False,
     post_login_url_pattern: str = "",
     keepalive_style: str = "goto",
+    enable_downloads: bool | None = None,
 ) -> dict[str, Any]:
     """
     Generate an Application draft, ServiceProfile draft, and review items
@@ -1094,10 +1122,15 @@ def generate(
             "/timeout",
             "/logout",
         ]
+        # Probe a URL with any session-bound matrix param (``;jsessionid=…``)
+        # stripped: the stale token from the recording makes a bank serve its
+        # "already logged on"/duplicate-session page as HTTP 200, so the check
+        # would report PASS on a dead session forever. The bare path + live
+        # cookies re-establishes the real session for the probe.
         keepalive_health_checks.append(
             {
                 "type": "url_check",
-                "url": post_login_url,
+                "url": _strip_volatile_matrix_params(post_login_url),
                 "expect_status": 200,
                 "auth_redirect_pattern": "|".join(dict.fromkeys(_auth_patterns)),
                 "timeout_ms": 15000,
@@ -1238,9 +1271,18 @@ def generate(
         # in, so enable them here; then call_web_browser's get_download captures
         # the file into the conversation OUTPUTS. HAR-replay skills never download,
         # so they keep the safe default (off).
+        #
+        # ``enable_downloads`` decouples this from the keepalive style: a download
+        # skill must get downloads even if it was (mis)compiled with a "goto"
+        # keepalive. When unset, fall back to the browser-driven heuristic
+        # (keepalive_style == "activity").
         "browser_policy": {
             "clipboard": False,
-            "downloads": keepalive_style == "activity",
+            "downloads": (
+                enable_downloads
+                if enable_downloads is not None
+                else keepalive_style == "activity"
+            ),
             "file_chooser": False,
         },
         "notification_config": {"channels": ["slack:#local-dev"]},

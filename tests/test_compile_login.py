@@ -892,6 +892,109 @@ def test_goto_keepalive_keeps_downloads_off():
     assert res["application_draft"]["browser_policy"]["downloads"] is False
 
 
+def test_has_volatile_query_catches_jsessionid_matrix_param():
+    """A per-session ``;jsessionid=`` matrix param (in the PATH, not the query)
+    must read as volatile — the original query-only check missed it, which let a
+    goto keepalive re-navigate HSBCnet onto its "already logged on" page."""
+    from noui_core.compile.login_assets import _has_volatile_query
+
+    hsbc = "https://www1.secure.hsbcnet.com/uims/portal/HSBCnet/Landing;jsessionid=00000YJ-x:Pfh"
+    assert _has_volatile_query(hsbc) is True
+    # Stable URLs (no session token in query or matrix) are not volatile.
+    assert _has_volatile_query("https://app.example.com/home?tab=overview") is False
+    assert _has_volatile_query("https://www1.secure.hsbcnet.com/uims/portal/HSBCnet/Landing") is False
+
+
+def test_strip_volatile_matrix_params_cleans_jsessionid_keeps_query():
+    """Matrix session tokens are pure binding → strip them; the query can be
+    routing → leave it intact."""
+    from noui_core.compile.login_assets import _strip_volatile_matrix_params
+
+    assert (
+        _strip_volatile_matrix_params(
+            "https://h.example.com/uims/portal/Landing;jsessionid=DEAD:TOKEN"
+        )
+        == "https://h.example.com/uims/portal/Landing"
+    )
+    # Query preserved (Finacle/JSP routing lives there).
+    assert (
+        _strip_volatile_matrix_params("https://h.example.com/x;jsessionid=Z?FORMSGROUP_ID__=A")
+        == "https://h.example.com/x?FORMSGROUP_ID__=A"
+    )
+
+
+def test_jsessionid_landing_skips_goto_keepalive_and_cleans_health_url():
+    """A landing URL carrying ``;jsessionid=`` must NOT get a goto keepalive
+    (that reload triggers the duplicate-session guard), and the url_check probe
+    must have the stale token stripped so it can't PASS on the error page."""
+    from noui_core.compile.login import compile_login_bundle
+
+    landing = "https://www1.secure.hsbcnet.com/uims/portal/HSBCnet/Landing;jsessionid=00000YJ-x:Pfh"
+    res = compile_login_bundle(
+        session_id="s",
+        bundle={
+            "recording_mode": "login",
+            "url_events": [
+                {"from_url": "", "to_url": "https://www.hsbcnet.com/login"},
+                {"from_url": "https://www.hsbcnet.com/login", "to_url": landing},
+            ],
+            "click_events": [],
+            # dynamic header present so the 'goto' path is exercised
+            "har": {
+                "log": {
+                    "entries": [
+                        {
+                            "request": {
+                                "url": landing,
+                                "headers": [{"name": "authorization", "value": "Bearer x"}],
+                            },
+                            "response": {"headers": []},
+                        }
+                    ]
+                }
+            },
+            "cookies": [],
+        },
+        name="hsbcnet",
+        login_url="https://www.hsbcnet.com/login",
+        manual_takeover=True,
+        keepalive_style="goto",
+    )
+    ka = res["application_draft"]["keepalive_config"]
+    # No goto action emitted for a session-bound landing URL.
+    assert not any(a.get("action") == "goto" for a in ka["actions"])
+    # Health-check URL has the jsessionid stripped.
+    hc = ka["health_checks"][0]
+    assert "jsessionid" not in hc.get("url", "")
+
+
+def test_enable_downloads_overrides_keepalive_coupling():
+    """A download skill can force downloads on even with a 'goto' keepalive —
+    decoupled from keepalive_style."""
+    from noui_core.compile.login import compile_login_bundle
+
+    bundle = {
+        "recording_mode": "login",
+        "url_events": [
+            {"from_url": "", "to_url": "https://bank.test/login-page"},
+            {"from_url": "https://bank.test/login-page", "to_url": "https://bank.test/dashboard"},
+        ],
+        "click_events": [],
+        "har": {"log": {"entries": []}},
+        "cookies": [],
+    }
+    res = compile_login_bundle(
+        session_id="s",
+        bundle=bundle,
+        name="bank",
+        login_url="https://bank.test/login-page",
+        manual_takeover=True,
+        keepalive_style="goto",
+        enable_downloads=True,
+    )
+    assert res["application_draft"]["browser_policy"]["downloads"] is True
+
+
 def test_keepalive_interval_default_goto():
     """Default (goto) keepalive interval stays within Tabby's 120-300s guidance."""
     from noui_core.compile.login import compile_login_bundle
