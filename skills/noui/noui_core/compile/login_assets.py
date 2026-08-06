@@ -136,11 +136,46 @@ def _build_selector(ev: dict) -> str:
 
 # Query params whose value is minted per session/request. A URL carrying one is
 # not replayable: the value died with the recording.
-_VOLATILE_QUERY_PARAM = re.compile(
-    r"(token|jsessionid|sessionid|sid|nonce|ticket|otp|csrf|xsrf|auth|signature|sig|"
-    r"timestamp|_ts|expires)",
-    re.I,
+# Param-name tokens whose VALUE is minted per session/request. Matched by
+# splitting the name on separators (and on the squashed form), not as a bare
+# substring: the old alternation fired on ordinary routing params — ?assignee=
+# and ?design= ("sig"), ?author= ("auth"), ?sidebar= / ?resident= ("sid").
+_VOLATILE_PARAM_TOKENS = frozenset(
+    {
+        "token",
+        "jsessionid",
+        "sessionid",
+        "session",
+        "sid",
+        "nonce",
+        "ticket",
+        "otp",
+        "csrf",
+        "xsrf",
+        "auth",
+        "signature",
+        "sig",
+        "timestamp",
+        "ts",
+        "expires",
+        "expiry",
+    }
 )
+
+
+def _is_volatile_param_name(name: str) -> bool:
+    """True when a query/matrix param NAME denotes session-bound, one-time material."""
+    parts = [p for p in re.split(r"[_\-.]+", (name or "").strip().lower()) if p]
+    if not parts:
+        return False
+    if any(p in _VOLATILE_PARAM_TOKENS for p in parts):
+        return True
+    squashed = "".join(parts)
+    return (
+        squashed in _VOLATILE_PARAM_TOKENS
+        or squashed.endswith("token")
+        or squashed.endswith("sessionid")
+    )
 
 
 def _has_volatile_query(url: str) -> bool:
@@ -172,7 +207,7 @@ def _has_volatile_query(url: str) -> bool:
         names += [part.split("=", 1)[0] for part in query.split("&")]
     # Matrix params (``;name=value`` groups) live in the path, before any ``?``.
     names += re.findall(r";([^;/=?#]+)=", url.split("?", 1)[0])
-    return any(_VOLATILE_QUERY_PARAM.search(name) for name in names if name)
+    return any(_is_volatile_param_name(name) for name in names if name)
 
 
 def _strip_volatile_matrix_params(url: str) -> str:
@@ -186,7 +221,7 @@ def _strip_volatile_matrix_params(url: str) -> str:
     base, sep, query = url.partition("?")
     base = re.sub(
         r";([^;/=?#]+)=[^;/?#]*",
-        lambda m: "" if _VOLATILE_QUERY_PARAM.search(m.group(1)) else m.group(0),
+        lambda m: "" if _is_volatile_param_name(m.group(1)) else m.group(0),
         base,
     )
     return base + sep + query
@@ -1186,10 +1221,18 @@ def generate(
         # "already logged on"/duplicate-session page as HTTP 200, so the check
         # would report PASS on a dead session forever. The bare path + live
         # cookies re-establishes the real session for the probe.
+        # A volatile QUERY cannot be stripped (it is often the routing), so probing
+        # that URL every 60s re-sends a token that died with the recording: the
+        # portal answers with an error page — either a falsely-PASS 200 or a
+        # permanent TRANSIENT_FAIL, which also suppresses the activity nudge.
+        # Probe the origin root instead; the live cookies still decide auth.
+        _probe_url = _strip_volatile_matrix_params(post_login_url)
+        if _has_volatile_query(_probe_url):
+            _probe_url = _url_origin(_probe_url) + "/"
         keepalive_health_checks.append(
             {
                 "type": "url_check",
-                "url": _strip_volatile_matrix_params(post_login_url),
+                "url": _probe_url,
                 "expect_status": 200,
                 "auth_redirect_pattern": "|".join(_auth_patterns),
                 "timeout_ms": 15000,

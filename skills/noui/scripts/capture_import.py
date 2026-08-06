@@ -141,10 +141,16 @@ def _resolve_keepalive_style(args: argparse.Namespace, workflow_bundle: dict) ->
     fresh. Mirrors how compile_workflow_bundle decides browser vs replay.
     """
     ka = getattr(args, "keepalive", "auto")
+    if getattr(args, "browser_driven", False):
+        # Explicit --browser-driven decides the SKILL KIND, and a browser skill
+        # must never get a reload-on-interval goto keepalive. Checked before the
+        # explicit --keepalive value because _run_combined derives the skill kind
+        # from this function's answer: with the old order,
+        # `--browser-driven --keepalive goto` silently compiled a HAR-REPLAY
+        # skill, ignoring the flag the caller actually passed.
+        return "activity"
     if ka in ("goto", "activity"):
         return ka
-    if getattr(args, "browser_driven", False):
-        return "activity"
     if getattr(args, "auto_detect_browser", True):
         try:
             from noui_core.compile.login_assets import _url_origin
@@ -450,6 +456,12 @@ def main() -> int:
             manual_credentials=manual_credentials,
             manual_takeover=manual_takeover,
             post_login_url_pattern=args.post_login_url_pattern,
+            # The login-only path honours the same flags as the combined path:
+            # without these a login recording for a browser portal always
+            # registered goto/120s with downloads off, no matter what the caller
+            # passed.
+            keepalive_style=_resolve_keepalive_style(args, bundle),
+            enable_downloads=_resolve_keepalive_style(args, bundle) == "activity",
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Login compile failed: {exc}", file=sys.stderr)

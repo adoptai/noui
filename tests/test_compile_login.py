@@ -625,6 +625,9 @@ def test_template_without_profile_counts_as_resolvable(monkeypatch):
 
     seen = {}
     monkeypatch.setattr(register, "resolve_admin_token", lambda: "tok")
+    # /admin/profiles is probed first to tell "forbidden" from "not found";
+    # a reachable endpoint keeps the lookups below authoritative.
+    monkeypatch.setattr(tabby_client, "_tabby_http", lambda *a, **kw: [])
     monkeypatch.setattr(
         tabby_client,
         "get_service_profile_by_slug",
@@ -646,6 +649,8 @@ def test_resolves_false_only_when_both_lookups_come_back_empty(monkeypatch):
     from noui_core.compile import workflow as wf
 
     monkeypatch.setattr(register, "resolve_admin_token", lambda: "tok")
+    # Endpoint reachable, so an empty result really does mean "no such profile".
+    monkeypatch.setattr(tabby_client, "_tabby_http", lambda *a, **kw: [])
     monkeypatch.setattr(tabby_client, "get_service_profile_by_slug", lambda s, t: None)
     monkeypatch.setattr(tabby_client, "get_app_template_by_profile_slug", lambda s, t: None)
     assert wf._profile_slug_resolves("ghost") is False
@@ -1173,3 +1178,23 @@ def test_api_key_auth_compiles_without_a_profile_slug(tmp_path):
     )
     assert res["skill"]["auth"]["strategy"] == "static_secret_header"
     assert res["skill"]["auth"]["profile_slug"] is None
+
+
+def test_forbidden_profile_lookup_is_unknown_not_absent(monkeypatch):
+    """get_service_profile_by_slug swallows RuntimeError — including a 401/403 from
+    the Editor+-gated /admin/profiles — and returns None, indistinguishable from
+    "no such profile". An agent token that can read templates but not profiles then
+    hard-failed a valid compile with "Tabby profile 'x' does not exist"."""
+    from noui_core import tabby_client
+    from noui_core.activate import register
+    from noui_core.compile import workflow as wf
+
+    def _forbidden(*a, **kw):
+        raise RuntimeError("403 Forbidden")
+
+    monkeypatch.setattr(register, "resolve_admin_token", lambda: "tok")
+    monkeypatch.setattr(tabby_client, "_tabby_http", _forbidden)
+    monkeypatch.setattr(tabby_client, "get_service_profile_by_slug", lambda s, t: None)
+    monkeypatch.setattr(tabby_client, "get_app_template_by_profile_slug", lambda s, t: None)
+
+    assert wf._profile_slug_resolves("real-profile") is None  # unknown, not False

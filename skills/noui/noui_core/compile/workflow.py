@@ -73,6 +73,17 @@ def _profile_slug_resolves(profile_slug: str) -> bool | None:
     except Exception:
         return None
     try:
+        # Probe the endpoint FIRST. get_service_profile_by_slug swallows
+        # RuntimeError — including a 401/403 from the Editor+-gated
+        # /admin/profiles — and returns None, which is indistinguishable from "no
+        # such profile". With an agent token that cannot read profiles but CAN read
+        # templates, an existing profile with no matching template therefore
+        # reported a definite False and hard-failed a valid compile with
+        # "Tabby profile 'x' does not exist".
+        tabby_client._tabby_http("GET", "/admin/profiles", token=token, retries=2)
+    except Exception:
+        return None  # cannot check -> unknown, never "absent"
+    try:
         if tabby_client.get_service_profile_by_slug(profile_slug, token):
             return True
         return bool(tabby_client.get_app_template_by_profile_slug(profile_slug, token))

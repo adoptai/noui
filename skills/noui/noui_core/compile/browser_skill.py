@@ -30,7 +30,6 @@ from urllib.parse import urlparse
 from noui_core.compile.login_assets import (
     _LOGIN_FLOW_SEGMENTS,
     _first_path_segment,
-    _has_volatile_query,
     _url_origin,
 )
 
@@ -135,7 +134,12 @@ def _nav_clicks_for(from_url: str, to_ts: str, click_events: list[dict]) -> list
     if not cands:
         return []
 
-    if all(c["dt"] is not None for c in cands):
+    # nav_dt is None (a bundle whose url_events carry no timestamp) means the
+    # causality filter above could not run, so the "clicks before the nav" set may
+    # actually be clicks made AFTER it — a recorded "Log out" would then be
+    # compiled into the read recipe. Fall back to the documented single-click
+    # behaviour rather than trusting an unbounded window.
+    if nav_dt is not None and all(c["dt"] is not None for c in cands):
         cands.sort(key=lambda c: c["dt"])
         anchor = cands[-1]["dt"]  # the navigating click
         chain = [c for c in cands if (anchor - c["dt"]).total_seconds() <= _NAV_GESTURE_WINDOW_S]
@@ -151,7 +155,14 @@ def _nav_clicks_for(from_url: str, to_ts: str, click_events: list[dict]) -> list
         if out and out[-1]["text"] == c["text"]:
             continue
         out.append({"text": c["text"], "selector": c["selector"]})
-    return out[-_NAV_MAX_CLICKS:]
+    if len(out) <= _NAV_MAX_CLICKS:
+        return out
+    # Keep the FIRST click plus the most recent ones. A plain trailing slice drops
+    # the entry-nav gesture: "Menu -> Banking -> Cards -> Credit Card" became
+    # ["Banking","Cards","Credit Card"], so the first click targeted an element
+    # still hidden behind the un-opened hamburger. Three-deep accordions behind a
+    # menu toggle are normal on HSBCnet/ICICI.
+    return [out[0]] + out[-(_NAV_MAX_CLICKS - 1) :]
 
 
 def derive_browser_pages(
@@ -193,8 +204,12 @@ def derive_browser_pages(
             continue
         if _is_login_flow_url(url):
             continue
-        if _has_volatile_query(url):
-            continue
+        # NOT filtered on _has_volatile_query. A one-time token in the recorded
+        # URL makes it unreplayable by NAVIGATION — but a browser skill never
+        # navigates: it reaches the page by replaying the in-app click chain, and
+        # _page_key ignores the query anyway. Discarding here meant a portal whose
+        # data screens all carry e.g. ?ticket= compiled to zero readable pages.
+
         key = _page_key(url)
         if key in seen:
             continue
