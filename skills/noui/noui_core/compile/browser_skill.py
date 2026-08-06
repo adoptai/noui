@@ -41,16 +41,37 @@ def _slug_from_path(url: str) -> str:
     /credit-card -> credit_card ; /accounts/summary -> accounts_summary ;
     the bare origin -> home.
     """
-    path = urlparse(url).path.strip("/")
+    # Include the hash route: on a hash-router SPA every screen shares one path,
+    # so a path-only slug names them all the same (read_landing, read_landing, …).
+    path = (urlparse(url).path + _route_fragment(url)).strip("/")
     if not path:
         return "home"
     slug = re.sub(r"[^a-z0-9]+", "_", path.lower()).strip("_")
     return slug or "home"
 
 
+def _route_fragment(url: str) -> str:
+    """The hash-ROUTE part of a URL (``#/accounts`` -> ``/accounts``), or "".
+
+    Only ``#/…`` counts. A bare ``#section`` anchor scrolls within one page and is
+    not a route, so treating it as one would split a single page into many.
+    """
+    fragment = urlparse(url).fragment
+    return fragment.rstrip("/") if fragment.startswith("/") else ""
+
+
 def _page_key(url: str) -> str:
-    """origin + path (query dropped) — the identity of a page."""
-    return _url_origin(url) + urlparse(url).path.rstrip("/")
+    """origin + path + hash route (query dropped) — the identity of a page.
+
+    The fragment matters because hash-router SPAs put EVERY screen on one path:
+    HSBCnet serves /uims/portal/HSBCnet/Landing#/accounts, #/statements, … so a
+    path-only key collapsed the whole portal into a single page. That compiled
+    without error (generate_browser_skill only raises on an EMPTY page list) and
+    shipped a skill that could read nothing but the landing screen. Playwright
+    does fire framenavigated on hash changes, so the routes are in the recording —
+    they were simply discarded here.
+    """
+    return _url_origin(url) + urlparse(url).path.rstrip("/") + _route_fragment(url)
 
 
 def _is_login_flow_url(url: str) -> bool:
@@ -183,13 +204,73 @@ def derive_browser_pages(
         # came from another app page, replay the click that drove the SPA route.
         from_url = (ev or {}).get("from_url") or ""
         to_ts = (ev or {}).get("timestamp") or ""
+        # Three distinct states, kept apart deliberately:
+        #   None  — the post-login LANDING page; the session already lands here.
+        #   [...] — the click chain ON from_url that routed here.
+        #   []    — an in-app hop whose driving click could not be recovered
+        #           (icon/SVG button with no text — common in bank navs).
+        # Collapsing [] into None (the old ``or None``) made an unreachable page
+        # look like the landing page: its recipe became a bare get_page_summary,
+        # so the operation claimed to read /accounts and actually returned the
+        # landing DOM. Confidently wrong data is worse than a missing operation.
+        is_landing = not from_url or _is_login_flow_url(from_url)
         nav: list[dict] | None = None
-        if from_url and not _is_login_flow_url(from_url):
-            nav = _nav_clicks_for(from_url, to_ts, click_events) or None
-        pages.append({"name": f"read_{_slug_from_path(url)}", "url": url, "nav": nav})
+        if not is_landing:
+            nav = _nav_clicks_for(from_url, to_ts, click_events)
+        pages.append(
+            {
+                "name": f"read_{_slug_from_path(url)}",
+                "url": url,
+                "nav": nav,
+                "_from_key": None if is_landing else _page_key(from_url),
+            }
+        )
         if len(pages) >= max_pages:
             break
-    return pages
+    return _resolve_nav_chains(pages)
+
+
+def _resolve_nav_chains(pages: list[dict]) -> list[dict]:
+    """Rewrite each page's ``nav`` to the FULL click chain from the landing page,
+    and drop pages whose chain cannot be resolved.
+
+    ``_nav_clicks_for`` only recovers the clicks made ON the immediately preceding
+    page, so a two-hop path (landing → accounts → statements) compiled to just
+    ["Statements"]. At run time the session lands on the landing page, where that
+    control does not exist — the operation failed, or worse clicked something else
+    with the same label. Walking the from-page graph back to the landing page
+    yields the whole gesture.
+    """
+    by_key = {_page_key(p["url"]): p for p in pages}
+    resolved: list[dict] = []
+    for page in pages:
+        chain: list[dict] = []
+        cur: dict | None = page
+        visited: set[str] = set()
+        ok = True
+        while cur is not None:
+            own = cur.get("nav")
+            if own is None:  # reached the landing page — chain is complete
+                break
+            if not own:  # an undeterminable hop: the whole path is unreliable
+                ok = False
+                break
+            chain = list(own) + chain
+            parent_key = cur.get("_from_key")
+            if not parent_key or parent_key in visited:
+                # No recorded parent (or a cycle): treat what we have as reached
+                # from the landing page rather than inventing more hops.
+                break
+            visited.add(parent_key)
+            # A parent that isn't itself a readable page (login flow, filtered
+            # out) means we are already at the start of the in-app path.
+            cur = by_key.get(parent_key)
+        out = {k: v for k, v in page.items() if not k.startswith("_")}
+        if not ok:
+            continue
+        out["nav"] = chain if chain else None
+        resolved.append(out)
+    return resolved
 
 
 def _steps_for_page(p: dict) -> list[dict]:

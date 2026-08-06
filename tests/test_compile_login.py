@@ -1022,3 +1022,154 @@ def test_keepalive_interval_default_goto():
     )
     ka = res["application_draft"]["keepalive_config"]
     assert ka["interval_seconds"] <= 120, ka["interval_seconds"]
+
+
+# ---------------------------------------------------------------------------
+# Landing-page inference across an SSO hand-off, and auth-pattern anchoring
+# ---------------------------------------------------------------------------
+
+
+def _sso_bundle():
+    """app.contoso.com/login -> idp.okta.com/signin -> app.contoso.com/home."""
+    return {
+        "recording_mode": "login",
+        "url_events": [
+            {"from_url": "", "to_url": "https://app.contoso.com/login"},
+            {"from_url": "https://app.contoso.com/login", "to_url": "https://idp.okta.com/signin"},
+            {"from_url": "https://idp.okta.com/signin", "to_url": "https://app.contoso.com/home"},
+        ],
+        "click_events": [],
+        "har": {"log": {"entries": []}},
+        "cookies": [],
+    }
+
+
+def test_cross_origin_sso_does_not_make_the_idp_the_landing_page():
+    """_is_redirect_hop only sees bounces within ONE host, so a cross-origin SSO
+    hand-off leaves the IdP's sign-in page at stable_urls[0]. Anchoring there made
+    wait_for_url wait for the IdP and the url_check probe it — with /signin in its
+    own auth_redirect_pattern, i.e. a permanent AUTH_FAIL every keepalive cycle."""
+    from noui_core.compile.login import compile_login_bundle
+
+    res = compile_login_bundle(
+        session_id="s",
+        bundle=_sso_bundle(),
+        name="contoso",
+        login_url="https://app.contoso.com/login",
+        manual_takeover=True,
+    )
+    steps = res["application_draft"]["login_config"]["steps"]
+    wfu = [s for s in steps if s["action"] == "wait_for_url"]
+    assert wfu, "expected a wait_for_url step"
+    assert "okta.com" not in wfu[0]["pattern"]
+    assert "app.contoso.com" in wfu[0]["pattern"]
+
+    checks = res["application_draft"]["keepalive_config"]["health_checks"]
+    url_checks = [c for c in checks if c["type"] == "url_check"]
+    if url_checks:
+        assert "okta.com" not in url_checks[0]["url"]
+
+
+def test_auth_redirect_pattern_does_not_flag_healthy_landing_pages():
+    """Tabby tests the pattern against the WHOLE url with new RegExp(p,'i'), so
+    bare substrings misfired: //auth of an `auth.*` host, /authorize-payments,
+    /author/5, an `sso.*` host. Each was a healthy page reported AUTH_FAIL —
+    which also suppresses the activity keepalive, killing the session it watches."""
+    import re
+
+    from noui_core.compile.login import compile_login_bundle
+
+    res = compile_login_bundle(
+        session_id="s",
+        bundle={
+            "recording_mode": "login",
+            "url_events": [
+                {"from_url": "", "to_url": "https://auth.example.com/login"},
+                {
+                    "from_url": "https://auth.example.com/login",
+                    "to_url": "https://auth.example.com/dashboard",
+                },
+            ],
+            "click_events": [],
+            "har": {"log": {"entries": []}},
+            "cookies": [],
+        },
+        name="x",
+        login_url="https://auth.example.com/login",
+        manual_takeover=True,
+    )
+    checks = res["application_draft"]["keepalive_config"]["health_checks"]
+    url_checks = [c for c in checks if c["type"] == "url_check"]
+    assert url_checks, "expected a url_check"
+    pattern = url_checks[0]["auth_redirect_pattern"]
+
+    # The page it is about to probe must never match its own auth pattern.
+    assert not re.search(pattern, url_checks[0]["url"], re.I)
+    for healthy in (
+        "https://auth.example.com/dashboard",
+        "https://sso.corp.com/home",
+        "https://app.test/authorize-payments",
+        "https://app.test/author/5",
+    ):
+        assert not re.search(pattern, healthy, re.I), healthy
+    # …while still catching the real thing.
+    for expired in (
+        "https://auth.example.com/login",
+        "https://x.test/session-expired",
+        "https://x.test/logout",
+    ):
+        assert re.search(pattern, expired, re.I), expired
+
+
+def test_login_path_pattern_does_not_flag_its_own_subpaths():
+    """A login recorded at /app must not flag the landing page /app/dashboard."""
+    import re
+
+    from noui_core.compile.login_assets import _auth_url_pattern
+
+    p = _auth_url_pattern("/app", subpaths=False)
+    assert not re.search(p, "https://x.test/app/dashboard", re.I)
+    assert re.search(p, "https://x.test/app", re.I)
+
+
+def test_api_key_auth_compiles_without_a_profile_slug(tmp_path):
+    """`--auth-type api-key` declares a static key with NO login recorded, so
+    having no profile is the correct shape. har_to_tool_defs still fills
+    auth_headers from the captured Authorization header regardless of the
+    declared strategy, so the unbound-profile guard rejected the documented
+    combination (api-key + no --profile-slug)."""
+    from noui_core.compile.workflow import compile_workflow_bundle
+
+    bundle = {
+        "har": {
+            "log": {
+                "entries": [
+                    {
+                        "startedDateTime": "2026-08-05T00:00:00.000Z",
+                        "request": {
+                            "method": "GET",
+                            "url": "https://api.rocketlane.test/v1/projects",
+                            "headers": [{"name": "authorization", "value": "Bearer sk_live_x"}],
+                        },
+                        "response": {
+                            "status": 200,
+                            "content": {"mimeType": "application/json", "text": "{}"},
+                        },
+                    }
+                ]
+            }
+        },
+        "click_events": [],
+        "url_events": [],
+    }
+    res = compile_workflow_bundle(
+        session_id="deadbeef1234",
+        bundle=bundle,
+        name="rocketlane",
+        target="skill",
+        profile_slug="",  # api-key skills bind no Tabby profile
+        auth_type="api-key",
+        output_root=str(tmp_path),
+    )
+    assert res["skill"]["auth"]["strategy"] == "static_secret_header"
+    assert res["skill"]["auth"]["profile_slug"] is None

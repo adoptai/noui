@@ -112,7 +112,19 @@ def compile_workflow_to_skill(
     #
     # Refuse to emit it. An unauthenticated capture (no auth cookies or headers on
     # any operation) is unaffected and still compiles without a profile.
-    if not effective_slug and not allow_unbound_profile:
+    #
+    # api-key is exempt: `--auth-type api-key` declares a static key sent on every
+    # request with NO login recorded, so having no profile is the correct shape,
+    # not a mistake. har_to_tool_defs populates auth_headers from the captured
+    # Authorization header regardless of the declared strategy, so without this
+    # exemption the documented combination (`--auth-type api-key` and no
+    # `--profile-slug`) failed to compile. The manifest guard below already
+    # excludes static_secret_header for exactly this reason.
+    if (
+        not effective_slug
+        and not allow_unbound_profile
+        and declared_strategy != "static_secret_header"
+    ):
         authed = sorted(
             {
                 t.get("name", "?")

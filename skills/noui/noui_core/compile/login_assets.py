@@ -312,6 +312,37 @@ def _derive_post_login_pattern(login_url: str, landing_url: str) -> str:
     return candidate
 
 
+def _auth_url_pattern(path: str, *, subpaths: bool = True) -> str:
+    """Regex alternative matching ``path`` as a real PATH SEGMENT of a URL.
+
+    Tabby tests ``auth_redirect_pattern`` with ``new RegExp(p,'i').test(page.url())``
+    against the WHOLE url, so bare substrings like ``/auth`` misfire badly:
+    ``https://auth.example.com/dashboard`` matches (the ``//auth`` of the host),
+    as do ``/authorize-payments``, ``/author/5`` and ``https://sso.corp.com/home``.
+    Each was a healthy landing page reported AUTH_FAIL — which also suppresses the
+    'activity' keepalive, so the false positive kills the session it watches.
+
+    ``(?<!/)`` rejects the host case (there the segment is preceded by the second
+    ``/`` of ``https://``); the trailing group requires a real boundary so
+    ``/authorize-payments`` no longer matches ``/auth``. With ``subpaths=False``
+    the path must be the whole path, so a login at ``/app`` does not flag its own
+    landing page ``/app/dashboard``.
+    """
+    tail = "(?:[/?#]|$)" if subpaths else "(?:[?#]|$)"
+    return f"(?<!/){re.escape(path)}{tail}"
+
+
+def _is_login_flow_segment_url(url: str) -> bool:
+    """True when the URL's first path segment is a login-flow word (/login, /signin,
+    /sso, …) — i.e. a sign-in page, not a post-login landing page.
+
+    Used to skip a cross-origin SSO hand-off when inferring the landing page:
+    ``_is_redirect_hop`` only sees bounces within one host, so the IdP's own
+    sign-in URL survives into the stable-URL list.
+    """
+    return _first_path_segment(url) in _LOGIN_FLOW_SEGMENTS
+
+
 def _is_redirect_hop(prev_url: str, next_url: str) -> bool:
     """True if next_url looks like a transient redirect (same domain, /callback, /sso, /auth)."""
     try:
@@ -930,7 +961,22 @@ def generate(
         # /onboarding?originUrl=… -> /?challengeReferer=noref). So walk forward while
         # the origin holds and stop at the first origin change — that change is the
         # human navigating on, or an SSO hand-off that has already completed.
-        post_login_url = stable_urls[0]
+        #
+        # Skip any leading sign-in pages first. _is_redirect_hop only recognises a
+        # bounce within ONE host, so a cross-origin SSO hand-off
+        # (app.example.com/login -> idp.okta.com/signin -> app.example.com/home)
+        # leaves the IdP page sitting at stable_urls[0]. Anchoring there made the
+        # landing page the IdP itself: wait_for_url waited for the IdP and the
+        # url_check probed it — with /signin in its own auth_redirect_pattern, so
+        # every keepalive cycle reported AUTH_FAIL forever. A page whose first path
+        # segment is a login-flow word is never the post-login landing page.
+        _candidates = [u for u in stable_urls if not _is_login_flow_segment_url(u)]
+        # …unless that leaves nothing (a portal whose real landing page happens to
+        # sit under such a segment); then fall back rather than infer nothing.
+        if not _candidates:
+            _candidates = stable_urls
+        post_login_url = _candidates[0]
+        stable_urls = _candidates
         landing_origin = _url_origin(post_login_url)
         for candidate in stable_urls[1:]:
             if _url_origin(candidate) != landing_origin:
@@ -1098,7 +1144,9 @@ def generate(
     # bounce to a bare "/" root goes undetected without one.
     if post_login_url:
         _login_path = urlparse(login_url).path.rstrip("/") if login_url else ""
-        _auth_patterns = [re.escape(_login_path)] if _login_path and _login_path != "" else []
+        # The recorded login path matches only as a WHOLE path (no trailing "/…"):
+        # a login at /app would otherwise flag its own landing page /app/dashboard.
+        _auth_patterns = [_auth_url_pattern(_login_path, subpaths=False)] if _login_path else []
         # Login routes, plus the session-expiry landing pages portals bounce to
         # when the cookie dies. Those are the ones that actually bite: a bank
         # serves them with HTTP 200 and a path that contains no auth-looking
@@ -1108,19 +1156,30 @@ def generate(
         # and because the controller only opens a HITL step on AUTH_FAIL, the
         # human had no "Mark as Resolved" button to recover with.
         _auth_patterns += [
-            "/login",
-            "/signin",
-            "/sign-in",
-            "/sso",
-            "/auth",
-            "/session-expire",
-            "/session-expired",
-            "/sessionexpired",
-            "/session-timeout",
-            "/sessiontimeout",
-            "/expired",
-            "/timeout",
-            "/logout",
+            _auth_url_pattern(seg)
+            for seg in (
+                "/login",
+                "/signin",
+                "/sign-in",
+                "/sso",
+                "/auth",
+                "/session-expire",
+                "/session-expired",
+                "/sessionexpired",
+                "/session-timeout",
+                "/sessiontimeout",
+                "/expired",
+                "/timeout",
+                "/logout",
+            )
+        ]
+        # Last line of defence: never emit a pattern that flags the very page we
+        # are about to probe. Tabby tests the pattern against the LIVE URL before
+        # the HTTP probe, so a self-matching pattern is a permanent AUTH_FAIL —
+        # which also suppresses the 'activity' keepalive (it only nudges while
+        # health is PASS), i.e. it would break the session it is meant to watch.
+        _auth_patterns = [
+            p for p in dict.fromkeys(_auth_patterns) if not re.search(p, post_login_url, re.I)
         ]
         # Probe a URL with any session-bound matrix param (``;jsessionid=…``)
         # stripped: the stale token from the recording makes a bank serve its
@@ -1132,7 +1191,7 @@ def generate(
                 "type": "url_check",
                 "url": _strip_volatile_matrix_params(post_login_url),
                 "expect_status": 200,
-                "auth_redirect_pattern": "|".join(dict.fromkeys(_auth_patterns)),
+                "auth_redirect_pattern": "|".join(_auth_patterns),
                 "timeout_ms": 15000,
             }
         )

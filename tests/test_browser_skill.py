@@ -21,6 +21,18 @@ from noui_core.compile.browser_skill import (  # noqa: E402
 )
 
 _H = "https://retailnetbanking.icici.bank.in"
+# The click the ICICI_EVENTS comment describes. It has to actually exist: a
+# non-landing page whose driving click can't be recovered is now DROPPED rather
+# than silently compiled into a recipe that reads the landing page instead.
+ICICI_CLICKS = [
+    {
+        "event_type": "click",
+        "url": f"{_H}/overview",
+        "text_content": "Credit Cards",
+        "timestamp": "2026-08-04T22:17:29.000Z",
+    },
+]
+
 ICICI_EVENTS = [
     {"from_url": "about:blank", "to_url": f"{_H}/login-page", "timestamp": "2026-08-04T22:16:24Z"},
     # login auto-redirect to the landing page (no click) → landing, no nav
@@ -226,7 +238,7 @@ def test_operations_json_uses_clicks_never_navigate():
 
 
 def test_skill_md_declares_browser_auth_and_tool():
-    pages = derive_browser_pages(ICICI_EVENTS, login_url=LOGIN)
+    pages = derive_browser_pages(ICICI_EVENTS, ICICI_CLICKS, login_url=LOGIN)
     md = render_browser_skill_md(
         skill_id="icici-credit-card",
         app_name="Icici Credit Card",
@@ -253,6 +265,7 @@ def test_generate_browser_skill_writes_installable_dir(tmp_path):
         workflow_name="credit card statement",
         profile_slug="icici-credit-card",
         url_events=ICICI_EVENTS,
+        click_events=ICICI_CLICKS,
         login_url=LOGIN,
         output_dir=str(tmp_path),
         session_id="sess-1",
@@ -309,7 +322,7 @@ def test_compile_workflow_bundle_browser_driven(tmp_path):
 
     bundle = {
         "har": {"log": {"entries": []}},
-        "click_events": [],
+        "click_events": ICICI_CLICKS,
         "url_events": ICICI_EVENTS,
     }
     res = compile_workflow_bundle(
@@ -352,7 +365,7 @@ def test_compile_workflow_bundle_default_stays_call_web_api(tmp_path):
                 ]
             }
         },
-        "click_events": [],
+        "click_events": ICICI_CLICKS,
         "url_events": ICICI_EVENTS,
     }
     res = compile_workflow_bundle(
@@ -367,3 +380,93 @@ def test_compile_workflow_bundle_default_stays_call_web_api(tmp_path):
     )
     # default skill is NOT a browser skill
     assert res["skill"]["runtime"]["operation_style"] != "browser"
+
+
+# ---------------------------------------------------------------------------
+# Navigation must be reachable from the landing page, and hash routes are pages
+# ---------------------------------------------------------------------------
+
+_B = "https://bank.test"
+
+
+def _url_ev(frm, to, ts):
+    return {"from_url": frm, "to_url": to, "timestamp": ts}
+
+
+def _click(url, text, ts):
+    return {"event_type": "click", "url": url, "text_content": text, "timestamp": ts}
+
+
+def test_multi_hop_page_gets_the_whole_chain_from_the_landing_page():
+    """_nav_clicks_for only recovers the clicks made on the immediately preceding
+    page, so landing -> accounts -> statements compiled to just ["Statements"] —
+    a control that does not exist on the page the session actually lands on."""
+    pages = derive_browser_pages(
+        [
+            _url_ev(f"{_B}/login", f"{_B}/home", "2026-01-01T00:00:01+00:00"),
+            _url_ev(f"{_B}/home", f"{_B}/accounts", "2026-01-01T00:00:05+00:00"),
+            _url_ev(f"{_B}/accounts", f"{_B}/statements", "2026-01-01T00:00:10+00:00"),
+        ],
+        [
+            _click(f"{_B}/home", "Accounts", "2026-01-01T00:00:04+00:00"),
+            _click(f"{_B}/accounts", "Statements", "2026-01-01T00:00:09+00:00"),
+        ],
+        login_url=f"{_B}/login",
+    )
+    by_name = {p["name"]: p for p in pages}
+    assert by_name["read_home"]["nav"] is None  # the landing page needs no click
+    assert [c["text"] for c in by_name["read_accounts"]["nav"]] == ["Accounts"]
+    assert [c["text"] for c in by_name["read_statements"]["nav"]] == ["Accounts", "Statements"]
+
+
+def test_page_whose_driving_click_is_untextual_is_dropped_not_read_as_landing():
+    """`nav = [] or None` made an unreachable page look like the landing page: its
+    recipe became a bare get_page_summary, so the operation claimed to read
+    /accounts and actually returned the landing DOM. Icon/SVG nav buttons (no
+    text) are common in bank portals, so this was silently wrong data."""
+    pages = derive_browser_pages(
+        [
+            _url_ev(f"{_B}/login", f"{_B}/home", "2026-01-01T00:00:01+00:00"),
+            _url_ev(f"{_B}/home", f"{_B}/accounts", "2026-01-01T00:00:05+00:00"),
+        ],
+        [_click(f"{_B}/home", "", "2026-01-01T00:00:04+00:00")],  # icon button
+        login_url=f"{_B}/login",
+    )
+    assert [p["name"] for p in pages] == ["read_home"]
+
+
+def test_hash_router_screens_are_separate_pages():
+    """HSBCnet serves every screen from one path (…/Landing#/accounts), so a
+    path-only page key collapsed the whole portal into a single page — and it
+    compiled clean, shipping a skill that could read only the landing screen."""
+    pages = derive_browser_pages(
+        [
+            _url_ev(f"{_B}/login", f"{_B}/app#/home", "2026-01-01T00:00:01+00:00"),
+            _url_ev(f"{_B}/app#/home", f"{_B}/app#/accounts", "2026-01-01T00:00:05+00:00"),
+            _url_ev(f"{_B}/app#/accounts", f"{_B}/app#/statements", "2026-01-01T00:00:10+00:00"),
+        ],
+        [
+            _click(f"{_B}/app#/home", "Accounts", "2026-01-01T00:00:04+00:00"),
+            _click(f"{_B}/app#/accounts", "Statements", "2026-01-01T00:00:09+00:00"),
+        ],
+        login_url=f"{_B}/login",
+    )
+    assert [p["name"] for p in pages] == [
+        "read_app_home",
+        "read_app_accounts",
+        "read_app_statements",
+    ]
+
+
+def test_bare_anchor_is_not_a_route():
+    """`#section` scrolls within one page; treating it as a route would split a
+    single page into many. Only `#/…` counts."""
+    pages = derive_browser_pages(
+        [
+            _url_ev(f"{_B}/login", f"{_B}/report", "2026-01-01T00:00:01+00:00"),
+            _url_ev(f"{_B}/report", f"{_B}/report#summary", "2026-01-01T00:00:05+00:00"),
+        ],
+        [_click(f"{_B}/report", "Summary", "2026-01-01T00:00:04+00:00")],
+        login_url=f"{_B}/login",
+    )
+    assert [p["name"] for p in pages] == ["read_report"]
