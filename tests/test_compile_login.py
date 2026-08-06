@@ -902,7 +902,9 @@ def test_has_volatile_query_catches_jsessionid_matrix_param():
     assert _has_volatile_query(hsbc) is True
     # Stable URLs (no session token in query or matrix) are not volatile.
     assert _has_volatile_query("https://app.example.com/home?tab=overview") is False
-    assert _has_volatile_query("https://www1.secure.hsbcnet.com/uims/portal/HSBCnet/Landing") is False
+    assert (
+        _has_volatile_query("https://www1.secure.hsbcnet.com/uims/portal/HSBCnet/Landing") is False
+    )
 
 
 def test_strip_volatile_matrix_params_cleans_jsessionid_keeps_query():

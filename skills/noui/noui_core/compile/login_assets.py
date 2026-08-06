@@ -1279,9 +1279,7 @@ def generate(
         "browser_policy": {
             "clipboard": False,
             "downloads": (
-                enable_downloads
-                if enable_downloads is not None
-                else keepalive_style == "activity"
+                enable_downloads if enable_downloads is not None else keepalive_style == "activity"
             ),
             "file_chooser": False,
         },
