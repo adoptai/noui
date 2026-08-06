@@ -13,8 +13,10 @@ the `call_web_browser` tool. This module compiles a recording into a skill that
 uses that tool instead of `call_web_api`.
 
 The "operations" of a browser skill are the readable data PAGES observed in the
-recording — each compiled as: navigate to the page, then `get_page_summary`.
-There is no request replay, so no encryption or frozen-header problem.
+recording — each compiled as: reach the page via the recorded in-app
+`click_by_text` chain (NEVER a full-page `navigate`/goto — that reloads the SPA
+and expires the session), then `get_page_summary`. There is no request replay,
+so no encryption or frozen-header problem.
 """
 
 from __future__ import annotations
