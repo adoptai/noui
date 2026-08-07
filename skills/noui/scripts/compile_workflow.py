@@ -26,6 +26,16 @@ def main() -> int:
     p.add_argument("--as", dest="target", choices=["mcp", "skill", "both"], default="mcp")
     p.add_argument("--profile-slug", dest="profile_slug", default="")
     p.add_argument(
+        "--allow-unbound-profile",
+        dest="allow_unbound_profile",
+        action="store_true",
+        help=(
+            "Emit the skill even when session-authenticated operations have no Tabby "
+            "profile bound. Such a skill cannot authenticate at run time — only use "
+            "this when the binding is applied later."
+        ),
+    )
+    p.add_argument(
         "--execution-mode",
         dest="execution_mode",
         choices=["tabby", "http", "harness"],
@@ -62,6 +72,7 @@ def main() -> int:
             start_url=args.start_url,
             auth_type=args.auth_type,
             api_key_header=args.api_key_header,
+            allow_unbound_profile=args.allow_unbound_profile,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Compile failed: {exc}", file=sys.stderr)

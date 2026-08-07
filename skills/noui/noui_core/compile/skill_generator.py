@@ -70,6 +70,7 @@ def compile_workflow_to_skill(
     login_credential_headers: list[str] | None = None,
     declared_strategy: str | None = None,
     static_secret_headers: list[str] | None = None,
+    allow_unbound_profile: bool = False,
 ) -> dict:
     """Compile a recorded workflow session into an installable Claude Code skill.
 
@@ -100,6 +101,46 @@ def compile_workflow_to_skill(
         workflow_name=session_name,
         tabby_profile_id=effective_slug,
     )
+
+    # A session-authenticated workflow with no profile bound is a skill that can
+    # never authenticate. --profile-slug defaults to "", so this happens silently
+    # whenever the caller forgets it or the capture was classified workflow-only
+    # (no App Template registered, hence no slug to pass). The artifact still
+    # compiles and installs; api_doc_generator renders its auth as "none", and the
+    # breakage first shows up as 401/403 at run time — or as the assistant asking
+    # the user which Tabby profile to use, because the skill does not know.
+    #
+    # Refuse to emit it. An unauthenticated capture (no auth cookies or headers on
+    # any operation) is unaffected and still compiles without a profile.
+    #
+    # api-key is exempt: `--auth-type api-key` declares a static key sent on every
+    # request with NO login recorded, so having no profile is the correct shape,
+    # not a mistake. har_to_tool_defs populates auth_headers from the captured
+    # Authorization header regardless of the declared strategy, so without this
+    # exemption the documented combination (`--auth-type api-key` and no
+    # `--profile-slug`) failed to compile. The manifest guard below already
+    # excludes static_secret_header for exactly this reason.
+    if (
+        not effective_slug
+        and not allow_unbound_profile
+        and declared_strategy != "static_secret_header"
+    ):
+        authed = sorted(
+            {
+                t.get("name", "?")
+                for t in tool_defs
+                if t.get("auth_cookies") or t.get("auth_headers")
+            }
+        )
+        if authed:
+            raise ValueError(
+                f"{len(authed)} operation(s) in this capture are session-authenticated "
+                f"({', '.join(authed[:3])}{'…' if len(authed) > 3 else ''}) but no Tabby "
+                "profile was bound, so the skill could not authenticate.\n"
+                "Pass --profile-slug <slug> with the App Template's profile "
+                "(re-import the login capture with --mode login if none exists yet), "
+                "or --allow-unbound-profile to emit it anyway."
+            )
 
     # Record the workflow's start URL in the manifest so downstream tooling
     # (e.g. `noui tabby session ensure --skill <id>`) can navigate the browser
@@ -318,6 +359,34 @@ def compile_workflow_to_skill(
         execution_strategy = "harness_call_web_api"
     else:
         execution_strategy = resolved_auth_strategy
+
+    # Manifest and operations must agree on how calls are routed. build_operation_recipe
+    # picks the tool purely from the slug (`"call_web_api" if profile_slug else "bash"`),
+    # while the manifest's auth block is derived independently — so an empty slug produced
+    # a skill declaring strategy=tabby_credentials + execution_strategy=harness_call_web_api
+    # while every operation ran bash/curl. Observed live on icici-credit-card: 8/8
+    # operations on "bash", profile_slug None, against a bank that requires a session.
+    #
+    # That self-contradiction is the shape that hides the bug: the manifest looks right,
+    # so nothing downstream questions it, and the skill fails as 403s with no sign-in card
+    # (call_web_api is never invoked, so the login_required path that renders the card
+    # never runs).
+    #
+    # allow_unbound_profile is the deliberate opt-out and stays honest: it does not
+    # suppress this, because a skill that declares browser routing and emits curl is
+    # broken regardless of intent — it declares api-key/no-auth instead.
+    if (
+        resolved_auth_strategy == "tabby_credentials"
+        and execution_strategy == "harness_call_web_api"
+        and not effective_slug
+    ):
+        raise ValueError(
+            "manifest would declare strategy=tabby_credentials + "
+            "execution_strategy=harness_call_web_api, but with no profile bound every "
+            "operation is emitted as tool=bash (curl) and can never carry the browser "
+            "session. Pass --profile-slug <slug>, or compile with --auth-type api-key if "
+            "this app genuinely does not need a session."
+        )
 
     manifest: dict = {
         "schema_version": "1",

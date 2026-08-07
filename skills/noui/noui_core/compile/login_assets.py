@@ -134,6 +134,99 @@ def _build_selector(ev: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Query params whose value is minted per session/request. A URL carrying one is
+# not replayable: the value died with the recording.
+# Param-name tokens whose VALUE is minted per session/request. Matched by
+# splitting the name on separators (and on the squashed form), not as a bare
+# substring: the old alternation fired on ordinary routing params — ?assignee=
+# and ?design= ("sig"), ?author= ("auth"), ?sidebar= / ?resident= ("sid").
+_VOLATILE_PARAM_TOKENS = frozenset(
+    {
+        "token",
+        "jsessionid",
+        "sessionid",
+        "session",
+        "sid",
+        "nonce",
+        "ticket",
+        "otp",
+        "csrf",
+        "xsrf",
+        "auth",
+        "signature",
+        "sig",
+        "timestamp",
+        "ts",
+        "expires",
+        "expiry",
+    }
+)
+
+
+def _is_volatile_param_name(name: str) -> bool:
+    """True when a query/matrix param NAME denotes session-bound, one-time material."""
+    parts = [p for p in re.split(r"[_\-.]+", (name or "").strip().lower()) if p]
+    if not parts:
+        return False
+    if any(p in _VOLATILE_PARAM_TOKENS for p in parts):
+        return True
+    squashed = "".join(parts)
+    return (
+        squashed in _VOLATILE_PARAM_TOKENS
+        or squashed.endswith("token")
+        or squashed.endswith("sessionid")
+    )
+
+
+def _has_volatile_query(url: str) -> bool:
+    """True when the URL carries session-bound, one-time material — in its query
+    OR its path *matrix* params (``;jsessionid=…``).
+
+    ICICI's recorded landing URL was
+    ``.../corp/AuthenticationController?...&UX_TOKEN=<one-time>&CTA_FLAG=CCPSTM``
+    (a one-time token in the QUERY). HSBCnet's was
+    ``.../uims/portal/HSBCnet/Landing;jsessionid=<one-time>`` (a per-session token
+    in a PATH MATRIX param — ``urlparse().query`` is empty for it, which is why the
+    original query-only check missed it and a ``goto`` keepalive kept re-navigating
+    the live session onto the "already logged on" (DTC_AUTH_PL_1_075) page).
+
+    Stripping the QUERY does NOT rescue such a URL: in Finacle/JSP-style apps the
+    query IS the routing (FORMSGROUP_ID__, __START_TRAN_FLAG__, ACTION.LOAD), so
+    the bare path returns "Page temporarily unavailable". There is no replayable
+    variant, so callers must not emit a ``goto`` at all rather than emit a broken
+    one. Matrix session tokens, by contrast, are pure binding and CAN be stripped
+    (see :func:`_strip_volatile_matrix_params`) — but a URL still carrying one is
+    unsafe to re-navigate as-is, so it is reported volatile here too.
+    """
+    try:
+        query = urlparse(url).query
+    except Exception:
+        query = ""
+    names: list[str] = []
+    if query:
+        names += [part.split("=", 1)[0] for part in query.split("&")]
+    # Matrix params (``;name=value`` groups) live in the path, before any ``?``.
+    names += re.findall(r";([^;/=?#]+)=", url.split("?", 1)[0])
+    return any(_is_volatile_param_name(name) for name in names if name)
+
+
+def _strip_volatile_matrix_params(url: str) -> str:
+    """Drop session-bound matrix params (``;jsessionid=…``) from a URL's path,
+    leaving the query untouched.
+
+    A matrix session token is pure session binding, not routing, so the bare path
+    is the correct replayable form for a health probe (Tabby's ``url_check`` is a
+    cookie'd HTTP GET, so the live cookies re-establish the session). The query is
+    left intact because it CAN be routing (see :func:`_has_volatile_query`)."""
+    base, sep, query = url.partition("?")
+    base = re.sub(
+        r";([^;/=?#]+)=[^;/?#]*",
+        lambda m: "" if _is_volatile_param_name(m.group(1)) else m.group(0),
+        base,
+    )
+    return base + sep + query
+
+
 def _url_origin(url: str) -> str:
     try:
         p = urlparse(url)
@@ -252,6 +345,37 @@ def _derive_post_login_pattern(login_url: str, landing_url: str) -> str:
     if seg and seg == _first_path_segment(login_url):
         return ""
     return candidate
+
+
+def _auth_url_pattern(path: str, *, subpaths: bool = True) -> str:
+    """Regex alternative matching ``path`` as a real PATH SEGMENT of a URL.
+
+    Tabby tests ``auth_redirect_pattern`` with ``new RegExp(p,'i').test(page.url())``
+    against the WHOLE url, so bare substrings like ``/auth`` misfire badly:
+    ``https://auth.example.com/dashboard`` matches (the ``//auth`` of the host),
+    as do ``/authorize-payments``, ``/author/5`` and ``https://sso.corp.com/home``.
+    Each was a healthy landing page reported AUTH_FAIL — which also suppresses the
+    'activity' keepalive, so the false positive kills the session it watches.
+
+    ``(?<!/)`` rejects the host case (there the segment is preceded by the second
+    ``/`` of ``https://``); the trailing group requires a real boundary so
+    ``/authorize-payments`` no longer matches ``/auth``. With ``subpaths=False``
+    the path must be the whole path, so a login at ``/app`` does not flag its own
+    landing page ``/app/dashboard``.
+    """
+    tail = "(?:[/?#]|$)" if subpaths else "(?:[?#]|$)"
+    return f"(?<!/){re.escape(path)}{tail}"
+
+
+def _is_login_flow_segment_url(url: str) -> bool:
+    """True when the URL's first path segment is a login-flow word (/login, /signin,
+    /sso, …) — i.e. a sign-in page, not a post-login landing page.
+
+    Used to skip a cross-origin SSO hand-off when inferring the landing page:
+    ``_is_redirect_hop`` only sees bounces within one host, so the IdP's own
+    sign-in URL survives into the stable-URL list.
+    """
+    return _first_path_segment(url) in _LOGIN_FLOW_SEGMENTS
 
 
 def _is_redirect_hop(prev_url: str, next_url: str) -> bool:
@@ -558,6 +682,8 @@ def generate(
     manual_credentials: bool | None = None,
     manual_takeover: bool = False,
     post_login_url_pattern: str = "",
+    keepalive_style: str = "goto",
+    enable_downloads: bool | None = None,
 ) -> dict[str, Any]:
     """
     Generate an Application draft, ServiceProfile draft, and review items
@@ -853,7 +979,44 @@ def generate(
         if not _is_redirect_hop(from_url, to_url) and to_url != first_url
     ]
     if stable_urls:
-        post_login_url = stable_urls[-1]
+        # The landing page is the end of the FIRST same-origin run of stable URLs,
+        # not the last URL of the recording.
+        #
+        # stable_urls[-1] took wherever the human finished. On a combined capture
+        # that is the end of the *workflow*, and on a multi-host portal it is a
+        # different host entirely — ICICI retail login produced
+        # "https://infinity.icici.bank.in/corp**" (the CORPORATE/Finacle portal),
+        # a URL a retail login can never reach. wait_for_url then timed out on every
+        # single session and fell through to request_help, so the human was asked to
+        # "finish logging in" after they already had, and nothing ever verified the
+        # login.
+        #
+        # Taking stable_urls[0] outright would be wrong too: logins commonly settle
+        # through one more same-origin bounce (classify.py documents Expedia's
+        # /onboarding?originUrl=… -> /?challengeReferer=noref). So walk forward while
+        # the origin holds and stop at the first origin change — that change is the
+        # human navigating on, or an SSO hand-off that has already completed.
+        #
+        # Skip any leading sign-in pages first. _is_redirect_hop only recognises a
+        # bounce within ONE host, so a cross-origin SSO hand-off
+        # (app.example.com/login -> idp.okta.com/signin -> app.example.com/home)
+        # leaves the IdP page sitting at stable_urls[0]. Anchoring there made the
+        # landing page the IdP itself: wait_for_url waited for the IdP and the
+        # url_check probed it — with /signin in its own auth_redirect_pattern, so
+        # every keepalive cycle reported AUTH_FAIL forever. A page whose first path
+        # segment is a login-flow word is never the post-login landing page.
+        _candidates = [u for u in stable_urls if not _is_login_flow_segment_url(u)]
+        # …unless that leaves nothing (a portal whose real landing page happens to
+        # sit under such a segment); then fall back rather than infer nothing.
+        if not _candidates:
+            _candidates = stable_urls
+        post_login_url = _candidates[0]
+        stable_urls = _candidates
+        landing_origin = _url_origin(post_login_url)
+        for candidate in stable_urls[1:]:
+            if _url_origin(candidate) != landing_origin:
+                break
+            post_login_url = candidate
         # Add wait_for_url step — Tabby requires a "pattern" key.
         # Ensure the URL has a scheme before parsing (bare host:port strings
         # confuse urlparse, making the host land in scheme).
@@ -916,8 +1079,14 @@ def generate(
         # logged-in page from the login page (else it would match immediately and
         # falsely auto-resolve). Same-origin root-path apps need an explicit pattern.
         pattern = post_login_url_pattern
-        if not pattern and stable_urls:
-            pattern = _derive_post_login_pattern(first_url, stable_urls[-1])
+        if not pattern and post_login_url:
+            # post_login_url, not stable_urls[-1]: the latter is wherever the human
+            # finished, which on a multi-host portal is a different host than the
+            # login lands on. That produced ICICI's
+            # "https://infinity.icici.bank.in/corp**" — the corporate portal — for a
+            # retail login, so auto-resolve could never fire and every session fell
+            # through to request_help.
+            pattern = _derive_post_login_pattern(first_url, post_login_url)
         if pattern:
             takeover_steps.append(
                 {
@@ -925,15 +1094,18 @@ def generate(
                     "pattern": pattern,
                     "timeout_ms": 30000,
                     "retry_count": 0,
-                    "on_failure": {
-                        "action": "request_help",
-                        "message": (
-                            "Login could not be auto-verified. Finish logging in and reach "
-                            "the home/dashboard, then click 'Mark as Resolved'."
-                        ),
-                        "input_type": "confirm",
-                        "timeout_ms": 600000,
-                    },
+                    # skip, not request_help. This step is preceded by a human-attested
+                    # `request_human_input` confirm, so a second prompt asks the human to
+                    # re-answer a question they already answered — and the pattern it
+                    # guards is only ever ONE observed landing route, which portals do not
+                    # promise to be stable. ICICI recorded a landing on /dashboard and then
+                    # signed real users in to /credit-card, so the glob could never match:
+                    # every session timed out for 30s, flipped health to AUTH_FAIL, and
+                    # demanded a second "Mark as Resolved" from someone already logged in.
+                    # Matching stays a fast-path confirmation; failing to match is not
+                    # evidence of a failed login, and the keepalive health check is the
+                    # authority on whether the session is really authenticated.
+                    "on_failure": {"action": "skip"},
                 }
             )
         else:
@@ -993,27 +1165,152 @@ def generate(
     keepalive_actions: list[dict] = []
     keepalive_health_checks: list[dict] = []
 
-    # Use a dom_check on body as the primary health check — it verifies the
-    # browser page is rendered without making a separate HTTP request that
-    # can be rate-limited (429) or redirected by the target site.
-    keepalive_health_checks.append(
-        {
-            "type": "dom_check",
-            "selector": "body",
-            "exists": True,
-        }
-    )
+    # A health check must be able to FAIL, or the session's health signal is a
+    # constant. The previous dom_check on "body" could not: <body> is present on
+    # the login page exactly as on the dashboard, so a session that never signed
+    # in — or whose cookies expired — still reported HEALTHY/PASS forever. Every
+    # downstream consumer then believed the session was authenticated and only
+    # discovered otherwise as 401/403 from the target.
+    #
+    # Prefer a url_check against the landing page: Tabby's runner returns AUTH_FAIL
+    # when the request lands on an auth URL, which is what drives re-login. The
+    # explicit auth_redirect_pattern matters because the built-in heuristic only
+    # matches login|signin|sso|oauth|saml|authgw|identity in the host+path, so a
+    # bounce to a bare "/" root goes undetected without one.
+    if post_login_url:
+        _login_path = urlparse(login_url).path.rstrip("/") if login_url else ""
+        # The recorded login path matches only as a WHOLE path (no trailing "/…"):
+        # a login at /app would otherwise flag its own landing page /app/dashboard.
+        _auth_patterns = [_auth_url_pattern(_login_path, subpaths=False)] if _login_path else []
+        # Login routes, plus the session-expiry landing pages portals bounce to
+        # when the cookie dies. Those are the ones that actually bite: a bank
+        # serves them with HTTP 200 and a path that contains no auth-looking
+        # word, so both expect_status and the login patterns above are satisfied
+        # and health reports PASS on a page that says "Your session has expired".
+        # Observed on ICICI (/session-expire), which sat HEALTHY for 41 minutes —
+        # and because the controller only opens a HITL step on AUTH_FAIL, the
+        # human had no "Mark as Resolved" button to recover with.
+        _auth_patterns += [
+            _auth_url_pattern(seg)
+            for seg in (
+                "/login",
+                "/signin",
+                "/sign-in",
+                "/sso",
+                "/auth",
+                "/session-expire",
+                "/session-expired",
+                "/sessionexpired",
+                "/session-timeout",
+                "/sessiontimeout",
+                "/expired",
+                "/timeout",
+                "/logout",
+            )
+        ]
+        # Last line of defence: never emit a pattern that flags the very page we
+        # are about to probe. Tabby tests the pattern against the LIVE URL before
+        # the HTTP probe, so a self-matching pattern is a permanent AUTH_FAIL —
+        # which also suppresses the 'activity' keepalive (it only nudges while
+        # health is PASS), i.e. it would break the session it is meant to watch.
+        _auth_patterns = [
+            p for p in dict.fromkeys(_auth_patterns) if not re.search(p, post_login_url, re.I)
+        ]
+        # Probe a URL with any session-bound matrix param (``;jsessionid=…``)
+        # stripped: the stale token from the recording makes a bank serve its
+        # "already logged on"/duplicate-session page as HTTP 200, so the check
+        # would report PASS on a dead session forever. The bare path + live
+        # cookies re-establishes the real session for the probe.
+        # A volatile QUERY cannot be stripped (it is often the routing), so probing
+        # that URL every 60s re-sends a token that died with the recording: the
+        # portal answers with an error page — either a falsely-PASS 200 or a
+        # permanent TRANSIENT_FAIL, which also suppresses the activity nudge.
+        # Probe the origin root instead; the live cookies still decide auth.
+        _probe_url = _strip_volatile_matrix_params(post_login_url)
+        if _has_volatile_query(_probe_url):
+            _probe_url = _url_origin(_probe_url) + "/"
+        keepalive_health_checks.append(
+            {
+                "type": "url_check",
+                "url": _probe_url,
+                "expect_status": 200,
+                "auth_redirect_pattern": "|".join(_auth_patterns),
+                "timeout_ms": 15000,
+            }
+        )
+    else:
+        # No landing page inferred, so there is nothing meaningful to probe. Keep
+        # the old dom_check rather than invent a URL, and flag it: this session's
+        # health signal cannot detect a lost login.
+        keepalive_health_checks.append(
+            {
+                "type": "dom_check",
+                "selector": "body",
+                "exists": True,
+            }
+        )
+        review_items.append(
+            {
+                "type": "unverifiable_health_check",
+                "severity": "warning",
+                "message": (
+                    "No post-login URL inferred, so health falls back to dom_check on "
+                    "body — which always passes. This session will report HEALTHY even "
+                    "when signed out; add a url_check against an authenticated page."
+                ),
+            }
+        )
 
-    if has_dynamic_headers and post_login_url:
-        # Periodically revisit the post-login page so there's guaranteed real
-        # traffic for the request-header-capture listener to observe — without
-        # this, a captured header can go stale (or never populate) if nothing
-        # else on the session happens to hit an instrumented route between
-        # keepalive cycles.
-        keepalive_actions.append({"action": "goto", "url": post_login_url})
+    # Two keepalive styles, chosen by the skill kind (see keepalive_style):
+    #
+    #   "activity" (browser-driven default) — a small trusted mouse-move + scroll
+    #     every 60s. Portals detect idle via DOM interaction events (mousemove/
+    #     scroll reset a client-side countdown that redirects to /session-expire),
+    #     NOT HTTP — a page left idle died in <=90s, but the activity nudge held
+    #     ICICI HEALTHY for 11+ minutes. 60s is the tightest interval Tabby
+    #     accepts (validateKeepaliveConfig rejects interval_seconds < 60); it fires
+    #     comfortably before the ~90s idle death. Safe on any page (no clicks/keys/
+    #     navigation; Playwright input is trusted), so it never disrupts the user
+    #     or trips a refresh-sensitive expiry. A browser skill reads the DOM, so it
+    #     needs no header-capture navigation.
+    #
+    #   "goto" (HAR-replay default) — revisit the post-login page so there's
+    #     guaranteed real traffic for the request-header-capture listener; without
+    #     it a captured header can go stale (or never populate) between calls. This
+    #     is what a call_web_api skill's dynamic bearers rely on.
+    if keepalive_style == "activity":
+        keepalive_actions.append({"action": "activity"})
+        # 60s is Tabby's floor (dsl.validator rejects interval_seconds < 60) and
+        # still fires well under the ~90s idle death. A tighter value fails app
+        # validation → every call_web_browser 400s and the session never provisions.
+        keepalive_interval = 60
+    else:  # "goto"
+        if has_dynamic_headers and post_login_url:
+            if _has_volatile_query(post_login_url):
+                # A URL whose token died with the recording is worse than nothing:
+                # every interval it threw the live browser onto an expired-token
+                # error page, discarding whatever the user had signed into.
+                review_items.append(
+                    {
+                        "type": "keepalive_goto_skipped",
+                        "severity": "warning",
+                        "message": (
+                            "The recorded landing URL carries one-time query material "
+                            f"({post_login_url.split('?')[0]}?...), so no keepalive goto "
+                            "was emitted — replaying it would navigate the live session "
+                            "onto an expired-token error page. Header capture relies on "
+                            "organic traffic; set a stable authenticated URL by hand if "
+                            "the captured headers go stale, or compile browser-driven "
+                            "(keepalive_style='activity')."
+                        ),
+                    }
+                )
+            else:
+                keepalive_actions.append({"action": "goto", "url": post_login_url})
+        keepalive_interval = 120
 
     keepalive_config: dict[str, Any] = {
-        "interval_seconds": 300,
+        "interval_seconds": keepalive_interval,
         "actions": keepalive_actions,
         "health_checks": keepalive_health_checks,
         "policy": "all",
@@ -1031,6 +1328,20 @@ def generate(
         "target_urls": target_urls,
     }
     if has_dynamic_headers:
+        # THE allowlist that turns header capture on. Without it the worker's
+        # registerRequestHeaderCapture() early-returns and never attaches a
+        # listener, so nothing is ever captured — no error, just an empty
+        # bundle. Declaring credential_types.headers (below) only says which
+        # captured headers to *surface*; it does not cause capture. Omitting
+        # this while declaring those is silent breakage: /execute/fetch returns
+        # 200 with no auth header attached and the target 401s/403s, which
+        # reads as a login problem rather than a config one.
+        #
+        # Names are the literal ones observed in the HAR (see _analyze_har), so
+        # the on-the-wire spelling is preserved — Tabby matches case-insensitively
+        # but surfaces the configured casing back to the consumer.
+        export_policy["request_header_allowlist"] = list(har_analysis["auth_header_names"])
+
         # Client-managed bearer/CSRF tokens are typically short-lived
         # (silent-refresh OAuth patterns); re-capture often enough to keep the
         # value usable. 180s sits in Tabby's own documented 120-300s guidance
@@ -1057,6 +1368,23 @@ def generate(
         "login_config": login_config,
         "keepalive_config": keepalive_config,
         "export_policy": export_policy,
+        # Browser-driven skills read the DOM and may trigger in-page file exports
+        # (e.g. a statement PDF). The worker CANCELS downloads unless the app opts
+        # in, so enable them here; then call_web_browser's get_download captures
+        # the file into the conversation OUTPUTS. HAR-replay skills never download,
+        # so they keep the safe default (off).
+        #
+        # ``enable_downloads`` decouples this from the keepalive style: a download
+        # skill must get downloads even if it was (mis)compiled with a "goto"
+        # keepalive. When unset, fall back to the browser-driven heuristic
+        # (keepalive_style == "activity").
+        "browser_policy": {
+            "clipboard": False,
+            "downloads": (
+                enable_downloads if enable_downloads is not None else keepalive_style == "activity"
+            ),
+            "file_chooser": False,
+        },
         "notification_config": {"channels": ["slack:#local-dev"]},
         "desired_session_count": 0,
         # execute_enabled must be true or the K8s worker Service + pod

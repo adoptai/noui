@@ -102,6 +102,19 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
         print(f"MCP server: {mcp.get('server_id', '?')} ({len(mcp.get('tools', []))} tool(s))")
     if skill:
         print(f"Skill: {skill.get('skill_id', '?')} ({len(skill.get('operations', []))} op(s))")
+    # Tell the operator when the app was auto-routed to browser mode, and why —
+    # this is the recommendation surfaced to a user authoring a skill in the
+    # harness, so browser mode is never picked silently.
+    det = result.get("browser_detection") or {}
+    if det.get("unreplayable"):
+        from noui_core.compile.unreplayable import recommendation_message
+
+        app = (skill.get("skill_id") if skill else None) or "this app"
+        print(
+            "Browser mode auto-selected —",
+            recommendation_message(det, app_name=app),
+            file=sys.stderr,
+        )
     if args.auth_type == "api-key":
         secrets = (skill.get("secrets_required") if skill else None) or (
             mcp.get("secrets_required") if mcp else None
@@ -117,6 +130,42 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     if scope_ext:
         print(f"Login profile scope extension: {scope_ext}", file=sys.stderr)
     return 0
+
+
+def _resolve_keepalive_style(args: argparse.Namespace, workflow_bundle: dict) -> str:
+    """Pick the App Template's keepalive style for the login being registered.
+
+    Explicit --keepalive wins. Otherwise: a browser-driven workflow (reads the
+    DOM, expires/refresh-sensitive like a bank SPA) gets the human-like "activity"
+    nudge; a HAR-replay workflow keeps "goto" so its captured request headers stay
+    fresh. Mirrors how compile_workflow_bundle decides browser vs replay.
+    """
+    ka = getattr(args, "keepalive", "auto")
+    if getattr(args, "browser_driven", False):
+        # Explicit --browser-driven decides the SKILL KIND, and a browser skill
+        # must never get a reload-on-interval goto keepalive. Checked before the
+        # explicit --keepalive value because _run_combined derives the skill kind
+        # from this function's answer: with the old order,
+        # `--browser-driven --keepalive goto` silently compiled a HAR-REPLAY
+        # skill, ignoring the flag the caller actually passed.
+        return "activity"
+    if ka in ("goto", "activity"):
+        return ka
+    if getattr(args, "auto_detect_browser", True):
+        try:
+            from noui_core.compile.login_assets import _url_origin
+            from noui_core.compile.unreplayable import detect_unreplayable
+
+            urls = workflow_bundle.get("url_events", []) or []
+            first = args.url or next((u.get("to_url", "") for u in urls if u.get("to_url")), "")
+            origin = _url_origin(first) if first else ""
+            if detect_unreplayable(workflow_bundle.get("har"), app_origin=origin).get(
+                "unreplayable"
+            ):
+                return "activity"
+        except Exception:  # noqa: BLE001 — detection is best-effort; default to goto
+            pass
+    return "goto"
 
 
 def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
@@ -144,6 +193,8 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
                 execution_mode=args.execution_mode,
                 auth_type=args.auth_type,
                 api_key_header=args.api_key_header,
+                browser_driven=getattr(args, "browser_driven", False),
+                auto_detect_browser=getattr(args, "auto_detect_browser", True),
             )
         except Exception as exc:  # noqa: BLE001
             print(f"Workflow compile failed: {exc}", file=sys.stderr)
@@ -152,6 +203,19 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
 
     login_bundle, workflow_bundle = parts
     manual_takeover, manual_credentials = _credential_flags(args.credential_mode)
+    keepalive_style = _resolve_keepalive_style(args, workflow_bundle)
+    # Single browser-vs-replay decision. _resolve_keepalive_style already folds in
+    # --browser-driven, --keepalive, and HAR auto-detect, so treat "activity" as
+    # THE authoritative "this is a browser skill" signal and drive BOTH the login
+    # app template (keepalive + downloads) AND the workflow skill kind from it.
+    # Deciding them separately is what let hsbcnet compile as a browser skill with
+    # a "goto" keepalive that reloaded — and duplicate-session-killed — the portal
+    # every 120s (DTC_AUTH_PL_1_075).
+    is_browser = keepalive_style == "activity"
+    print(
+        f"Keepalive style: {keepalive_style} (browser-driven={is_browser}).",
+        file=sys.stderr,
+    )
     try:
         compiled = compile_login_bundle(
             session_id=args.session_id,
@@ -162,6 +226,8 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             manual_credentials=manual_credentials,
             manual_takeover=manual_takeover,
             post_login_url_pattern=args.post_login_url_pattern,
+            keepalive_style=keepalive_style,
+            enable_downloads=is_browser,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Login compile failed: {exc}", file=sys.stderr)
@@ -193,6 +259,11 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             execution_mode=args.execution_mode,
             auth_type="session",
             login_credential_headers=login_headers,
+            # Honor the single browser decision from the keepalive resolver so the
+            # skill kind can never disagree with the keepalive style (a browser
+            # skill paired with a reload-on-interval goto keepalive).
+            browser_driven=is_browser,
+            auto_detect_browser=False,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Workflow compile failed: {exc}", file=sys.stderr)
@@ -219,6 +290,43 @@ def main() -> int:
         dest="execution_mode",
         choices=["tabby", "http", "harness"],
         default="tabby",
+    )
+    p.add_argument(
+        "--keepalive",
+        dest="keepalive",
+        choices=["auto", "goto", "activity"],
+        default="auto",
+        help=(
+            "Keepalive style for the registered login App Template. auto "
+            "(default): browser-driven skills get 'activity' (a human-like mouse/"
+            "scroll nudge that holds SPA/bank sessions without a reload), "
+            "HAR-replay skills get 'goto' (revisit the landing page to keep "
+            "captured request headers fresh). Override with 'goto' or 'activity'."
+        ),
+    )
+    p.add_argument(
+        "--no-auto-browser",
+        dest="auto_detect_browser",
+        action="store_false",
+        help=(
+            "Disable automatic browser-mode detection. By default, if the capture "
+            "shows the app encrypts its requests in-page (opaque {data,key} bodies "
+            "+ a key-fetch endpoint), the skill is compiled browser-driven because "
+            "replay cannot work. This forces the legacy replay compile anyway."
+        ),
+    )
+    p.add_argument(
+        "--browser-driven",
+        dest="browser_driven",
+        action="store_true",
+        help=(
+            "Emit a browser-driven skill (drives the page via call_web_browser "
+            "and reads the rendered DOM) instead of a HAR-replay call_web_api "
+            "skill. Use for apps whose requests cannot be replayed — SPAs that "
+            "mint per-request encryption or per-session headers in JS (e.g. a "
+            "bank wrapping every body in a per-session key). Requires "
+            "--profile-slug."
+        ),
     )
     p.add_argument(
         "--auth-type",
@@ -326,6 +434,8 @@ def main() -> int:
                 start_url=args.url,
                 auth_type=args.auth_type,
                 api_key_header=args.api_key_header,
+                browser_driven=getattr(args, "browser_driven", False),
+                auto_detect_browser=getattr(args, "auto_detect_browser", True),
             )
         except Exception as exc:  # noqa: BLE001 — surface any compile failure
             print(f"Workflow compile failed: {exc}", file=sys.stderr)
@@ -346,6 +456,12 @@ def main() -> int:
             manual_credentials=manual_credentials,
             manual_takeover=manual_takeover,
             post_login_url_pattern=args.post_login_url_pattern,
+            # The login-only path honours the same flags as the combined path:
+            # without these a login recording for a browser portal always
+            # registered goto/120s with downloads off, no matter what the caller
+            # passed.
+            keepalive_style=_resolve_keepalive_style(args, bundle),
+            enable_downloads=_resolve_keepalive_style(args, bundle) == "activity",
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Login compile failed: {exc}", file=sys.stderr)
