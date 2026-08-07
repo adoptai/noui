@@ -6,13 +6,13 @@ recorder AT INTERACTION TIME and rebased onto a session-global sequence by the
 worker. Interaction events additionally carry `event_time`, the wall clock of the
 interaction itself.
 
-`timestamp` cannot order the stream, and is deliberately NOT being changed to.
-The recorder debounces `input` by 500ms and builds the payload inside that
-debounce, so `timestamp` on an input is the FLUSH: a human who fills a field and
-clicks submit within 500ms (the ordinary login) produces a click stamped EARLIER
-than the input that preceded it. That field's meaning is frozen because existing
-consumers — including the login compiler here — read it; `seq` and `event_time`
-were added alongside it instead. `seq` is also immune to clock granularity (two
+`timestamp` cannot order the stream, and its meaning is deliberately left
+unchanged. The recorder debounces `input` by 500ms and builds the payload inside
+that debounce, so `timestamp` on an input is the FLUSH: a human who fills a field
+and clicks submit within 500ms (the ordinary login) produces a click stamped
+EARLIER than the input that preceded it. Rather than redefine that field — which
+existing consumers, including the login compiler here, already read — Tabby added
+`seq` and `event_time` alongside it. `seq` is also immune to clock granularity (two
 events in the same millisecond) and to the delivery order of the no-cors beacon
 channel.
 
