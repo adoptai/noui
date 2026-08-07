@@ -32,6 +32,7 @@ from noui_core.compile.login_assets import (
     _first_path_segment,
     _url_origin,
 )
+from noui_core.event_order import event_seq, order_events
 
 
 def _slug_from_path(url: str) -> str:
@@ -97,7 +98,7 @@ def _parse_ts(ts: str) -> datetime | None:
         return None
 
 
-def _nav_clicks_for(from_url: str, to_ts: str, click_events: list[dict]) -> list[dict]:
+def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> list[dict]:
     """The recorded click CHAIN that drove an in-app navigation FROM from_url.
 
     A browser skill must NOT reach a data page with a full-page navigate/goto:
@@ -113,10 +114,18 @@ def _nav_clicks_for(from_url: str, to_ts: str, click_events: list[dict]) -> list
     "Cards" → strict-mode chaos, never reaching the statement). This returns the
     full ordered gesture — parent-expand … child-navigate — so the skill can
     reproduce the whole path. Falls back to the single navigating click when the
-    recording lacks reliable timestamps.
+    recording carries neither ordinals nor reliable timestamps.
+
+    Causality and ordering come from ``seq`` when the bundle carries it: clicks
+    and URL transitions are numbered from one counter assigned at interaction
+    time, which timestamps are not (see noui_core.event_order). The gesture
+    WINDOW stays in wall-clock — "clicks within 20s of each other" has no
+    ordinal equivalent — and simply does not apply when timestamps are absent;
+    the trailing-``_NAV_MAX_CLICKS`` cap below bounds the chain in that case.
     """
     from_key = _page_key(from_url)
-    nav_dt = _parse_ts(to_ts)
+    nav_dt = _parse_ts((nav_ev or {}).get("timestamp") or "")
+    nav_seq = event_seq(nav_ev)
     cands: list[dict] = []
     for c in click_events or []:
         if (c.get("event_type") or "click") != "click":
@@ -128,25 +137,37 @@ def _nav_clicks_for(from_url: str, to_ts: str, click_events: list[dict]) -> list
         if not text:
             continue
         cdt = _parse_ts(c.get("timestamp") or "")
-        if nav_dt and cdt and cdt > nav_dt:  # click happened after the nav — not its cause
+        cseq = event_seq(c)
+        # Drop clicks made AFTER the navigation — they cannot have caused it.
+        if nav_seq is not None and cseq is not None:
+            if cseq > nav_seq:
+                continue
+        elif nav_dt and cdt and cdt > nav_dt:
             continue
-        cands.append({"text": text, "selector": c.get("selector") or "", "dt": cdt})
+        cands.append({"text": text, "selector": c.get("selector") or "", "dt": cdt, "seq": cseq})
     if not cands:
         return []
 
-    # nav_dt is None (a bundle whose url_events carry no timestamp) means the
-    # causality filter above could not run, so the "clicks before the nav" set may
-    # actually be clicks made AFTER it — a recorded "Log out" would then be
-    # compiled into the read recipe. Fall back to the documented single-click
-    # behaviour rather than trusting an unbounded window.
-    if nav_dt is not None and all(c["dt"] is not None for c in cands):
-        cands.sort(key=lambda c: c["dt"])
-        anchor = cands[-1]["dt"]  # the navigating click
-        chain = [c for c in cands if (anchor - c["dt"]).total_seconds() <= _NAV_GESTURE_WINDOW_S]
-    else:
-        # Timestamps unreliable — can't bound the gesture, so keep only the
-        # navigating click (the recording-order last), i.e. the old behaviour.
+    # Neither ordinals nor timestamps means the causality filter above could not
+    # run, so the "clicks before the nav" set may actually be clicks made AFTER
+    # it — a recorded "Log out" would then be compiled into the read recipe. Fall
+    # back to the documented single-click behaviour rather than trusting an
+    # unbounded window.
+    ordered = None
+    if nav_seq is not None and all(c["seq"] is not None for c in cands):
+        ordered = sorted(cands, key=lambda c: c["seq"])
+    elif nav_dt is not None and all(c["dt"] is not None for c in cands):
+        ordered = sorted(cands, key=lambda c: c["dt"])
+
+    if ordered is None:
         chain = cands[-1:]
+    elif all(c["dt"] is not None for c in ordered):
+        anchor = ordered[-1]["dt"]  # the navigating click
+        chain = [c for c in ordered if (anchor - c["dt"]).total_seconds() <= _NAV_GESTURE_WINDOW_S]
+    else:
+        # Ordered by seq but undated (e.g. an agent-driven capture): the order is
+        # trustworthy, so keep the chain and let the trailing cap bound it.
+        chain = ordered
 
     # Collapse consecutive identical labels (double-clicks, re-renders) and cap
     # to the trailing N so only the immediate expand→navigate steps are emitted.
@@ -189,7 +210,11 @@ def derive_browser_pages(
     Empty list means the recording never left the login flow — the caller must
     treat that as "nothing to compile".
     """
-    click_events = click_events or []
+    # Interaction order, not recording order — pages are picked in FIRST-SEEN
+    # order and each page's nav gesture is read off the click list, so both sides
+    # must be sorted before anything positional is read from them.
+    click_events = order_events(click_events)
+    url_events = order_events(url_events)
     app_origin = _url_origin(login_url) if login_url else ""
     seen: set[str] = set()
     pages: list[dict] = []
@@ -218,7 +243,6 @@ def derive_browser_pages(
         # page, it's the post-login landing (auto-redirect) — no nav click. If it
         # came from another app page, replay the click that drove the SPA route.
         from_url = (ev or {}).get("from_url") or ""
-        to_ts = (ev or {}).get("timestamp") or ""
         # Three distinct states, kept apart deliberately:
         #   None  — the post-login LANDING page; the session already lands here.
         #   [...] — the click chain ON from_url that routed here.
@@ -231,7 +255,7 @@ def derive_browser_pages(
         is_landing = not from_url or _is_login_flow_url(from_url)
         nav: list[dict] | None = None
         if not is_landing:
-            nav = _nav_clicks_for(from_url, to_ts, click_events)
+            nav = _nav_clicks_for(from_url, ev or {}, click_events)
         pages.append(
             {
                 "name": f"read_{_slug_from_path(url)}",

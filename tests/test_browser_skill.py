@@ -470,3 +470,101 @@ def test_bare_anchor_is_not_a_route():
         login_url=f"{_B}/login",
     )
     assert [p["name"] for p in pages] == ["read_report"]
+
+
+# ---------------------------------------------------------------------------
+# Nav gestures are correlated by `seq`, not by wall clock
+# ---------------------------------------------------------------------------
+
+
+def _seq_url_ev(frm, to, seq, ts=None):
+    ev = {"from_url": frm, "to_url": to, "seq": seq}
+    if ts:
+        ev["timestamp"] = ts
+    return ev
+
+
+def _seq_click(url, text, seq, ts=None):
+    ev = {"event_type": "click", "url": url, "text_content": text, "seq": seq}
+    if ts:
+        ev["timestamp"] = ts
+    return ev
+
+
+def test_nav_gesture_causality_uses_seq_when_the_bundle_carries_it():
+    """A click made AFTER the route change cannot have caused it. `seq` is the
+    reliable ordering — it is assigned at interaction time, unlike the recorder's
+    input timestamps, and it survives events sharing a millisecond."""
+    pages = derive_browser_pages(
+        [
+            _seq_url_ev(f"{_B}/login", f"{_B}/home", 1),
+            _seq_url_ev(f"{_B}/home", f"{_B}/accounts", 3),
+        ],
+        [
+            _seq_click(f"{_B}/home", "Accounts", 2),
+            # A click back on /home AFTER the nav (browser back, then a re-click
+            # elsewhere) must not be folded into the gesture that reached /accounts.
+            _seq_click(f"{_B}/home", "Log out", 4),
+        ],
+        login_url=f"{_B}/login",
+    )
+    by_name = {p["name"]: p for p in pages}
+    assert [c["text"] for c in by_name["read_accounts"]["nav"]] == ["Accounts"]
+
+
+def test_seq_recovers_the_gesture_when_clicks_share_a_timestamp():
+    """Two clicks in the same millisecond are unorderable by timestamp — the
+    expand→navigate pair then compiles in whichever order they were recorded."""
+    same = "2026-01-01T00:00:04+00:00"
+    pages = derive_browser_pages(
+        [
+            _seq_url_ev(f"{_B}/login", f"{_B}/home", 1, "2026-01-01T00:00:01+00:00"),
+            _seq_url_ev(f"{_B}/home", f"{_B}/accounts", 4, "2026-01-01T00:00:05+00:00"),
+        ],
+        [
+            # Recorded in the wrong order; seq says Banking was clicked first.
+            _seq_click(f"{_B}/home", "Accounts", 3, same),
+            _seq_click(f"{_B}/home", "Banking", 2, same),
+        ],
+        login_url=f"{_B}/login",
+    )
+    by_name = {p["name"]: p for p in pages}
+    assert [c["text"] for c in by_name["read_accounts"]["nav"]] == ["Banking", "Accounts"]
+
+
+def test_undated_but_numbered_capture_recovers_the_whole_chain():
+    """An agent-driven capture numbers its events but records no wall clock. The
+    old code could not bound the gesture without timestamps and kept only the
+    last click; `seq` makes the order trustworthy, so the whole expand→navigate
+    chain survives (bounded by the trailing-click cap)."""
+    pages = derive_browser_pages(
+        [
+            _seq_url_ev(f"{_B}/login", f"{_B}/home", 1),
+            _seq_url_ev(f"{_B}/home", f"{_B}/accounts", 4),
+        ],
+        [
+            _seq_click(f"{_B}/home", "Banking", 2),
+            _seq_click(f"{_B}/home", "Accounts", 3),
+        ],
+        login_url=f"{_B}/login",
+    )
+    by_name = {p["name"]: p for p in pages}
+    assert [c["text"] for c in by_name["read_accounts"]["nav"]] == ["Banking", "Accounts"]
+
+
+def test_unnumbered_bundle_still_uses_timestamps():
+    """Regression guard: bundles recorded before `seq` keep the old behaviour."""
+    pages = derive_browser_pages(
+        [
+            _url_ev(f"{_B}/login", f"{_B}/home", "2026-01-01T00:00:01+00:00"),
+            _url_ev(f"{_B}/home", f"{_B}/accounts", "2026-01-01T00:00:05+00:00"),
+        ],
+        [
+            _click(f"{_B}/home", "Banking", "2026-01-01T00:00:03+00:00"),
+            _click(f"{_B}/home", "Accounts", "2026-01-01T00:00:04+00:00"),
+            _click(f"{_B}/home", "Log out", "2026-01-01T00:00:09+00:00"),  # after the nav
+        ],
+        login_url=f"{_B}/login",
+    )
+    by_name = {p["name"]: p for p in pages}
+    assert [c["text"] for c in by_name["read_accounts"]["nav"]] == ["Banking", "Accounts"]

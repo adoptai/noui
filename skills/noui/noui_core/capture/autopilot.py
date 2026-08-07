@@ -68,6 +68,13 @@ class AutopilotSession:
         self._urls: list[dict[str, Any]] = []
         self._current_url = ""
         self.capturing = False
+        # One counter across clicks AND url transitions — the compilers read
+        # `seq` as a total order over both (noui_core.event_order). NoUI issues
+        # the commands here, so recording order IS interaction order and the
+        # counter is simply the order the driver drove them in. These bundles
+        # carry no wall clock at all, so without `seq` the compilers have nothing
+        # to correlate a route change with the click that caused it.
+        self._seq = 0
 
     # ── low-level ────────────────────────────────────────────────────────────
     def _exec(
@@ -126,13 +133,20 @@ class AutopilotSession:
         return self._exec("screenshot")
 
     # ── bundle synthesis ──────────────────────────────────────────────────────
+    def _next_seq(self) -> int:
+        self._seq += 1
+        return self._seq
+
     def _record_url(self, to_url: str) -> None:
         if to_url and to_url != self._current_url:
-            self._urls.append({"from_url": self._current_url, "to_url": to_url})
+            self._urls.append(
+                {"from_url": self._current_url, "to_url": to_url, "seq": self._next_seq()}
+            )
             self._current_url = to_url
 
     def _record_click(self, **info: Any) -> None:
-        self._clicks.append({"event_type": "click", **info})
+        # seq last so a caller kwarg can never shadow the ordinal.
+        self._clicks.append({"event_type": "click", **info, "seq": self._next_seq()})
 
     def build_bundle(self, har: dict) -> dict:
         """Assemble a workflow recording bundle from a captured HAR + driven events."""

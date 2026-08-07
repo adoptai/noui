@@ -26,6 +26,12 @@ from pathlib import Path
 from typing import Any
 
 # Fields accepted by backend ClickEventCreate (backend/shared/schemas.py).
+# NOTE: `seq` — the interaction-order ordinal the compilers sort on (see
+# noui_core.event_order) — is deliberately NOT projected here: the backend schema
+# has no such column, so it would be rejected or dropped. A bundle that makes the
+# round trip through /clicks therefore comes back orderable only by list order,
+# which is what the compilers fall back to. Add it here once the backend carries
+# it; the direct bundle→compiler path (compile_login_bundle) keeps seq already.
 _CLICK_FIELDS = (
     "event_type",
     "url",

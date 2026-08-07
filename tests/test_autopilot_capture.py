@@ -59,10 +59,14 @@ def test_session_synthesizes_bundle(monkeypatch):
     # Synthesized bundle is the VNC bundle shape.
     assert bundle["recording_mode"] == "workflow"
     assert bundle["har"] is har
-    assert {"event_type": "click", "selector": "#btn"} in bundle["click_events"]
+    assert {"event_type": "click", "selector": "#btn", "seq": 2} in bundle["click_events"]
     # URL transitions recorded from the navigates.
     tos = [u["to_url"] for u in bundle["url_events"]]
     assert tos == ["https://x.com/a", "https://x.com/b"]
+    # Clicks and navigations are numbered from ONE counter, in driven order, so
+    # the compilers can correlate a route change with the click that caused it.
+    assert [u["seq"] for u in bundle["url_events"]] == [1, 3]
+    assert [c["seq"] for c in bundle["click_events"]] == [2]
 
 
 def test_run_steps_scripted(monkeypatch):
@@ -100,3 +104,54 @@ def test_execute_browser_raises_on_worker_failure(monkeypatch):
     monkeypatch.setattr(tabby_client, "_tabby_http", boom)
     with pytest.raises(RuntimeError, match="no healthy session"):
         tabby_client.execute_browser("p", "navigate", {"url": "https://x"}, token="t")
+
+
+def test_numbered_bundle_still_compiles_as_workflow_only(monkeypatch):
+    """`seq` must not make an autopilot capture look like it has a login.
+
+    The splitter finds a login boundary from credential-field interactions, and
+    an autopilot bundle records none — a driven capture runs against an
+    already-authenticated profile. Numbering the events must not change that:
+    split_bundle returning a pair here would hand the workflow a login slice and
+    an empty HAR.
+    """
+    from noui_core.capture.split import find_login_boundary, split_bundle
+
+    fake = FakeTabby({"log": {"entries": []}})
+    _patch(monkeypatch, fake)
+
+    ap = AutopilotSession("p", token="t")
+    ap.start_capture()
+    ap.navigate("https://x.com/a")
+    ap.click("#btn")
+    bundle = ap.finish()
+
+    assert find_login_boundary(bundle) is None
+    assert split_bundle(bundle) is None
+
+
+def test_clicks_and_navigations_interleave_in_one_total_order(monkeypatch):
+    """The point of numbering: a merged sort of both event lists reproduces the
+    order the driver drove them in. These bundles carry no wall clock, so `seq`
+    is the ONLY thing that can place a click relative to a route change."""
+    from noui_core.event_order import merged_order, order_events
+
+    fake = FakeTabby({"log": {"entries": []}})
+    _patch(monkeypatch, fake)
+
+    ap = AutopilotSession("p", token="t")
+    ap.start_capture()
+    ap.navigate("https://bank.test/home")
+    ap.click_text("Banking")
+    ap.click_text("Accounts")
+    ap.navigate("https://bank.test/accounts")
+    bundle = ap.finish()
+
+    assert merged_order(bundle["click_events"], bundle["url_events"])
+    merged = order_events(bundle["click_events"] + bundle["url_events"])
+    assert [e.get("text") or e.get("to_url") for e in merged] == [
+        "https://bank.test/home",
+        "Banking",
+        "Accounts",
+        "https://bank.test/accounts",
+    ]

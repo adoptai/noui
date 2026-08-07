@@ -4,7 +4,8 @@ Tabby Application + ServiceProfile drafts plus a review report.
 
 Inputs (loaded by the router before calling generate()):
     - session: LoginSession dict
-    - click_events: list of ClickEvent dicts (chronological)
+    - click_events: list of ClickEvent dicts (re-ordered here by ``seq`` — see
+      noui_core.event_order for why recording order is not interaction order)
     - url_events: list of UrlEvent dicts (chronological)
     - har: HAR dict (log.entries[]) or None
 
@@ -25,6 +26,8 @@ import re
 from fnmatch import fnmatch
 from typing import Any
 from urllib.parse import urlparse
+
+from noui_core.event_order import order_events
 
 # ---------------------------------------------------------------------------
 # Credential-type shape
@@ -694,7 +697,8 @@ def generate(
     session:
         LoginSession as a dict (id, app_name, login_url, ...)
     click_events:
-        List of ClickEvent dicts, chronological order
+        List of ClickEvent dicts. Sorted into interaction order by ``seq``
+        before use; bundles without ``seq`` are consumed in list order.
     url_events:
         List of UrlEvent dicts, chronological order.
         Each dict may have either:
@@ -780,6 +784,15 @@ def generate(
 
     # goto first URL
     steps.append({"action": "goto", "url": first_url})
+
+    # Put the events in INTERACTION order before anything reads their sequence.
+    # The DSL is emitted in list order, and the dedup below only collapses
+    # *consecutive* runs, so a mis-ordered list compiles a mis-ordered login —
+    # e.g. a click on "Sign in" ahead of the fill it submitted. Recording order
+    # is not interaction order: the recorder debounces input by 500ms, so a
+    # field filled and submitted inside that window arrives (and is timestamped)
+    # after its own click. Bundles with no `seq` keep their list order.
+    click_events = order_events(click_events)
 
     # Deduplicate consecutive input events for the same field — keep only the
     # last value per (selector, event_type) run so we don't emit partial
