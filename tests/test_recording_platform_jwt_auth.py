@@ -30,8 +30,13 @@ PLATFORM_ENV = {
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    for var in ("TABBY_CLIENT_ID", "TABBY_CLIENT_SECRET", "ADOPT_API_URL",
-                "ADOPT_CLIENT_ID", "ADOPT_CLIENT_SECRET"):
+    for var in (
+        "TABBY_CLIENT_ID",
+        "TABBY_CLIENT_SECRET",
+        "ADOPT_API_URL",
+        "ADOPT_CLIENT_ID",
+        "ADOPT_CLIENT_SECRET",
+    ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(settings, "tabby_auth_mode", "")
     monkeypatch.setattr(settings, "broker_token", "")
@@ -53,8 +58,10 @@ class TestPlatformJwtAccepted:
     def test_platform_creds_preferred_when_mode_unpinned(self, clean_env, monkeypatch):
         """Matches resolve_admin_token: platform creds win over agent creds."""
         _set(monkeypatch, {**PLATFORM_ENV, "TABBY_CLIENT_ID": "cid", "TABBY_CLIENT_SECRET": "csec"})
-        with patch.object(tabby_client, "get_platform_tabby_token", return_value="tabby-jwt"), \
-             patch.object(tabby_client, "get_agent_token") as mint:
+        with (
+            patch.object(tabby_client, "get_platform_tabby_token", return_value="tabby-jwt"),
+            patch.object(tabby_client, "get_agent_token") as mint,
+        ):
             assert recording.resolve_agent_token() == "tabby-jwt"
             mint.assert_not_called()
 
