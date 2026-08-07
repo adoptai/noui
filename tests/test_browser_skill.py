@@ -568,3 +568,209 @@ def test_unnumbered_bundle_still_uses_timestamps():
     )
     by_name = {p["name"]: p for p in pages}
     assert [c["text"] for c in by_name["read_accounts"]["nav"]] == ["Banking", "Accounts"]
+
+
+# --- schema_version >= 4/5 recordings: candidates + outcomes -------------------
+#
+# The recorder no longer guesses a single selector. It emits several candidates
+# with match counts, and what happened after each click. These pin that the
+# compiler actually USES them — previously `selector` was captured on every nav
+# click and then silently discarded, so every step compiled to click_by_text on
+# visible text alone.
+
+_RICH_EVENTS = [
+    {"from_url": f"{_H}/login-page", "to_url": f"{_H}/overview", "timestamp": "2026-08-07T10:00:00Z"},
+    {
+        "from_url": f"{_H}/overview",
+        "to_url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:05Z",
+    },
+]
+
+
+def _rich_click(**over):
+    base = {
+        "event_type": "click",
+        "text_content": "Credit Cards",
+        "selector": "div.submenu-text",
+        "url": f"{_H}/overview",
+        "timestamp": "2026-08-07T10:00:04.900Z",
+        "event_time": "2026-08-07T10:00:04.900Z",
+        "candidates": [
+            {"kind": "testid", "value": '[data-testid="nav-cards"]', "match_count": 1},
+            {"kind": "text", "value": "Credit Cards", "match_count": 1},
+        ],
+        "outcome": {
+            "navigated": True,
+            "to_url": f"{_H}/credit-card",
+            "request_count": 3,
+            "settled_ms": 420,
+            "download": False,
+        },
+    }
+    base.update(over)
+    return base
+
+
+def _ops(pages):
+    return json.loads(render_browser_operations_json(pages, profile_slug="icici-bank"))
+
+
+def test_step_uses_the_unique_candidate_instead_of_visible_text():
+    pages = derive_browser_pages(_RICH_EVENTS, [_rich_click()], login_url=LOGIN)
+    steps = _ops(pages)["operations"][1]["steps"]
+
+    assert steps[0]["command"] == "click_element"
+    assert steps[0]["params"]["selector"] == '[data-testid="nav-cards"]'
+    assert steps[0]["locator"]["confidence"] == "unique"
+
+
+def test_text_steps_are_exact_so_they_cannot_widen_back_into_ambiguity():
+    # The recorder established the text matched ONE control. A substring match
+    # would reintroduce exactly the ambiguity that made HSBCnet misclick.
+    click = _rich_click(
+        candidates=[{"kind": "text", "value": "Statements", "match_count": 1}],
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    steps = _ops(pages)["operations"][1]["steps"]
+
+    assert steps[0]["command"] == "click_by_text"
+    assert steps[0]["params"] == {"text": "Statements", "exact": True}
+
+
+def test_step_carries_the_observed_postcondition():
+    # A linear script cannot tell it has gone wrong; it keeps clicking. The URL
+    # the recorder OBSERVED after this click is checkable in one step.
+    pages = derive_browser_pages(_RICH_EVENTS, [_rich_click()], login_url=LOGIN)
+    step = _ops(pages)["operations"][1]["steps"][0]
+
+    assert step["expect"]["url"] == f"{_H}/credit-card"
+    # A recorded settle is one sample from one network, so it is doubled for
+    # headroom — but never below a second, which is not a wait worth having on a
+    # bank SPA. 420ms doubles to 840 and lands on the floor.
+    assert step["expect"]["settle_ms"] == 1000
+
+
+def test_a_slow_observed_settle_is_doubled_rather_than_floored():
+    click = _rich_click(
+        outcome={
+            "navigated": True,
+            "to_url": f"{_H}/credit-card",
+            "request_count": 2,
+            "settled_ms": 2600,
+            "download": False,
+        }
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    step = _ops(pages)["operations"][1]["steps"][0]
+
+    assert step["expect"]["settle_ms"] == 5200
+
+
+def test_a_click_that_downloaded_records_it_as_the_success_condition():
+    click = _rich_click(
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 1,
+            "settled_ms": None,
+            "download": True,
+        }
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    step = _ops(pages)["operations"][1]["steps"][0]
+
+    assert step["expect"] == {"download": True}
+
+
+def test_an_icon_button_is_compiled_instead_of_dropped():
+    # A click with no visible text used to be discarded outright, which threw away
+    # every icon control — the hamburger and the chevrons that open a bank nav's
+    # accordions, so the page they lead to became unreachable and was dropped.
+    icon = _rich_click(
+        text_content="",
+        candidates=[{"kind": "aria_label", "value": 'button[aria-label="Open menu"]', "match_count": 1}],
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [icon], login_url=LOGIN)
+
+    assert [p["name"] for p in pages] == ["read_overview", "read_credit_card"]
+    step = _ops(pages)["operations"][1]["steps"][0]
+    assert step["params"]["selector"] == 'button[aria-label="Open menu"]'
+
+
+def test_ambiguous_locators_are_surfaced_rather_than_hidden():
+    from noui_core.compile.browser_skill import ambiguous_steps  # noqa: PLC0415
+
+    click = _rich_click(
+        candidates=[{"kind": "text", "value": "Credit Cards", "match_count": 4}],
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    flagged = ambiguous_steps(pages)
+
+    assert len(flagged) == 1
+    assert flagged[0]["page"] == "read_credit_card"
+    assert flagged[0]["locator"]["match_count"] == 4
+
+
+def test_recordings_without_candidates_still_compile_the_old_way():
+    # Every recording made before schema_version 4 has no candidates. Those must
+    # keep compiling exactly as they did, not start failing.
+    legacy = {
+        "event_type": "click",
+        "text_content": "Credit Cards",
+        "selector": "div.submenu-text",
+        "url": f"{_H}/overview",
+        "timestamp": "2026-08-07T10:00:04.900Z",
+    }
+    pages = derive_browser_pages(_RICH_EVENTS, [legacy], login_url=LOGIN)
+    steps = _ops(pages)["operations"][1]["steps"]
+
+    assert steps[0] == {"command": "click_by_text", "params": {"text": "Credit Cards"}}
+    assert steps[-1] == {"command": "get_page_summary"}
+
+
+def test_skill_md_tells_the_agent_to_stop_when_an_expectation_fails():
+    # With an LLM runtime the prose IS the enforcement for `expect` — nothing
+    # else reads it.
+    pages = derive_browser_pages(_RICH_EVENTS, [_rich_click()], login_url=LOGIN)
+    md = render_browser_skill_md(
+        skill_id="icici-bank",
+        app_name="ICICI",
+        workflow_name="Credit card",
+        pages=pages,
+        profile_slug="icici-bank",
+    )
+    assert "stop and report it" in md
+    assert "settle_ms" in md
+    assert "Known ambiguous steps" not in md  # nothing ambiguous in this recording
+
+
+def test_skill_md_names_the_ambiguous_steps():
+    click = _rich_click(candidates=[{"kind": "text", "value": "Credit Cards", "match_count": 4}])
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    md = render_browser_skill_md(
+        skill_id="icici-bank",
+        app_name="ICICI",
+        workflow_name="Credit card",
+        pages=pages,
+        profile_slug="icici-bank",
+    )
+    assert "Known ambiguous steps" in md
+    assert "matched 4 elements" in md
+
+
+def test_skill_md_describes_an_icon_click_without_an_empty_quote():
+    icon = _rich_click(
+        text_content="",
+        candidates=[{"kind": "aria_label", "value": 'button[aria-label="Menu"]', "match_count": 1}],
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [icon], login_url=LOGIN)
+    md = render_browser_skill_md(
+        skill_id="icici-bank",
+        app_name="ICICI",
+        workflow_name="Credit card",
+        pages=pages,
+        profile_slug="icici-bank",
+    )
+    assert 'click ""' not in md
+    assert "aria_label" in md

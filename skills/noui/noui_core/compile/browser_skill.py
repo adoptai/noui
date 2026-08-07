@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+from noui_core.compile.locators import AMBIGUOUS, choose_locator
 from noui_core.compile.login_assets import (
     _LOGIN_FLOW_SEGMENTS,
     _first_path_segment,
@@ -98,6 +99,19 @@ def _parse_ts(ts: str) -> datetime | None:
         return None
 
 
+def _same_target(a: dict, b: dict) -> bool:
+    """Do two recorded clicks address the same control?
+
+    Only consulted for TEXT-LESS clicks, where equal (empty) labels are no
+    evidence at all: a bank nav's hamburger and its chevrons all have empty text,
+    and collapsing them as duplicates would drop steps out of the gesture.
+    """
+    la, lb = a.get("locator"), b.get("locator")
+    if la and lb:
+        return la.get("kind") == lb.get("kind") and la.get("value") == lb.get("value")
+    return bool(a.get("selector")) and a.get("selector") == b.get("selector")
+
+
 def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> list[dict]:
     """The recorded click CHAIN that drove an in-app navigation FROM from_url.
 
@@ -134,7 +148,13 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
         if not cu or _page_key(cu) != from_key:
             continue
         text = (c.get("text_content") or "").strip()
-        if not text:
+        locator = choose_locator(c.get("candidates"))
+        # A click with no visible text used to be discarded outright, which threw
+        # away every icon/SVG control — the hamburger toggle and the chevrons that
+        # open a bank nav's accordions. With recorded candidates such a control is
+        # addressable (test-id, aria-label, role+name), so it is only dropped when
+        # there is no way to address it at all.
+        if not text and locator is None:
             continue
         cdt = _parse_ts(c.get("timestamp") or "")
         cseq = event_seq(c)
@@ -144,7 +164,16 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
                 continue
         elif nav_dt and cdt and cdt > nav_dt:
             continue
-        cands.append({"text": text, "selector": c.get("selector") or "", "dt": cdt, "seq": cseq})
+        cands.append(
+            {
+                "text": text,
+                "selector": c.get("selector") or "",
+                "locator": locator,
+                "outcome": c.get("outcome") if isinstance(c.get("outcome"), dict) else None,
+                "dt": cdt,
+                "seq": cseq,
+            }
+        )
     if not cands:
         return []
 
@@ -173,9 +202,19 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
     # to the trailing N so only the immediate expand→navigate steps are emitted.
     out: list[dict] = []
     for c in chain:
-        if out and out[-1]["text"] == c["text"]:
+        # Collapse consecutive identical labels — but only when they are really
+        # the same control. Two different icon buttons both have empty text, and
+        # merging them would silently drop a step in the gesture.
+        if out and out[-1]["text"] == c["text"] and (c["text"] or _same_target(out[-1], c)):
             continue
-        out.append({"text": c["text"], "selector": c["selector"]})
+        out.append(
+            {
+                "text": c["text"],
+                "selector": c["selector"],
+                "locator": c["locator"],
+                "outcome": c["outcome"],
+            }
+        )
     if len(out) <= _NAV_MAX_CLICKS:
         return out
     # Keep the FIRST click plus the most recent ones. A plain trailing slice drops
@@ -312,14 +351,84 @@ def _resolve_nav_chains(pages: list[dict]) -> list[dict]:
     return resolved
 
 
+def _step_for_click(click: dict) -> dict | None:
+    """One compiled step for one recorded click.
+
+    Prefers the recorded locator CANDIDATE that matched exactly one node, which
+    is the only kind known to identify the control. CSS-expressible candidates
+    become `click_element`; semantic ones (role+name, label, visible text) become
+    `click_by_text`, which is what the runtime can resolve.
+
+    `exact: true` is set on text clicks. The recorder tells us the text matched a
+    single control, so a substring match can only widen that back into the
+    ambiguity we just eliminated — the HSBCnet misclick.
+
+    Falls back to the recorded text when there is no usable candidate, which is
+    what every pre-schema-4 recording will hit.
+    """
+    locator = click.get("locator")
+    text = (click.get("text") or "").strip()
+
+    step: dict | None = None
+    if locator and locator.get("is_css"):
+        step = {"command": "click_element", "params": {"selector": locator["value"]}}
+    elif locator:
+        # role_name candidates carry "role|name"; the runtime matches on the name.
+        value = locator["value"]
+        if locator["kind"] == "role_name" and "|" in value:
+            value = value.split("|", 1)[1]
+        step = {"command": "click_by_text", "params": {"text": value, "exact": True}}
+    elif text:
+        step = {"command": "click_by_text", "params": {"text": text}}
+
+    if step is None:
+        return None
+
+    if locator:
+        # Carried for the human reading the recipe and for a future repair pass:
+        # an AMBIGUOUS step is the one to re-point first when a skill misbehaves.
+        step["locator"] = {
+            "kind": locator["kind"],
+            "confidence": locator["confidence"],
+            "match_count": locator["match_count"],
+        }
+        if text and not locator.get("is_css"):
+            step["locator"]["recorded_text"] = text
+    return step
+
+
+def _expect_for_click(click: dict) -> dict | None:
+    """The postcondition a step should assert, from what the recorder observed.
+
+    A linear script cannot tell that it has gone wrong; it just keeps clicking.
+    An expectation turns that into a stop: "after this click the URL becomes X"
+    is checkable in one step, instead of the failure surfacing five clicks later
+    on the wrong page with confidently wrong data.
+    """
+    outcome = click.get("outcome")
+    if not isinstance(outcome, dict):
+        return None
+    expect: dict = {}
+    if outcome.get("navigated") and outcome.get("to_url"):
+        expect["url"] = outcome["to_url"]
+    if outcome.get("download"):
+        expect["download"] = True
+    settled = outcome.get("settled_ms")
+    if isinstance(settled, int) and settled > 0:
+        # Observed, not guessed. Rounded up to a whole second and given headroom,
+        # because a recorded settle is one sample from one network.
+        expect["settle_ms"] = min(15000, max(1000, settled * 2))
+    return expect or None
+
+
 def _steps_for_page(p: dict) -> list[dict]:
     """Recipe to read a page WITHOUT a reload.
 
     - landing page (nav is None): just get_page_summary — the session already
       lands here after login.
-    - in-app page (nav is a click chain): one click_by_text per click in the
-      gesture (e.g. expand "Cards" → click "Credit Card") — each a client-side
-      route change, no reload — then get_page_summary.
+    - in-app page (nav is a click chain): one click step per click in the gesture
+      (e.g. expand "Cards" → click "Credit Card") — each a client-side route
+      change, no reload — then get_page_summary.
 
     A full-page navigate/goto is deliberately never emitted: it reloads the page,
     and refresh-sensitive portals expire the session on it (the ICICI failure —
@@ -327,10 +436,31 @@ def _steps_for_page(p: dict) -> list[dict]:
     """
     steps: list[dict] = []
     for click in p.get("nav") or []:
-        if click.get("text"):
-            steps.append({"command": "click_by_text", "params": {"text": click["text"]}})
+        step = _step_for_click(click)
+        if step is None:
+            continue
+        expect = _expect_for_click(click)
+        if expect:
+            step["expect"] = expect
+        steps.append(step)
     steps.append({"command": "get_page_summary"})
     return steps
+
+
+def ambiguous_steps(pages: list[dict]) -> list[dict]:
+    """Steps whose locator is known to match more than one node.
+
+    Surfaced rather than hidden: these are exactly the steps that compile
+    cleanly and then misclick, and they are the first thing to re-point when a
+    skill misbehaves.
+    """
+    out: list[dict] = []
+    for p in pages:
+        for click in p.get("nav") or []:
+            loc = click.get("locator")
+            if loc and loc.get("confidence") == AMBIGUOUS:
+                out.append({"page": p["name"], "text": click.get("text") or "", "locator": loc})
+    return out
 
 
 def render_browser_operations_json(pages: list[dict], *, profile_slug: str) -> str:
@@ -375,10 +505,19 @@ def render_browser_skill_md(
         f"`call_web_browser` tool rather than calling APIs directly."
     )
 
+    def _describe(c: dict) -> str:
+        text = (c.get("text") or "").strip()
+        if text:
+            return f'click "{text}"'
+        loc = c.get("locator") or {}
+        # An icon/SVG control has no label to quote; name it by how the step
+        # addresses it, so the line stays readable instead of `click ""`.
+        return f"click the control matching `{loc.get('kind', 'selector')}`"
+
     def _page_line(p: dict) -> str:
         nav = p.get("nav")
         if nav:
-            clicks = " then ".join(f'click "{c["text"]}"' for c in nav if c.get("text"))
+            clicks = " then ".join(_describe(c) for c in nav)
             how = clicks or "the page you land on after login"
         else:
             how = "the page you land on after login"
@@ -388,6 +527,26 @@ def render_browser_skill_md(
         "\n".join(_page_line(p) for p in pages)
         or "- (no data pages were captured; re-record reaching the target screen)"
     )
+
+    # Name the ambiguous steps outright. A compile that quietly ships a locator
+    # known to match several elements is the exact failure this redesign exists
+    # to remove; the human re-recording is the one who can fix it.
+    flagged = ambiguous_steps(pages)
+    if flagged:
+        lines = "\n".join(
+            f"- `{f['page']}` — {f['locator']['kind']} "
+            f"matched {f['locator']['match_count']} elements"
+            + (f' (text: "{f["text"]}")' if f["text"] else "")
+            for f in flagged
+        )
+        ambiguity_note = (
+            "\n\n### Known ambiguous steps in this skill\n\n"
+            f"{lines}\n\n"
+            "These were recorded against a page where the control could not be "
+            "pinned down uniquely. Re-record those steps if this skill misbehaves."
+        )
+    else:
+        ambiguity_note = ""
 
     frontmatter = (
         "---\n"
@@ -426,11 +585,31 @@ full-page navigate. This app expires the session on a page reload, so a
 click is a client-side route change that preserves the session.
 
 For each readable page below:
-1. If it lists a click, `call_web_browser` with `command: "click_by_text"`,
-   `params: {{ "text": "<the menu item>" }}` to route there in-app.
+1. If it lists a click, run the step exactly as `operations.json` gives it —
+   `click_element` with the recorded selector where there is one, otherwise
+   `click_by_text`. Do not substitute your own selector or text: the recorded
+   one was verified to match a single control at record time.
 2. `call_web_browser` with `command: "get_page_summary"` — returns the page's
    headings, links, buttons and inputs (the rendered account/card/transaction
    values live in `headings`).
+
+## Checking each step
+
+Steps in `operations.json` may carry an `expect` block describing what was
+OBSERVED when this flow was recorded:
+
+- `url` — the page you should be on after the click. If you are somewhere else,
+  **stop and report it**. Do not keep clicking: the remaining steps were recorded
+  for a different page, and continuing produces confidently wrong data.
+- `settle_ms` — how long the recorded page took to finish loading, with headroom.
+  Give it that long before reading rather than reading immediately.
+- `download` — this step produced a file. That is the operation's success
+  condition; if no download starts, the step did not work.
+
+A step may also carry a `locator` block. When its `confidence` is `ambiguous`,
+the recorded way of addressing that control matched several elements on the page,
+so it may well click the wrong one — treat a surprising result there as the
+likely cause, and report it rather than working around it.{ambiguity_note}
 
 The landing page needs no click — just read it. If a value you need is not in the
 summary, `command: "click_by_text"` on the relevant control (e.g. a "view all"
