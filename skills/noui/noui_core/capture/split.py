@@ -27,6 +27,7 @@ click_events, url_events, cookies?}`).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from noui_core.compile.login_assets import _is_redirect_hop
@@ -34,6 +35,34 @@ from noui_core.event_order import event_seq, merged_order
 
 # Field roles that mark a credential-entry interaction (login-only signal).
 CREDENTIAL_FIELD_ROLES = frozenset({"username", "password", "otp", "unknown_sensitive"})
+
+# An event's position on whichever axis the bundle supports: its `seq` ordinal
+# (int) when numbered, else its `timestamp` (ISO-8601 UTC str, lexicographically
+# comparable). Deliberately heterogeneous — hence `Any`: the two are never mixed
+# within one split, so values are only ever compared against their own kind.
+_PositionKey = Callable[[dict[str, Any]], Any]
+
+
+def _position_key(by_seq: bool) -> _PositionKey:
+    """The axis to place events on: ordinals when numbered, else wall clock."""
+    if by_seq:
+        return event_seq
+    return lambda e: e.get("timestamp")
+
+
+def _placed(events: list[dict[str, Any]], key: _PositionKey) -> list[tuple[Any, dict[str, Any]]]:
+    """(position, event) for each event that can be placed on the axis.
+
+    Events with no position are dropped — the caller decides which slice those
+    belong to (see `_keep`). Positions are computed once here rather than
+    recomputed per comparison.
+    """
+    out: list[tuple[Any, dict[str, Any]]] = []
+    for ev in events:
+        pos = key(ev)
+        if pos is not None:
+            out.append((pos, ev))
+    return out
 
 
 def _boundary_event(bundle: dict[str, Any]) -> dict[str, Any] | None:
@@ -58,24 +87,21 @@ def _boundary_event(bundle: dict[str, Any]) -> dict[str, Any] | None:
     clicks = [c for c in (bundle.get("click_events") or []) if isinstance(c, dict)]
     url_events = [u for u in (bundle.get("url_events") or []) if isinstance(u, dict)]
     by_seq = merged_order(clicks, url_events)
-    key = event_seq if by_seq else (lambda e: e.get("timestamp"))
+    key = _position_key(by_seq)
 
-    creds = [
-        c for c in clicks if c.get("field_role") in CREDENTIAL_FIELD_ROLES and key(c) is not None
-    ]
+    creds = _placed([c for c in clicks if c.get("field_role") in CREDENTIAL_FIELD_ROLES], key)
     if not creds:
         return None
-    last_cred = max(creds, key=key)
+    last_cred_pos, last_cred = max(creds, key=lambda placed: placed[0])
 
     navs = [
-        u
-        for u in url_events
+        (pos, u)
+        for pos, u in _placed(url_events, key)
         if u.get("to_url")
-        and key(u) is not None
-        and key(u) > key(last_cred)
+        and pos > last_cred_pos
         and not _is_redirect_hop(u.get("from_url", "") or "", u.get("to_url", ""))
     ]
-    boundary = min(navs, key=key) if navs else last_cred
+    boundary = min(navs, key=lambda placed: placed[0])[1] if navs else last_cred
     return {
         "seq": event_seq(boundary) if by_seq else None,
         "timestamp": boundary.get("timestamp") or None,
@@ -135,10 +161,9 @@ def _slice(bundle: dict[str, Any], boundary: dict[str, Any], side: str) -> dict[
     # Ordinals when the boundary was resolved on them, wall clock otherwise. The
     # two must not be mixed: cutting events on seq against a timestamp boundary
     # (or vice versa) compares unrelated scales and drops the whole slice.
-    if boundary["seq"] is not None:
-        key, cut = event_seq, boundary["seq"]
-    else:
-        key, cut = (lambda e: e.get("timestamp")), boundary["timestamp"]
+    by_seq = boundary["seq"] is not None
+    key: _PositionKey = _position_key(by_seq)
+    cut = boundary["seq"] if by_seq else boundary["timestamp"]
 
     passthrough = {
         k: v for k, v in bundle.items() if k not in ("click_events", "url_events", "har", "cookies")
