@@ -579,7 +579,11 @@ def test_unnumbered_bundle_still_uses_timestamps():
 # visible text alone.
 
 _RICH_EVENTS = [
-    {"from_url": f"{_H}/login-page", "to_url": f"{_H}/overview", "timestamp": "2026-08-07T10:00:00Z"},
+    {
+        "from_url": f"{_H}/login-page",
+        "to_url": f"{_H}/overview",
+        "timestamp": "2026-08-07T10:00:00Z",
+    },
     {
         "from_url": f"{_H}/overview",
         "to_url": f"{_H}/credit-card",
@@ -689,7 +693,9 @@ def test_an_icon_button_is_compiled_instead_of_dropped():
     # accordions, so the page they lead to became unreachable and was dropped.
     icon = _rich_click(
         text_content="",
-        candidates=[{"kind": "aria_label", "value": 'button[aria-label="Open menu"]', "match_count": 1}],
+        candidates=[
+            {"kind": "aria_label", "value": 'button[aria-label="Open menu"]', "match_count": 1}
+        ],
     )
     pages = derive_browser_pages(_RICH_EVENTS, [icon], login_url=LOGIN)
 

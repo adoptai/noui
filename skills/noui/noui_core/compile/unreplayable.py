@@ -119,9 +119,7 @@ def detect_unreplayable(har: dict | None, *, app_origin: str = "") -> dict:
         else:
             # A metadata-reduced HAR (Tabby workflow bundles) carries the body's
             # shape instead of its bytes. Same test, same verdict.
-            is_envelope = _is_envelope_shape(
-                post.get("keys") or [], bool(post.get("long_values"))
-            )
+            is_envelope = _is_envelope_shape(post.get("keys") or [], bool(post.get("long_values")))
         if is_envelope:
             envelope_posts += 1
 
