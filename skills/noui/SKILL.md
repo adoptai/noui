@@ -158,6 +158,86 @@ Full playbook: `references/generalize.md`.
 
 ---
 
+## Browser-driven skills: what the recording gives you, and what not to hand-write
+
+Some apps cannot be replayed — they encrypt request bodies in page JavaScript or
+mint per-session headers, so a recorded request is dead the moment the recording
+ends (ICICI is the canonical case: 40 replayed operations that all 403). Those
+compile **browser-driven**: the skill drives the live page and reads what it
+renders. `detect_unreplayable` decides this automatically; `--browser-driven`
+forces it, `--no-auto-browser` disables the detection.
+
+### Declare it at capture time when you already know
+
+Pass `browser_driven=True` when provisioning the recording (or `--browser-driven`
+to `capture_record.py`) **only when the kind is already known** — the user asked
+for a browser skill, or replay is known to fail on this app. It tells Tabby to
+reduce the workflow HAR to metadata, which keeps a bank's balances, account
+numbers and live tokens out of the bundle.
+
+Leave it off for anything unknown. It is the skill KIND, not the capture phase: a
+workflow recording of an ordinary REST app compiles by replay and needs the full
+HAR. Record full, let `detect_unreplayable` decide, re-record with the flag if
+you want the reduction.
+
+### What a workflow recording now carries
+
+Bundles from Tabby `schema_version >= 5` capture far more than a click list:
+
+- **`candidates`** on each interaction — several ways to address the element
+  (test-id, id, name, aria-label, role+name, label, text, css path), each with
+  `match_count`: how many nodes it matched **at record time**. A candidate that
+  matched more than one node cannot identify that element, and the compiler will
+  not silently prefer it.
+- **`element`** — role, accessible name, visibility, and whether something was
+  painted over it (the overlay that swallows a click).
+- **`outcome`** — what the interaction caused: navigation and where to, requests
+  fired, when they settled, whether a download started.
+- **`download_events`** and popup/new-tab capture, with `page_id` per document.
+
+### What the compiler emits from it
+
+- **read** operations — one per data page, reached by replaying the recorded
+  click chain (never a `navigate`; see below).
+- **download** and **submit** operations — goals that finish *without* landing on
+  a new page. A download closes with `list_downloads`, because the file is the
+  result.
+- **parameters** — values the human typed become arguments, with the recorded
+  value as the default. Steps carry `{{placeholders}}`.
+- **expectations** — the URL a step should reach, whether a file should arrive,
+  how long traffic took to settle.
+
+### Do not hand-write what the compiler can emit
+
+If the download operation you expect is missing, that means **the recording did
+not capture the evidence** — not that you should write the operation yourself. A
+hand-written operation has no verified selector, no expectation and no parameter,
+so it is exactly the thing that fails in production while looking fine at build
+time. Re-record the flow so the click that produces the file is captured, then
+recompile.
+
+The same goes for selectors: never substitute your own for a recorded one. The
+recorded one was verified to match a single element on the live page; yours was
+not.
+
+### Check these before installing
+
+1. **Ambiguous steps.** SKILL.md lists any whose locator matched several
+   elements. Those misclick. Re-record them rather than shipping them.
+2. **Missing parameters.** If the user will ask for "last year" and the operation
+   has no parameter, the recording did not include a field the value came from —
+   check whether the app uses a date picker (clicks, not a typed value), which
+   cannot be parameterised from the recording alone.
+3. **Dropped pages.** A page whose click chain could not be recovered is dropped
+   deliberately, because an operation that claims to read one page and reads
+   another is worse than a missing one. Re-record the hop.
+4. **`block_navigate`.** For portals that die on a reload (ICICI, HSBCnet), set
+   `browser_policy.block_navigate` on the App Template. `navigate` is a full page
+   load; on those apps it destroys the session mid-task. With the flag set Tabby
+   refuses the command and tells the agent to click instead.
+
+---
+
 ## Script reference
 
 | Script | Pillar | Purpose |
@@ -199,7 +279,7 @@ capture's content. It prints which source won.
 
 ## Capture bundles are always saved (keep them)
 
-Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the raw bundle** — `{har, click_events, url_events}` — to `workbench/bundles/<name>.json`. **Do not discard it.** The bundle, not the compiled asset, is the source of truth for *generalizing* and *regenerating* the asset later: renaming tools, parameterizing request bodies (e.g. recovering a GraphQL query body), dropping telemetry/ad calls, or fixing anti-bot issues. A compiled MCP/Skill cannot be re-generalized; its bundle can — recompile with `compile_workflow.py <bundle.json>`. Recording bundles also expire server-side (Tabby TTL), so the local copy is the only durable one.
+Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the raw bundle** — `{har, click_events, url_events, download_events}` — to `workbench/bundles/<name>.json`. **Do not discard it.** The bundle, not the compiled asset, is the source of truth for *generalizing* and *regenerating* the asset later: renaming tools, parameterizing request bodies (e.g. recovering a GraphQL query body), dropping telemetry/ad calls, or fixing anti-bot issues. A compiled MCP/Skill cannot be re-generalized; its bundle can — recompile with `compile_workflow.py <bundle.json>`. Recording bundles also expire server-side (Tabby TTL), so the local copy is the only durable one.
 
 ---
 
