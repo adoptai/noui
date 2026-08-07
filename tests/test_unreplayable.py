@@ -198,3 +198,72 @@ def test_no_auto_browser_override_forces_replay(tmp_path):
     # detector never ran; the replay path was used
     assert res.get("browser_detection") is None
     assert res["skill"]["runtime"]["operation_style"] != "browser"
+
+
+# --- metadata-reduced HARs (Tabby workflow bundles, schema_version >= 5) -------
+#
+# Tabby strips bodies/headers/query strings from workflow HARs: a browser skill
+# never replays a request, and a bank portal's payloads have no business sitting
+# in a bundle in S3. It keeps the body's SHAPE — top-level field names plus a flag
+# for whether any value was a long string — precisely so the browser-vs-replay
+# decision stays automatic. Without these, every reduced recording would look
+# replayable and ICICI would compile back into 40 operations that all 403.
+
+_APP = "https://retailnetbanking.icici.bank.in"
+
+
+def _reduced_entry(url, method="POST", keys=None, long_values=False):
+    return {
+        "startedDateTime": "2026-08-07T10:00:00Z",
+        "time": 100,
+        "request": {
+            "method": method,
+            "url": url,
+            "headers": [],
+            "queryString": [],
+            "postData": (
+                {"mimeType": "application/json", "keys": keys, "long_values": long_values}
+                if keys is not None
+                else {"mimeType": ""}
+            ),
+        },
+        "response": {"status": 200, "content": {"mimeType": "application/json", "text": ""}},
+    }
+
+
+def _reduced_har(entries):
+    return {"log": {"version": "1.2", "creator": {}, "entries": entries}}
+
+
+def test_detects_unreplayable_from_a_metadata_reduced_har():
+    har = _reduced_har(
+        [_reduced_entry(f"{_APP}/api/getKeys", method="GET")]
+        + [
+            _reduced_entry(f"{_APP}/api/op{i}", keys=["data", "key"], long_values=True)
+            for i in range(4)
+        ]
+    )
+    assert detect_unreplayable(har, app_origin=_APP)["unreplayable"] is True
+
+
+def test_a_reduced_har_of_a_normal_api_stays_replayable():
+    # Domain field names are not an envelope, so replay remains the right compile.
+    har = _reduced_har(
+        [
+            _reduced_entry(f"{_APP}/api/op{i}", keys=["accountId", "fromDate"], long_values=True)
+            for i in range(5)
+        ]
+    )
+    assert detect_unreplayable(har, app_origin=_APP)["unreplayable"] is False
+
+
+def test_envelope_names_without_ciphertext_length_are_not_an_envelope():
+    # Mirrors the text-based guard against a trivially-empty {"data": ""}.
+    har = _reduced_har(
+        [_reduced_entry(f"{_APP}/api/getKeys", method="GET")]
+        + [
+            _reduced_entry(f"{_APP}/api/op{i}", keys=["data", "key"], long_values=False)
+            for i in range(4)
+        ]
+    )
+    assert detect_unreplayable(har, app_origin=_APP)["unreplayable"] is False

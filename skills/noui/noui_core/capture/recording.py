@@ -16,7 +16,7 @@ import urllib.parse
 
 from noui_core import tabby_client
 from noui_core.capture.bundle import count_sensitive_unredacted, validate_bundle
-from noui_core.capture.classify import classify_bundle
+from noui_core.capture.classify import COMBINED, WORKFLOW, classify_bundle
 from noui_core.config import settings
 
 _MISSING_CREDS = (
@@ -234,4 +234,40 @@ def fetch_bundle(session_id: str) -> tuple[str, dict]:
         raise RuntimeError(
             f"Refusing to import: {leaks} password/OTP value(s) were not redacted in the bundle."
         )
-    return classify_bundle(bundle), bundle
+    classification = classify_bundle(bundle)
+    warn_if_capture_was_downgraded(bundle, classification)
+    return classification, bundle
+
+
+def warn_if_capture_was_downgraded(bundle: dict, classification: str) -> None:
+    """Warn when a workflow capture came back with login-shaped capture.
+
+    Tabby gates its workflow-only capture on the pod's recording mode: locator
+    candidates with match counts, element state, interaction outcomes, downloads
+    and popup attachment. A pooled spare boots as a login recording and adopts
+    its real mode at bind — if that ever regresses, the recording still succeeds
+    and still compiles, just from far poorer evidence, and the resulting skill
+    misbehaves in ways that look like a bad recording rather than a bug.
+
+    Checked from CONTENT, not from the mode stamp: the classifier already decided
+    the human kept driving after signing in, so a bundle that then carries no
+    workflow-shaped capture is the signature of that regression.
+
+    A warning, never an error. A poor bundle is still worth compiling, and this
+    also fires harmlessly for bundles recorded before the rich capture existed.
+    """
+    if classification not in (WORKFLOW, COMBINED):
+        return
+    version = bundle.get("schema_version")
+    if not isinstance(version, int) or version < 4:
+        return  # recorded before rich capture existed — nothing to expect
+    if "download_events" in bundle:
+        return  # workflow-shaped: the pod knew what it was
+    print(
+        "WARNING: this looks like a workflow capture, but the bundle carries no "
+        "workflow-only capture (no download_events). The recording pod most likely "
+        "ran in 'login' mode, so locator candidates, element state and interaction "
+        "outcomes were never recorded. The skill will still compile, from weaker "
+        "evidence. Check that the recording session was provisioned with "
+        "recording_mode=workflow and that Tabby applied it at bind."
+    )

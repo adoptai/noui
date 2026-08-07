@@ -268,3 +268,40 @@ class TestValidateBundleIsShapeOnly:
     def test_non_dict_rejected(self):
         with pytest.raises(ValueError, match="JSON object"):
             validate_bundle([])  # type: ignore[arg-type]
+
+
+# --- capture-downgrade warning -----------------------------------------------
+#
+# Tabby gates its workflow-only capture (locator candidates, element state,
+# interaction outcomes, downloads, popups) on the pod's recording mode. A pooled
+# spare boots as a login recording and adopts its real mode at bind. If that
+# regresses the recording still succeeds and still compiles — just from far
+# poorer evidence — and the skill misbehaves in a way that looks like a bad
+# recording rather than a bug. This makes it say so.
+
+from noui_core.capture.recording import warn_if_capture_was_downgraded  # noqa: E402
+
+
+def test_warns_when_a_workflow_capture_has_no_workflow_shaped_capture(capsys):
+    bundle = {"schema_version": 5, "har": {"log": {"entries": []}}}
+    warn_if_capture_was_downgraded(bundle, "workflow")
+    assert "recording_mode=workflow" in capsys.readouterr().out
+
+
+def test_silent_when_the_pod_knew_it_was_a_workflow_recording(capsys):
+    bundle = {"schema_version": 5, "download_events": [], "har": {"log": {"entries": []}}}
+    warn_if_capture_was_downgraded(bundle, "workflow")
+    assert capsys.readouterr().out == ""
+
+
+def test_silent_for_a_login_capture(capsys):
+    bundle = {"schema_version": 5, "har": {"log": {"entries": []}}}
+    warn_if_capture_was_downgraded(bundle, "login")
+    assert capsys.readouterr().out == ""
+
+
+def test_silent_for_recordings_made_before_rich_capture_existed(capsys):
+    # Nothing to expect from them, so warning would be pure noise.
+    warn_if_capture_was_downgraded({"schema_version": 2}, "workflow")
+    warn_if_capture_was_downgraded({}, "workflow")
+    assert capsys.readouterr().out == ""
