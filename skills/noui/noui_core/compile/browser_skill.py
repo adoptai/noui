@@ -33,6 +33,7 @@ from noui_core.compile.login_assets import (
     _first_path_segment,
     _url_origin,
 )
+from noui_core.compile.parameters import derive_parameters, fill_steps
 from noui_core.event_order import event_seq, order_events
 
 
@@ -492,6 +493,7 @@ def render_browser_operations_json(
                 "tool": "call_web_browser",
                 "profile_slug": profile_slug,
                 "kind": op["kind"],
+                "parameters": op.get("parameters") or [],
                 "steps": _steps_for_terminal(op),
             }
         )
@@ -551,15 +553,36 @@ def render_browser_skill_md(
     # file, a submitted form. Named explicitly so the agent asks for them by name
     # instead of trying to reconstruct the click path from the read pages.
     if terminal_ops:
-        lines = "\n".join(
-            f"- **{op['name']}** — {_terminal_description(op)}" for op in terminal_ops
-        )
+
+        def _op_line(op: dict) -> str:
+            head = f"- **{op['name']}** — {_terminal_description(op)}"
+            params = op.get("parameters") or []
+            if not params:
+                return head
+            bits = []
+            for prm in params:
+                shown = f'`{prm["name"]}` ({prm["type"]}, recorded as "{prm["default"]}")'
+                if not prm.get("settable"):
+                    # Honest about the gap: no browser command can set a native
+                    # <select>, so the agent has to open it and pick, and being
+                    # told that beats a step that silently does nothing.
+                    shown += " — a dropdown; open it and choose, no step is emitted"
+                bits.append(shown)
+            return head + "\n  - accepts: " + "; ".join(bits)
+
+        lines = "\n".join(_op_line(op) for op in terminal_ops)
         terminal_section = (
             "## Operations that produce a result\n\n"
             "These finish with an artifact or a submission rather than a page to "
             "read. Run the steps exactly as `operations.json` gives them; for a "
             "download the file itself is the result, reported by the closing "
             "`list_downloads` step.\n\n"
+            "Where an operation lists parameters, its steps carry "
+            "`{{placeholders}}` — substitute the value the user asked for before "
+            "running the step. Pass nothing and the recorded value is used, "
+            "which reproduces the run the skill was built from rather than what "
+            "was asked for, so always check whether the request names a period, "
+            "an account or a search term.\n\n"
             f"{lines}\n\n"
         )
     else:
@@ -892,6 +915,20 @@ def derive_terminal_operations(
         if expect:
             step["expect"] = expect
 
+        # The values the human entered on this page BEFORE acting are what the
+        # operation should accept as arguments — a statement period, an account,
+        # a search term. Bounded to the same page and to interactions preceding
+        # the terminal one, so a later screen's fields never leak in.
+        term_seq = event_seq(ev)
+        page_inputs = [
+            c
+            for c in click_events or []
+            if (c.get("event_type") or "") in ("input", "change")
+            and _page_key(c.get("url") or "") == _page_key(url)
+            and (term_seq is None or (event_seq(c) or 0) < term_seq)
+        ]
+        parameters = derive_parameters(page_inputs)
+
         name = _op_name(kind, ev, _slug_from_path(url))
         if name in seen:
             continue
@@ -904,6 +941,7 @@ def derive_terminal_operations(
                 "url": url,
                 # Reach the page exactly the way the read operation for it does.
                 "nav": list(page.get("nav") or []),
+                "parameters": parameters,
                 "terminal": step,
             }
         )
@@ -921,6 +959,9 @@ def _steps_for_terminal(op: dict) -> list[dict]:
         if expect:
             step["expect"] = expect
         steps.append(step)
+    # Values the caller can override. Templated on the parameter name, so the
+    # operation does exactly what was recorded when nothing is passed.
+    steps.extend(fill_steps(op.get("parameters") or []))
     steps.append(op["terminal"])
     if op.get("kind") == "download":
         # The artifact IS the result, so the operation ends by naming it rather

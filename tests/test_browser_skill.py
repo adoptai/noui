@@ -933,3 +933,93 @@ def test_skill_md_names_the_operations_that_produce_a_result():
 
     assert "Operations that produce a result" in md
     assert "download_statement" in md
+
+
+def test_a_download_operation_accepts_the_period_the_human_typed():
+    # THE ICICI failure: asked for "last year", the operation had nothing to
+    # vary, so the agent hunted the page for a period selector instead.
+    period = {
+        "event_type": "input",
+        "tag_name": "INPUT",
+        "input_type": "text",
+        "field_name": "fromDate",
+        "value": "2026-01-01",
+        "url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:10.000Z",
+        "event_time": "2026-08-07T10:00:10.000Z",
+        "seq": 5,
+        "candidates": [{"kind": "id", "value": "#from-date", "match_count": 1}],
+    }
+    clicks = [_rich_click(), period, _terminal_click(seq=9)]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    assert dl["parameters"][0]["name"] == "from_date"
+    assert dl["parameters"][0]["default"] == "2026-01-01"
+    # The fill lands between reaching the page and the download click.
+    fills = [s for s in dl["steps"] if s["command"] == "type_text"]
+    assert fills[0]["params"]["text"] == "{{from_date}}"
+    assert dl["steps"].index(fills[0]) < dl["steps"].index(dl["steps"][-2])
+
+
+def test_inputs_from_another_page_do_not_leak_into_an_operation():
+    other = {
+        "event_type": "input",
+        "tag_name": "INPUT",
+        "field_name": "search",
+        "value": "groceries",
+        "url": f"{_H}/overview",
+        "seq": 4,
+        "timestamp": "2026-08-07T10:00:09.000Z",
+    }
+    clicks = [_rich_click(), other, _terminal_click(seq=9)]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    assert dl["parameters"] == []
+
+
+def test_values_entered_after_the_action_are_not_parameters_of_it():
+    late = {
+        "event_type": "input",
+        "tag_name": "INPUT",
+        "field_name": "feedback",
+        "value": "great",
+        "url": f"{_H}/credit-card",
+        "seq": 20,
+        "timestamp": "2026-08-07T10:00:40.000Z",
+    }
+    clicks = [_rich_click(), _terminal_click(seq=9), late]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    assert dl["parameters"] == []
+
+
+def test_skill_md_tells_the_agent_what_it_can_vary():
+    period = {
+        "event_type": "input",
+        "tag_name": "INPUT",
+        "field_name": "fromDate",
+        "value": "2026-01-01",
+        "url": f"{_H}/credit-card",
+        "seq": 5,
+        "timestamp": "2026-08-07T10:00:10.000Z",
+        "candidates": [{"kind": "id", "value": "#from-date", "match_count": 1}],
+    }
+    clicks = [_rich_click(), period, _terminal_click(seq=9)]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    from noui_core.compile.browser_skill import derive_terminal_operations  # noqa: PLC0415
+
+    md = render_browser_skill_md(
+        skill_id="icici-cc-statement",
+        app_name="ICICI",
+        workflow_name="Credit card statement",
+        pages=pages,
+        profile_slug="icici-cc-statement",
+        terminal_ops=derive_terminal_operations(pages, clicks, login_url=LOGIN),
+    )
+
+    assert "accepts:" in md
+    assert "from_date" in md
+    assert "{{placeholders}}" in md
