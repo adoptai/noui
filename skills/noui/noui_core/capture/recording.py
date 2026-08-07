@@ -20,10 +20,17 @@ from noui_core.capture.classify import classify_bundle
 from noui_core.config import settings
 
 _MISSING_CREDS = (
-    "No Tabby credentials found. Set either ADOPT_API_URL + ADOPT_CLIENT_ID + "
-    "ADOPT_CLIENT_SECRET (platform_jwt — a platform PAT, exchanged for a Tabby bearer "
-    "carrying your real role) or TABBY_CLIENT_ID + TABBY_CLIENT_SECRET (agent_token). "
-    "Either may live in the env or a .env file."
+    "No complete set of Tabby credentials found — a partially-set pair does not count. "
+    "Set either ADOPT_API_URL + ADOPT_CLIENT_ID + ADOPT_CLIENT_SECRET (platform_jwt — a "
+    "platform PAT, exchanged for a Tabby bearer carrying your real role) or both "
+    "TABBY_CLIENT_ID and TABBY_CLIENT_SECRET (agent_token). Either may live in the env "
+    "or a .env file."
+)
+
+_UNKNOWN_MODE = (
+    "Unknown NOUI_TABBY_AUTH_MODE {mode!r} — expected 'broker', 'platform_jwt', or "
+    "'agent_token'. Refusing to guess: a misspelled mode must not silently resolve a "
+    "different identity."
 )
 
 _MISSING_PLATFORM_CREDS = (
@@ -74,8 +81,8 @@ def resolve_agent_token() -> str:
          agent token, for local/self-host setups with no platform integration.
 
     An explicitly set ``NOUI_TABBY_AUTH_MODE`` is honoured and fails loudly when
-    its own credentials are missing, rather than silently falling through to a
-    different identity.
+    its own credentials are missing — and an unrecognised mode is rejected outright
+    — rather than silently falling through to a different identity.
     """
     if settings.broker_mode():
         if not settings.broker_token:
@@ -83,6 +90,12 @@ def resolve_agent_token() -> str:
         return settings.broker_token
 
     mode = settings.tabby_auth_mode
+    if mode and mode not in ("platform_jwt", "agent_token"):
+        # ``broker`` never reaches here (handled above). Anything else is a typo or a
+        # mode this resolver does not implement — raising beats falling through to a
+        # different identity, and matches activate.execute_adapter's behaviour.
+        raise RuntimeError(_UNKNOWN_MODE.format(mode=mode))
+
     adopt_api_url, adopt_client_id, adopt_client_secret = _platform_creds()
     client_id, client_secret = _agent_creds()
 

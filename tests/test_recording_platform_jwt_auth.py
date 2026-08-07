@@ -98,6 +98,28 @@ class TestAgentTokenUnaffected:
             recording.resolve_agent_token()
         assert "ADOPT_CLIENT_ID" in str(exc.value) and "TABBY_CLIENT_ID" in str(exc.value)
 
+    def test_half_a_pair_is_not_credentials(self, clean_env, monkeypatch):
+        """Only one of the pair set — the error must not claim nothing was found."""
+        _set(monkeypatch, {"TABBY_CLIENT_ID": "cid"})
+        with pytest.raises(RuntimeError, match="partially-set pair"):
+            recording.resolve_agent_token()
+
+
+class TestUnknownModeRejected:
+    @pytest.mark.parametrize("bad", ["platfrom_jwt", "agenttoken", "jwt", "none"])
+    def test_unrecognised_mode_raises_instead_of_falling_through(self, clean_env, monkeypatch, bad):
+        """A typo'd mode must never silently resolve a different identity."""
+        monkeypatch.setattr(settings, "tabby_auth_mode", bad)
+        _set(monkeypatch, PLATFORM_ENV)
+        with (
+            patch.object(tabby_client, "get_platform_tabby_token") as ex,
+            patch.object(tabby_client, "get_agent_token") as mint,
+        ):
+            with pytest.raises(RuntimeError, match="Unknown NOUI_TABBY_AUTH_MODE"):
+                recording.resolve_agent_token()
+            ex.assert_not_called()
+            mint.assert_not_called()
+
 
 class TestBrokerStillWins:
     def test_broker_mode_ignores_platform_creds(self, clean_env, monkeypatch):
