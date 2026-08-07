@@ -20,8 +20,20 @@ from noui_core.capture.classify import classify_bundle
 from noui_core.config import settings
 
 _MISSING_CREDS = (
-    "TABBY_CLIENT_ID and TABBY_CLIENT_SECRET must be set (or present in the env / .env) "
-    "to authenticate against Tabby. Run your Tabby setup first."
+    "No Tabby credentials found. Set either ADOPT_API_URL + ADOPT_CLIENT_ID + "
+    "ADOPT_CLIENT_SECRET (platform_jwt — a platform PAT, exchanged for a Tabby bearer "
+    "carrying your real role) or TABBY_CLIENT_ID + TABBY_CLIENT_SECRET (agent_token). "
+    "Either may live in the env or a .env file."
+)
+
+_MISSING_PLATFORM_CREDS = (
+    "NOUI_TABBY_AUTH_MODE=platform_jwt but ADOPT_API_URL / ADOPT_CLIENT_ID / "
+    "ADOPT_CLIENT_SECRET are not all set — platform_jwt exchanges those for a Tabby bearer."
+)
+
+_MISSING_AGENT_CREDS = (
+    "NOUI_TABBY_AUTH_MODE=agent_token but TABBY_CLIENT_ID / TABBY_CLIENT_SECRET are not "
+    "both set. Run your Tabby setup first, or use platform_jwt with ADOPT_* credentials."
 )
 
 _MISSING_BROKER_TOKEN = (
@@ -30,19 +42,67 @@ _MISSING_BROKER_TOKEN = (
 )
 
 
+def _platform_creds() -> tuple[str, str, str]:
+    return (
+        os.environ.get("ADOPT_API_URL", "").rstrip("/"),
+        os.environ.get("ADOPT_CLIENT_ID", ""),
+        os.environ.get("ADOPT_CLIENT_SECRET", ""),
+    )
+
+
+def _agent_creds() -> tuple[str, str]:
+    return os.environ.get("TABBY_CLIENT_ID", ""), os.environ.get("TABBY_CLIENT_SECRET", "")
+
+
 def resolve_agent_token() -> str:
     """Resolve the bearer NoUI sends to ``settings.tabby_api_host``.
 
-    In ``broker`` mode this is the opaque per-conversation capability token (the
-    broker swaps it for the real per-user Tabby bearer); no Tabby client creds are
-    needed or present in the sandbox. Otherwise it is a minted Tabby agent token.
+    Same preference order as ``activate.register.resolve_admin_token`` — recording
+    previously accepted only broker and agent_token, so a runtime holding the
+    platform credentials NoUI already uses everywhere else could list app templates
+    but could not provision the recording session it needs to create one:
+
+      1. ``broker`` — the opaque per-conversation capability the harness injects;
+         the broker swaps it for the user's federated bearer, so no Tabby
+         credential is present in the sandbox at all.
+      2. ``platform_jwt`` (ADOPT_API_URL + ADOPT_CLIENT_ID + ADOPT_CLIENT_SECRET) —
+         exchanged for a Tabby JWT carrying the caller's real IdP-resolved role.
+         Preferred over agent_token when the mode is not pinned, because it reuses
+         the credentials NoUI already needs rather than a second, separately
+         managed pair.
+      3. ``agent_token`` (TABBY_CLIENT_ID + TABBY_CLIENT_SECRET) — a minted Tabby
+         agent token, for local/self-host setups with no platform integration.
+
+    An explicitly set ``NOUI_TABBY_AUTH_MODE`` is honoured and fails loudly when
+    its own credentials are missing, rather than silently falling through to a
+    different identity.
     """
     if settings.broker_mode():
         if not settings.broker_token:
             raise RuntimeError(_MISSING_BROKER_TOKEN)
         return settings.broker_token
-    client_id = os.environ.get("TABBY_CLIENT_ID", "")
-    client_secret = os.environ.get("TABBY_CLIENT_SECRET", "")
+
+    mode = settings.tabby_auth_mode
+    adopt_api_url, adopt_client_id, adopt_client_secret = _platform_creds()
+    client_id, client_secret = _agent_creds()
+
+    if mode == "platform_jwt":
+        if not (adopt_api_url and adopt_client_id and adopt_client_secret):
+            raise RuntimeError(_MISSING_PLATFORM_CREDS)
+        return tabby_client.get_platform_tabby_token(
+            adopt_api_url, adopt_client_id, adopt_client_secret
+        )
+
+    if mode == "agent_token":
+        if not (client_id and client_secret):
+            raise RuntimeError(_MISSING_AGENT_CREDS)
+        return tabby_client.get_agent_token(client_id, client_secret)
+
+    # Mode unpinned: prefer the platform credentials, matching resolve_admin_token.
+    if adopt_api_url and adopt_client_id and adopt_client_secret:
+        return tabby_client.get_platform_tabby_token(
+            adopt_api_url, adopt_client_id, adopt_client_secret
+        )
     if not (client_id and client_secret):
         raise RuntimeError(_MISSING_CREDS)
     return tabby_client.get_agent_token(client_id, client_secret)
