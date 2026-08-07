@@ -463,7 +463,9 @@ def ambiguous_steps(pages: list[dict]) -> list[dict]:
     return out
 
 
-def render_browser_operations_json(pages: list[dict], *, profile_slug: str) -> str:
+def render_browser_operations_json(
+    pages: list[dict], *, profile_slug: str, terminal_ops: list[dict] | None = None
+) -> str:
     """operations.json for a browser skill — a click+read recipe per page.
 
     Shape mirrors the harness call_web_api operations.json (schema_version +
@@ -478,6 +480,19 @@ def render_browser_operations_json(pages: list[dict], *, profile_slug: str) -> s
                 "tool": "call_web_browser",
                 "profile_slug": profile_slug,
                 "steps": _steps_for_page(p),
+            }
+        )
+    # Goals that finish without landing on a new page — a download, a form
+    # submission. The page-centric model above cannot express them at all.
+    for op in terminal_ops or []:
+        operations.append(
+            {
+                "name": op["name"],
+                "description": _terminal_description(op),
+                "tool": "call_web_browser",
+                "profile_slug": profile_slug,
+                "kind": op["kind"],
+                "steps": _steps_for_terminal(op),
             }
         )
     return json.dumps(
@@ -495,6 +510,7 @@ def render_browser_skill_md(
     pages: list[dict],
     profile_slug: str,
     description_override: str = "",
+    terminal_ops: list[dict] | None = None,
 ) -> str:
     """SKILL.md for a browser-driven skill (harness frontmatter + body)."""
     description = description_override or (
@@ -531,6 +547,24 @@ def render_browser_skill_md(
     # Name the ambiguous steps outright. A compile that quietly ships a locator
     # known to match several elements is the exact failure this redesign exists
     # to remove; the human re-recording is the one who can fix it.
+    # Goals that produce something rather than land somewhere — a downloaded
+    # file, a submitted form. Named explicitly so the agent asks for them by name
+    # instead of trying to reconstruct the click path from the read pages.
+    if terminal_ops:
+        lines = "\n".join(
+            f"- **{op['name']}** — {_terminal_description(op)}" for op in terminal_ops
+        )
+        terminal_section = (
+            "## Operations that produce a result\n\n"
+            "These finish with an artifact or a submission rather than a page to "
+            "read. Run the steps exactly as `operations.json` gives them; for a "
+            "download the file itself is the result, reported by the closing "
+            "`list_downloads` step.\n\n"
+            f"{lines}\n\n"
+        )
+    else:
+        terminal_section = ""
+
     flagged = ambiguous_steps(pages)
     if flagged:
         lines = "\n".join(
@@ -620,7 +654,7 @@ use `command: "navigate"` on this app.
 
 {page_lines}
 
-The same recipes are machine-readable in `operations.json`.
+{terminal_section}The same recipes are machine-readable in `operations.json`.
 
 <!-- custom:start:notes -->
 <!-- Add skill-specific notes here; this region survives re-compilation. -->
@@ -665,6 +699,7 @@ def generate_browser_skill(
         )
 
     pages = derive_browser_pages(url_events, click_events or [], login_url=login_url)
+    terminal_ops = derive_terminal_operations(pages, click_events or [], login_url=login_url)
     if not pages:
         raise ValueError(
             "No readable data page was captured for this browser skill — the "
@@ -683,10 +718,13 @@ def generate_browser_skill(
         pages=pages,
         profile_slug=profile_slug,
         description_override=description_override,
+        terminal_ops=terminal_ops,
     )
     (out_path / "SKILL.md").write_text(skill_md, encoding="utf-8")
 
-    operations_json = render_browser_operations_json(pages, profile_slug=profile_slug)
+    operations_json = render_browser_operations_json(
+        pages, profile_slug=profile_slug, terminal_ops=terminal_ops
+    )
     (out_path / "operations.json").write_text(operations_json, encoding="utf-8")
 
     op_entries = [
@@ -698,6 +736,15 @@ def generate_browser_skill(
             "url": p["url"],
         }
         for p in pages
+    ] + [
+        {
+            "name": op["name"],
+            "description": _terminal_description(op),
+            "recipe": "operations.json",
+            "tool": "call_web_browser",
+            "url": op["url"],
+        }
+        for op in terminal_ops
     ]
 
     manifest: dict = {
@@ -736,3 +783,155 @@ def generate_browser_skill(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return manifest
+
+
+# --- Terminal operations ------------------------------------------------------
+#
+# An operation used to mean "a page the human visited": derive_browser_pages
+# walks url_events and compiles each distinct page as click-chain →
+# get_page_summary. That model can only express READING, so anything whose
+# result is not a new URL has no way to become an operation at all —
+# a statement download (an in-app click producing a blob:, no navigation), a
+# form submission, a filtered export. On ICICI the compiler produced two read
+# operations and the download had to be hand-written afterwards, which is not
+# reproducible and not verifiable.
+#
+# Tabby's recorder now reports what each interaction CAUSED, so the compiler can
+# work from what the human accomplished rather than from where they went.
+# Downloads are one kind of terminal outcome here, not a special case.
+
+#: Interactions that end a goal, and what to call the operation that reaches them.
+_TERMINAL_KINDS = ("download", "submit")
+
+
+def _terminal_kind(ev: dict) -> str | None:
+    """What goal, if any, this interaction completed.
+
+    Deliberately narrow. "Fired some XHRs" describes half the clicks on a bank
+    portal — filters, toggles, accordions — and emitting an operation for each
+    would bury the two or three a user would actually ask for. Only a finished
+    artifact and a submitted form count.
+    """
+    outcome = ev.get("outcome")
+    if isinstance(outcome, dict) and outcome.get("download"):
+        return "download"
+    if (ev.get("event_type") or "") == "submit":
+        return "submit"
+    return None
+
+
+def _op_name(kind: str, ev: dict, page_slug: str) -> str:
+    """A readable, stable operation name.
+
+    Prefers the control's own label ("Download statement" -> download_statement)
+    over the page slug, because the label is what the user will ask for.
+    """
+    label = (ev.get("text_content") or "").strip()
+    if not label:
+        loc = choose_locator(ev.get("candidates"))
+        if loc and not loc.get("is_css"):
+            value = loc["value"]
+            label = value.split("|", 1)[1] if loc["kind"] == "role_name" and "|" in value else value
+    stem = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") if label else ""
+    if not stem:
+        stem = page_slug or "action"
+    if not stem.startswith(kind):
+        stem = f"{kind}_{stem}"
+    return stem[:60].strip("_")
+
+
+def derive_terminal_operations(
+    pages: list[dict],
+    click_events: list[dict] | None,
+    *,
+    login_url: str,
+) -> list[dict]:
+    """Operations for goals that finish WITHOUT landing on a new page.
+
+    Each is the click chain that reaches the page the interaction happened on
+    (reusing the resolved page navigation, so the session is never reloaded),
+    then the interaction itself, then its recorded success condition.
+
+    Returns [] for any recording whose interactions carry no ``outcome`` — every
+    bundle captured before Tabby schema_version 5 — so older captures compile
+    exactly as they did.
+    """
+    click_events = order_events(click_events)
+    app_origin = _url_origin(login_url) if login_url else ""
+    by_key = {_page_key(p["url"]): p for p in pages}
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    for ev in click_events or []:
+        kind = _terminal_kind(ev)
+        if kind is None:
+            continue
+        url = ev.get("url") or ""
+        if not url or (app_origin and _url_origin(url) != app_origin):
+            continue
+        if _is_login_flow_url(url):
+            continue
+
+        # Where did this happen, and how does the skill get there? An interaction
+        # on a page the compiler never resolved is unreachable, and a step that
+        # cannot be reached is worse than a missing one.
+        page = by_key.get(_page_key(url))
+        if page is None:
+            continue
+
+        step = _step_for_click(
+            {
+                "text": (ev.get("text_content") or "").strip(),
+                "locator": choose_locator(ev.get("candidates")),
+                "outcome": ev.get("outcome"),
+            }
+        )
+        if step is None:
+            continue
+        expect = _expect_for_click({"outcome": ev.get("outcome")})
+        if expect:
+            step["expect"] = expect
+
+        name = _op_name(kind, ev, _slug_from_path(url))
+        if name in seen:
+            continue
+        seen.add(name)
+
+        out.append(
+            {
+                "name": name,
+                "kind": kind,
+                "url": url,
+                # Reach the page exactly the way the read operation for it does.
+                "nav": list(page.get("nav") or []),
+                "terminal": step,
+            }
+        )
+    return out
+
+
+def _steps_for_terminal(op: dict) -> list[dict]:
+    """Recipe for a terminal operation: reach the page, then do the thing."""
+    steps: list[dict] = []
+    for click in op.get("nav") or []:
+        step = _step_for_click(click)
+        if step is None:
+            continue
+        expect = _expect_for_click(click)
+        if expect:
+            step["expect"] = expect
+        steps.append(step)
+    steps.append(op["terminal"])
+    if op.get("kind") == "download":
+        # The artifact IS the result, so the operation ends by naming it rather
+        # than by reading the page it left behind.
+        steps.append({"command": "list_downloads"})
+    else:
+        steps.append({"command": "get_page_summary"})
+    return steps
+
+
+def _terminal_description(op: dict) -> str:
+    if op.get("kind") == "download":
+        return f"Download the file produced from {op['url']}"
+    return f"Submit the form on {op['url']} and read the result"

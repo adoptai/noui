@@ -616,8 +616,14 @@ def _rich_click(**over):
     return base
 
 
-def _ops(pages):
-    return json.loads(render_browser_operations_json(pages, profile_slug="icici-bank"))
+def _ops(pages, clicks=None):
+    """operations.json — pass the click list to include terminal operations."""
+    from noui_core.compile.browser_skill import derive_terminal_operations  # noqa: PLC0415
+
+    terminal = derive_terminal_operations(pages, clicks or [], login_url=LOGIN)
+    return json.loads(
+        render_browser_operations_json(pages, profile_slug="icici-bank", terminal_ops=terminal)
+    )
 
 
 def test_step_uses_the_unique_candidate_instead_of_visible_text():
@@ -780,3 +786,150 @@ def test_skill_md_describes_an_icon_click_without_an_empty_quote():
     )
     assert 'click ""' not in md
     assert "aria_label" in md
+
+
+# --- terminal operations ------------------------------------------------------
+#
+# An operation used to mean "a page the human visited", so anything whose result
+# is not a new URL could not become an operation at all. On ICICI the compiler
+# produced two read operations and the statement download had to be hand-written
+# afterwards — not reproducible, not verifiable. Downloads are one KIND of
+# terminal outcome here, not a special case.
+
+
+def _terminal_click(**over):
+    base = {
+        "event_type": "click",
+        "text_content": "Download statement",
+        "url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:20.000Z",
+        "event_time": "2026-08-07T10:00:20.000Z",
+        "candidates": [{"kind": "testid", "value": '[data-testid="stmt-dl"]', "match_count": 1}],
+        "outcome": {
+            "navigated": False,
+            "to_url": None,
+            "request_count": 1,
+            "settled_ms": 300,
+            "download": True,
+        },
+    }
+    base.update(over)
+    return base
+
+
+def test_a_download_becomes_a_real_operation():
+    # The gap that forced a hand-written operation on ICICI.
+    clicks = [_rich_click(), _terminal_click()]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = _ops(pages, clicks)["operations"]
+
+    dl = [o for o in ops if o.get("kind") == "download"]
+    assert len(dl) == 1
+    assert dl[0]["name"] == "download_statement"
+
+
+def test_the_download_operation_reaches_the_page_first():
+    # A step that cannot be reached is worse than a missing one: the operation
+    # replays the same click chain the read operation for that page uses.
+    clicks = [_rich_click(), _terminal_click()]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    # nav click to the credit-card page, then the download control itself.
+    assert dl["steps"][0]["params"]["selector"] == '[data-testid="nav-cards"]'
+    assert dl["steps"][1]["params"]["selector"] == '[data-testid="stmt-dl"]'
+
+
+def test_the_download_operation_ends_by_naming_the_artifact():
+    # The file IS the result, so it closes with list_downloads rather than
+    # reading whatever page it left behind.
+    clicks = [_rich_click(), _terminal_click()]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    assert dl["steps"][-1] == {"command": "list_downloads"}
+    assert dl["steps"][1]["expect"]["download"] is True
+
+
+def test_a_form_submission_becomes_an_operation_too():
+    # Not download-specific: any goal that finishes without a new URL.
+    submit = _terminal_click(
+        event_type="submit",
+        text_content="Search transactions",
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 2,
+            "settled_ms": 500,
+            "download": False,
+        },
+    )
+    clicks = [_rich_click(), submit]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "submit"]
+
+    assert len(ops) == 1
+    # A submission leaves a page worth reading, unlike a download.
+    assert ops[0]["steps"][-1] == {"command": "get_page_summary"}
+
+
+def test_an_ordinary_click_does_not_become_an_operation():
+    # "Fired some XHRs" describes half the clicks on a bank portal — filters,
+    # toggles, accordions. Emitting one each would bury the two the user wants.
+    noisy = _terminal_click(
+        text_content="Filter",
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 3,
+            "settled_ms": 200,
+            "download": False,
+        },
+    )
+    clicks = [_rich_click(), noisy]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = _ops(pages, clicks)["operations"]
+
+    assert all("kind" not in o for o in ops)
+
+
+def test_a_terminal_click_on_an_unreachable_page_is_dropped():
+    # Its page was never resolved, so the skill has no way to get there.
+    orphan = _terminal_click(url=f"{_H}/some-page-never-visited")
+    clicks = [_rich_click(), orphan]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+
+    assert all("kind" not in o for o in _ops(pages, clicks)["operations"])
+
+
+def test_recordings_without_outcomes_emit_no_terminal_operations():
+    # Everything captured before schema_version 5 — must compile as it did.
+    legacy = {
+        "event_type": "click",
+        "text_content": "Download statement",
+        "url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:20.000Z",
+    }
+    clicks = [_rich_click(), legacy]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+
+    assert all("kind" not in o for o in _ops(pages, clicks)["operations"])
+
+
+def test_skill_md_names_the_operations_that_produce_a_result():
+    clicks = [_rich_click(), _terminal_click()]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    from noui_core.compile.browser_skill import derive_terminal_operations  # noqa: PLC0415
+
+    terminal = derive_terminal_operations(pages, clicks, login_url=LOGIN)
+    md = render_browser_skill_md(
+        skill_id="icici-cc-statement",
+        app_name="ICICI",
+        workflow_name="Credit card statement",
+        pages=pages,
+        profile_slug="icici-cc-statement",
+        terminal_ops=terminal,
+    )
+
+    assert "Operations that produce a result" in md
+    assert "download_statement" in md
