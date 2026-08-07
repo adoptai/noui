@@ -284,6 +284,7 @@ def create_recording_session(
     profile_id: str = "",
     source_session_id: str = "",
     residential_proxy: bool = False,
+    browser_driven: bool = False,
 ) -> dict:
     """
     POST /recording/sessions (agent bearer) — provision a recording-shell
@@ -292,6 +293,16 @@ def create_recording_session(
     ``source_session_id`` seeds the recording browser with the cookies captured
     by a prior login recording (session reuse), so the human starts already
     authenticated without stored credentials.
+
+    ``browser_driven`` declares that this recording will be compiled into a
+    BROWSER-DRIVEN skill, so Tabby reduces the HAR to metadata (no bodies,
+    headers or query strings) — a browser skill never replays a request, and a
+    bank portal's payloads have no business sitting in a bundle. Independent of
+    ``recording_mode``, which is the authoring phase rather than the skill kind:
+    a workflow recording of an ordinary REST app still compiles by HAR replay and
+    needs the full HAR. Omitted when False so the full HAR is kept — set it only
+    when the kind is already known (the operator asked for a browser skill, or
+    replay is known to fail on this app).
 
     ``residential_proxy`` routes the recording session's egress through Tabby's
     residential proxy (a US residential IP) instead of the datacenter egress —
@@ -308,6 +319,8 @@ def create_recording_session(
         body["source_session_id"] = source_session_id
     if residential_proxy:
         body["residential_proxy"] = True
+    if browser_driven:
+        body["browser_driven"] = True
     # Provisioning blocks server-side until the worker session row exists (worker
     # scheduling can take >15s under load), so allow a generous client timeout.
     # Deliberately NOT retried: each call creates a shell app (and can claim or

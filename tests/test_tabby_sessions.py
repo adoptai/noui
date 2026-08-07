@@ -80,3 +80,34 @@ def test_create_recording_session_omits_residential_proxy_by_default(monkeypatch
     tabby_client.create_recording_session("login", "https://example.com", "agent-tok")
     # Omitted (not False) so the recording-shell app default applies server-side.
     assert "residential_proxy" not in captured["body"]
+
+
+def test_browser_driven_is_omitted_by_default(monkeypatch):
+    """Full HAR unless the skill kind is known — a workflow recording of an
+    ordinary REST app compiles by replay and needs every request field."""
+    captured: dict = {}
+
+    def fake_http(method, path, body=None, token=None, timeout=None, **kw):
+        captured["body"] = body
+        return {"vnc_url": "https://vnc.test/#token=t", "session_id": "s1"}
+
+    monkeypatch.setattr(tabby_client, "_tabby_http", fake_http)
+    tabby_client.create_recording_session("workflow", "https://app.test", "tok")
+
+    assert "browser_driven" not in captured["body"]
+
+
+def test_browser_driven_is_sent_when_declared(monkeypatch):
+    captured: dict = {}
+
+    def fake_http(method, path, body=None, token=None, timeout=None, **kw):
+        captured["body"] = body
+        return {"vnc_url": "https://vnc.test/#token=t", "session_id": "s1"}
+
+    monkeypatch.setattr(tabby_client, "_tabby_http", fake_http)
+    tabby_client.create_recording_session(
+        "workflow", "https://bank.test", "tok", browser_driven=True
+    )
+
+    assert captured["body"]["browser_driven"] is True
+    assert captured["body"]["recording_mode"] == "workflow"

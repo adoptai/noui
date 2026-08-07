@@ -66,6 +66,7 @@ def start(
     profile: str = "",
     from_session: str = "",
     residential: bool = False,
+    browser_driven: bool = False,
 ) -> dict:
     """Provision a Tabby VNC recording session.
 
@@ -79,6 +80,11 @@ def start(
         from_session: (workflow) seed cookies from a prior login recording (its
             session id) just captured in this same flow — session reuse, no
             stored credentials. Use --profile instead when a profile already exists.
+        browser_driven: this recording will be compiled into a browser-driven
+            skill, so Tabby reduces the HAR to metadata. Independent of ``mode``
+            — a workflow recording of an ordinary REST app still compiles by HAR
+            replay and needs the full HAR. Leave False unless the kind is already
+            known; ``detect_unreplayable`` decides it at compile time otherwise.
         residential: route the recorded browser's egress through Tabby's
             residential proxy (US residential IP) instead of datacenter egress.
             Use for sites that block datacenter IPs (e.g. bank portals).
@@ -95,6 +101,7 @@ def start(
         profile,
         source_session_id=from_session,
         residential_proxy=residential,
+        browser_driven=browser_driven,
     )
 
 
