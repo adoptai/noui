@@ -30,45 +30,71 @@ from __future__ import annotations
 from typing import Any
 
 from noui_core.compile.login_assets import _is_redirect_hop
+from noui_core.event_order import event_seq, merged_order
 
 # Field roles that mark a credential-entry interaction (login-only signal).
 CREDENTIAL_FIELD_ROLES = frozenset({"username", "password", "otp", "unknown_sensitive"})
 
 
-def find_login_boundary(bundle: dict[str, Any]) -> str | None:
-    """Return the ISO timestamp separating login from workflow, or None.
+def _boundary_event(bundle: dict[str, Any]) -> dict[str, Any] | None:
+    """The recorded event at which the login ends, or None if there is no login.
 
-    None means the bundle has no login segment (no credential-field interactions)
-    — e.g. a workflow recorded against an already-authenticated profile. The
-    caller then treats the whole bundle as workflow-only.
+    The boundary is the first stable (non-redirect) URL transition that occurs
+    after the last credential-field interaction; if the login never navigates
+    afterwards, it falls back to that last interaction.
 
-    The boundary is the timestamp of the first stable (non-redirect) URL
-    transition that occurs after the last credential-field interaction; if the
-    login never navigates afterwards, it falls back to that last interaction.
+    "After" is decided by ``seq`` when clicks and URL transitions are BOTH fully
+    numbered — they share one counter, assigned at interaction time. ``timestamp``
+    on a debounced credential fill is its flush, up to 500ms late, which can drag
+    the boundary past the landing navigation and hand the login's own form-submit
+    request to the workflow slice, where it would be compiled into an operation.
+    Bundles without ``seq`` keep the timestamp comparison — the previous
+    behaviour, so pre-``seq`` recordings still compile.
+
+    Returns ``{"seq": int|None, "timestamp": str|None}``: both are carried
+    because the events are sliced on ``seq`` while the HAR — whose entries have
+    no ordinals — is always sliced on wall clock.
     """
-    clicks = bundle.get("click_events") or []
-    cred_ts = [
-        c["timestamp"]
-        for c in clicks
-        if isinstance(c, dict)
-        and c.get("field_role") in CREDENTIAL_FIELD_ROLES
-        and c.get("timestamp")
-    ]
-    if not cred_ts:
-        return None
-    last_cred = max(cred_ts)
+    clicks = [c for c in (bundle.get("click_events") or []) if isinstance(c, dict)]
+    url_events = [u for u in (bundle.get("url_events") or []) if isinstance(u, dict)]
+    by_seq = merged_order(clicks, url_events)
+    key = event_seq if by_seq else (lambda e: e.get("timestamp"))
 
-    url_events = bundle.get("url_events") or []
-    post_login_navs = [
-        u["timestamp"]
+    creds = [
+        c for c in clicks if c.get("field_role") in CREDENTIAL_FIELD_ROLES and key(c) is not None
+    ]
+    if not creds:
+        return None
+    last_cred = max(creds, key=key)
+
+    navs = [
+        u
         for u in url_events
-        if isinstance(u, dict)
-        and u.get("timestamp")
-        and u["timestamp"] > last_cred
-        and u.get("to_url")
+        if u.get("to_url")
+        and key(u) is not None
+        and key(u) > key(last_cred)
         and not _is_redirect_hop(u.get("from_url", "") or "", u.get("to_url", ""))
     ]
-    return min(post_login_navs) if post_login_navs else last_cred
+    boundary = min(navs, key=key) if navs else last_cred
+    return {
+        "seq": event_seq(boundary) if by_seq else None,
+        "timestamp": boundary.get("timestamp") or None,
+    }
+
+
+def find_login_boundary(bundle: dict[str, Any]) -> str | None:
+    """The ISO timestamp separating login from workflow, or None.
+
+    None means the bundle has no login segment (no credential-field
+    interactions) — e.g. a workflow recorded against an already-authenticated
+    profile. The caller then treats the whole bundle as workflow-only.
+
+    This is the boundary's wall clock, for display and for HAR slicing. Event
+    slicing goes through :func:`_boundary_event`, which also carries the ordinal
+    — see there for why the ordinal is the one that decides "after".
+    """
+    boundary = _boundary_event(bundle)
+    return boundary["timestamp"] if boundary else None
 
 
 def split_bundle(bundle: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
@@ -77,38 +103,55 @@ def split_bundle(bundle: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]
     Returns None when there is no login segment (see `find_login_boundary`), so
     the caller can fall back to compiling the bundle as workflow-only.
 
-    Slicing rule (timestamps are ISO-8601 UTC, lexicographically comparable):
-    the login slice keeps events at or before the boundary (and any event missing
-    a timestamp, so a login request never leaks into the workflow); the workflow
-    slice keeps only events strictly after the boundary with a real timestamp.
-    Top-level `cookies` (captured at drain, representing the authenticated state)
-    go to the login slice, which is the only compiler that reads them.
+    Slicing rule: the login slice keeps events at or before the boundary (and any
+    event that cannot be placed, so a login request never leaks into the
+    workflow); the workflow slice keeps only events strictly after it. Events are
+    cut on ``seq`` when the bundle carries it and on timestamp otherwise; HAR
+    entries are always cut on `startedDateTime` (ISO-8601 UTC, lexicographically
+    comparable) since they carry no ordinal. Top-level `cookies` (captured at
+    drain, representing the authenticated state) go to the login slice, which is
+    the only compiler that reads them.
     """
-    boundary = find_login_boundary(bundle)
+    boundary = _boundary_event(bundle)
     if boundary is None:
         return None
     return _slice(bundle, boundary, "login"), _slice(bundle, boundary, "workflow")
 
 
-def _keep(ts: str | None, boundary: str, side: str) -> bool:
+def _keep(value: Any, boundary: Any, side: str) -> bool:
+    """Which slice an event belongs to, given its position key and the boundary's.
+
+    An unplaceable event (no key, or no boundary key to compare against) goes to
+    the login slice — see the leak rule in `split_bundle`.
+    """
+    if value is None or boundary is None:
+        return side == "login"
     if side == "login":
-        return ts is None or ts <= boundary
-    return ts is not None and ts > boundary
+        return value <= boundary
+    return value > boundary
 
 
-def _slice(bundle: dict[str, Any], boundary: str, side: str) -> dict[str, Any]:
+def _slice(bundle: dict[str, Any], boundary: dict[str, Any], side: str) -> dict[str, Any]:
+    # Ordinals when the boundary was resolved on them, wall clock otherwise. The
+    # two must not be mixed: cutting events on seq against a timestamp boundary
+    # (or vice versa) compares unrelated scales and drops the whole slice.
+    if boundary["seq"] is not None:
+        key, cut = event_seq, boundary["seq"]
+    else:
+        key, cut = (lambda e: e.get("timestamp")), boundary["timestamp"]
+
     passthrough = {
         k: v for k, v in bundle.items() if k not in ("click_events", "url_events", "har", "cookies")
     }
     passthrough["click_events"] = [
         c
         for c in (bundle.get("click_events") or [])
-        if isinstance(c, dict) and _keep(c.get("timestamp"), boundary, side)
+        if isinstance(c, dict) and _keep(key(c), cut, side)
     ]
     passthrough["url_events"] = [
         u
         for u in (bundle.get("url_events") or [])
-        if isinstance(u, dict) and _keep(u.get("timestamp"), boundary, side)
+        if isinstance(u, dict) and _keep(key(u), cut, side)
     ]
 
     har = bundle.get("har") or {}
@@ -117,7 +160,7 @@ def _slice(bundle: dict[str, Any], boundary: str, side: str) -> dict[str, Any]:
     log["entries"] = [
         e
         for e in entries
-        if isinstance(e, dict) and _keep(e.get("startedDateTime"), boundary, side)
+        if isinstance(e, dict) and _keep(e.get("startedDateTime"), boundary["timestamp"], side)
     ]
     passthrough["har"] = {**har, "log": log}
 

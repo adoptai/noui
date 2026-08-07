@@ -120,6 +120,63 @@ class TestSplit:
         assert login["session_id"] == workflow["session_id"] == "sess-1234abcd"
 
 
+class TestSeqOrdering:
+    """`seq` decides the boundary when the bundle carries it — timestamps place a
+    debounced credential fill up to 500ms late, which can drag the boundary past
+    the landing nav and hand the login's own submit to the workflow slice."""
+
+    @staticmethod
+    def _numbered() -> dict:
+        """The merged bundle, with the password fill's TIMESTAMP flushed late.
+
+        The 500ms debounce stamps the password at T[5] — after the landing nav at
+        T[4] — while `seq` records that the human typed it before submitting.
+        """
+        b = _merged_bundle()
+        order = [
+            (b["url_events"][0], 1),  # → /login
+            (b["click_events"][0], 2),  # username
+            (b["url_events"][1], 3),  # → /enterpassword
+            (b["click_events"][1], 4),  # password (timestamp lands at T[5])
+            (b["click_events"][2], 5),  # submit
+            (b["url_events"][2], 6),  # → /dashboard   ← the boundary
+            (b["url_events"][3], 7),  # → /reports
+            (b["click_events"][3], 8),  # workflow interaction
+        ]
+        for ev, seq in order:
+            ev["seq"] = seq
+        b["click_events"][1]["timestamp"] = T[5]
+        return b
+
+    def test_boundary_uses_seq_not_the_late_flush_timestamp(self) -> None:
+        # On timestamps alone the last credential is T[5], past every nav, so the
+        # boundary would collapse onto the fill itself.
+        assert find_login_boundary(self._numbered()) == T[4]
+
+    def test_login_slice_keeps_the_late_stamped_password_fill(self) -> None:
+        login, workflow = split_bundle(self._numbered())
+        assert "password" in {c.get("field_role") for c in login["click_events"]}
+        assert "password" not in {c.get("field_role") for c in workflow["click_events"]}
+
+    def test_workflow_slice_still_excludes_the_login_submit(self) -> None:
+        _, workflow = split_bundle(self._numbered())
+        wf_urls = [e["request"]["url"] for e in workflow["har"]["log"]["entries"]]
+        assert "https://app.example.com/login" not in wf_urls
+
+    def test_slices_still_partition_without_overlap(self) -> None:
+        b = self._numbered()
+        login, workflow = split_bundle(b)
+        assert len(login["click_events"]) + len(workflow["click_events"]) == len(b["click_events"])
+        assert len(login["url_events"]) + len(workflow["url_events"]) == len(b["url_events"])
+
+    def test_partially_numbered_bundle_falls_back_to_timestamps(self) -> None:
+        # One un-numbered event means seq is not a total order for this bundle.
+        b = self._numbered()
+        b["click_events"][1]["timestamp"] = T[2]  # undo the late flush
+        del b["url_events"][0]["seq"]
+        assert find_login_boundary(b) == T[4]
+
+
 class TestRealFixture:
     """Sanity check against a real captured bundle (recorded recording_mode=login)."""
 
