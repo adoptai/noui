@@ -162,6 +162,7 @@ def provision_live_link(
     profile: str = "",
     from_session: str = "",
     residential: bool = False,
+    browser_driven: bool = False,
 ) -> dict:
     """Provision a recording session and return its payload with a ``login_url``
     that is **verified live** — never a stale/dead link, and never handed over
@@ -186,7 +187,14 @@ def provision_live_link(
     ``"restart"`` | ``"reprovision"`` when a refresh was needed).
     """
     token = resolve_agent_token()
-    result = start(mode, url, profile=profile, from_session=from_session, residential=residential)
+    result = start(
+        mode,
+        url,
+        profile=profile,
+        from_session=from_session,
+        residential=residential,
+        browser_driven=browser_driven,
+    )
 
     stream_token = _stream_token(result.get("vnc_url", ""))
     sid = result.get("session_id", "")

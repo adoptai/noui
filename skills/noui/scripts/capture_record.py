@@ -102,6 +102,19 @@ def main() -> int:
         "datacenter IPs, e.g. bank portals. Requires the residential proxy to be "
         "configured on Tabby; otherwise the recording-shell app default applies.",
     )
+    p.add_argument(
+        "--browser-driven",
+        dest="browser_driven",
+        action="store_true",
+        help="this recording will be compiled into a BROWSER-DRIVEN skill, so "
+        "Tabby reduces the workflow HAR to metadata — no request/response bodies, "
+        "headers or query strings. Use when the kind is already known (the app "
+        "encrypts its requests, or replay is known to fail on it), which keeps a "
+        "bank's balances, account numbers and live tokens out of the bundle. Leave "
+        "it off for anything unknown: it is the skill KIND, not the capture phase, "
+        "and a workflow recording of an ordinary REST app still compiles by HAR "
+        "replay and needs the full HAR.",
+    )
     args = p.parse_args()
 
     # Default to ONE session for the login AND the workflow. Recording them
@@ -193,6 +206,7 @@ def main() -> int:
             profile=args.profile,
             from_session=args.from_session,
             residential=args.residential_proxy,
+            browser_driven=args.browser_driven,
         )
     except (RuntimeError, ValueError) as exc:
         print(f"Provisioning failed: {exc}", file=sys.stderr)
