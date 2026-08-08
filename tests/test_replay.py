@@ -211,3 +211,110 @@ def test_only_browser_operations_are_replayed():
     # recorded requests, which is a different risk profile.
     api_op = {"name": "list_txns", "tool": "call_web_api", "steps": []}
     assert plan_operations([DOWNLOAD_OP, api_op]) == [DOWNLOAD_OP]
+
+
+# --- running against a real profile session -----------------------------------
+#
+# Replay uses the ordinary profile session — the same one an installed skill gets
+# — rather than inheriting the recording's auth. Inheriting it does not survive
+# real apps: ICICI carries its session in the URL
+# (AuthenticationController;jsessionid=…) and SPAs keep tokens in sessionStorage,
+# so a cookie-seeded cold browser reproduces neither and replay would fail for
+# reasons that have nothing to do with the plan.
+
+from noui_core.verify.replay import SessionNotReadyError, substitute_parameters  # noqa: E402
+from noui_core.verify.session import run_replay, session_is_ready  # noqa: E402
+
+
+def _patch_exec(monkeypatch, fn):
+    from noui_core import tabby_client
+
+    monkeypatch.setattr(tabby_client, "execute_browser", fn)
+
+
+def test_no_session_is_reported_as_login_required_not_as_a_broken_plan(monkeypatch):
+    # Blaming the skill because nobody has signed in yet would be a lie, and one
+    # the human would act on by re-recording a plan that was fine.
+    import pytest
+    from noui_core.verify.session import _executor
+
+    def no_session(*_a, **_k):
+        raise RuntimeError("HTTP 404 from POST /execute/browser: no healthy session")
+
+    _patch_exec(monkeypatch, no_session)
+    with pytest.raises(SessionNotReadyError):
+        _executor("icici", "tok")("get_page_info", {})
+
+
+def test_an_ordinary_failure_is_not_mistaken_for_a_missing_session(monkeypatch):
+    # A 500 is a real failure of the step; only 404/409 mean "not signed in".
+    import pytest
+    from noui_core.verify.session import _executor
+
+    def boom(*_a, **_k):
+        raise RuntimeError("HTTP 500 from POST /execute/browser: worker exploded")
+
+    _patch_exec(monkeypatch, boom)
+    with pytest.raises(RuntimeError) as exc:
+        _executor("icici", "tok")("get_page_info", {})
+    assert not isinstance(exc.value, SessionNotReadyError)
+
+
+def test_session_readiness_is_probed_without_touching_the_app(monkeypatch):
+    seen = []
+    _patch_exec(monkeypatch, lambda _p, c, _params, **_k: seen.append(c) or {"success": True})
+
+    assert session_is_ready("icici", "tok") is True
+    assert seen == ["get_page_info"]  # reads nothing, changes nothing
+
+
+def test_a_dead_session_mid_run_keeps_what_already_ran(monkeypatch):
+    # The steps that ran are still evidence. Discarding them would make a timed
+    # out session look like a plan that does nothing.
+    calls = {"n": 0}
+
+    def flaky(_profile, command, _params, **_kw):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise RuntimeError("HTTP 409 from POST /execute/browser: session gone")
+        return {"success": True, "data": {}}
+
+    _patch_exec(monkeypatch, flaky)
+    report = run_replay([DOWNLOAD_OP], profile_slug="icici", token="tok")
+
+    assert report["status"] == "login_required"
+    assert report["operations"][0]["steps"][0]["status"] == OK
+    assert report["installable"] is False
+
+
+def test_a_replay_that_reaches_the_goal_is_still_not_installable(monkeypatch):
+    _patch_exec(
+        monkeypatch,
+        lambda _p, c, _params, **_k: {
+            "success": True,
+            "data": {"downloads": [{"id": "dl-1"}]} if c == "list_downloads" else {},
+        },
+    )
+    report = run_replay([DOWNLOAD_OP], profile_slug="icici", token="tok")
+
+    assert report["all_goals_reached"] is True
+    assert report["installable"] is False  # only approve() sets this
+
+
+def test_placeholders_are_filled_with_the_recorded_default():
+    # Typing a literal "{{from_date}}" into a bank's date field would fail for a
+    # reason that has nothing to do with the plan.
+    op = {
+        "parameters": [{"name": "from_date", "default": "2026-01-01"}],
+        "steps": [{"command": "type_text", "params": {"selector": "#d", "text": "{{from_date}}"}}],
+    }
+    assert substitute_parameters(op)[0]["params"]["text"] == "2026-01-01"
+
+
+def test_a_caller_supplied_value_wins_over_the_recorded_default():
+    op = {
+        "parameters": [{"name": "from_date", "default": "2026-01-01"}],
+        "steps": [{"command": "type_text", "params": {"selector": "#d", "text": "{{from_date}}"}}],
+    }
+    filled = substitute_parameters(op, {"from_date": "2025-04-01"})
+    assert filled[0]["params"]["text"] == "2025-04-01"

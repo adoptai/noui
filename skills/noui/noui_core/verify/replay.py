@@ -34,6 +34,17 @@ from __future__ import annotations
 import re
 from typing import Any
 
+
+class SessionNotReadyError(RuntimeError):
+    """Tabby has no healthy session for this profile — the human must sign in.
+
+    Deliberately its own type so it can pass THROUGH replay_step rather than
+    becoming a blocked step. "The session is not signed in" is not a defect in
+    the plan, and recording it as one would blame the skill for the operator not
+    having signed in yet. The caller shows the sign-in card and replays again.
+    """
+
+
 #: Step outcomes, as rendered to the human.
 OK = "ok"
 BLOCKED = "blocked"
@@ -189,6 +200,10 @@ def replay_step(
 
     try:
         response = execute(step.get("command"), step.get("params") or {})
+    except SessionNotReadyError:
+        # Not a step failure. Let it out so the caller can ask for a sign-in
+        # instead of recording the plan as broken.
+        raise
     except Exception as exc:  # noqa: BLE001 — a blocked step is data, not a crash
         result["status"] = BLOCKED
         result["detail"] = str(exc)
@@ -266,3 +281,28 @@ def approve(report: dict) -> dict:
     approved = dict(report)
     approved["installable"] = True
     return approved
+
+
+def substitute_parameters(operation: dict, values: dict[str, str] | None = None) -> list[dict]:
+    """The operation's steps with ``{{placeholders}}`` filled in.
+
+    Replay runs the recorded defaults unless told otherwise, because that is the
+    run we have evidence for. Typing a literal "{{from_date}}" into a bank's date
+    field would fail for a reason that has nothing to do with the plan.
+    """
+    values = dict(values or {})
+    for param in operation.get("parameters") or []:
+        values.setdefault(param["name"], param.get("default", ""))
+
+    def fill(text: str) -> str:
+        for name, value in values.items():
+            text = text.replace("{{" + name + "}}", str(value))
+        return text
+
+    out: list[dict] = []
+    for step in operation.get("steps") or []:
+        params = {
+            k: (fill(v) if isinstance(v, str) else v) for k, v in (step.get("params") or {}).items()
+        }
+        out.append({**step, "params": params})
+    return out
