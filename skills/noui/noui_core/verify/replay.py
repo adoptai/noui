@@ -31,6 +31,8 @@ prevent.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -238,6 +240,35 @@ def goal_reached(operation: dict, steps: list[dict]) -> bool:
     return True
 
 
+def operations_fingerprint(operations: list[dict]) -> str:
+    """A stable digest of what the draft actually DOES.
+
+    An approval is only meaningful for the plan that was replayed. Amend a step
+    and recompile and this changes, so the stale approval no longer matches and
+    the installer refuses — which is what makes "user confirmation takes
+    precedence" enforceable rather than a convention.
+
+    Keyed on the operations' names, kinds and steps. Descriptions are excluded
+    deliberately: renaming an operation or rewording its description changes
+    nothing about its behaviour, and forcing a fresh replay for a typo fix would
+    make the gate something to work around.
+    """
+    material = [
+        {
+            "name": op.get("name"),
+            "kind": op.get("kind") or "read",
+            "steps": op.get("steps") or [],
+            "parameters": [
+                {"name": p.get("name"), "default": p.get("default")}
+                for p in op.get("parameters") or []
+            ],
+        }
+        for op in operations or []
+    ]
+    blob = json.dumps(material, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
+
+
 def build_report(operations: list[dict], results: list[list[dict]]) -> dict:
     """The whole replay, in the shape the confirmation card renders.
 
@@ -266,6 +297,8 @@ def build_report(operations: list[dict], results: list[list[dict]]) -> dict:
         "operations": ops_out,
         "all_goals_reached": bool(ops_out) and all(o["goal_reached"] for o in ops_out),
         "needs_approval": any(o["needs_approval_count"] for o in ops_out),
+        # Ties the approval to the exact plan that was replayed.
+        "fingerprint": operations_fingerprint(operations),
         # The gate itself. Nothing downstream should install on anything else.
         "installable": False,
     }
