@@ -226,6 +226,58 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
     return [out[0]] + out[-(_NAV_MAX_CLICKS - 1) :]
 
 
+def app_origins_from(
+    url_events: list[dict], login_url: str, click_events: list[dict] | None = None
+) -> set[str]:
+    """Every origin that is part of THIS app, discovered from the recording.
+
+    The compiler used to keep only pages on the exact login origin, to drop the
+    third-party telemetry that poisoned earlier HAR-replay compiles. That is too
+    strict for a bank: ICICI serves its portal from
+    ``retailnetbanking.icici.bank.in`` and its statement download from
+    ``infinity.icici.bank.in``. The entire e-Statements page — the one that
+    actually produces the PDF — was discarded before any operation could be built
+    from it, so the compiled skill had no way to reach the file at all.
+
+    Decided from evidence rather than by matching domains. A registrable-domain
+    heuristic is guesswork (``bank.in`` is a public suffix, so "share the last two
+    labels" would make every Indian bank the same app), but the recording already
+    knows: an origin the human reached BY NAVIGATING FROM a page of this app is
+    part of this app. Telemetry, analytics and consent widgets never appear as a
+    main-frame navigation a human clicked into; a bank's second host always does.
+
+    TWO pieces of evidence are required, not one. Being navigated to from the app
+    is not enough by itself: a consent wall, an SSO hop or a payment gateway is
+    reached exactly that way, and so is any third party that redirects the main
+    frame. The origin must ALSO be somewhere the human then did something — a
+    click or an input recorded on it. A beacon has no interactions; the page
+    where you pick "Annual" and press download has plenty.
+
+    Seeded with the login origin and grown in interaction order, so a two-hop
+    path (portal -> statements host -> a page within it) is picked up too.
+    """
+    interacted = {
+        _url_origin(c.get("url") or "")
+        for c in click_events or []
+        if (c.get("url") or "").startswith(("http://", "https://"))
+    }
+    origins: set[str] = set()
+    if login_url:
+        origins.add(_url_origin(login_url))
+    for ev in order_events(url_events):
+        to_url = (ev or {}).get("to_url") or ""
+        from_url = (ev or {}).get("from_url") or ""
+        if not to_url.startswith(("http://", "https://")):
+            continue
+        to_origin = _url_origin(to_url)
+        if to_origin in origins:
+            continue
+        if _url_origin(from_url) in origins and to_origin in interacted:
+            origins.add(to_origin)
+    origins.discard("")
+    return origins
+
+
 def derive_browser_pages(
     url_events: list[dict],
     click_events: list[dict] | None = None,
@@ -255,17 +307,19 @@ def derive_browser_pages(
     # must be sorted before anything positional is read from them.
     click_events = order_events(click_events)
     url_events = order_events(url_events)
-    app_origin = _url_origin(login_url) if login_url else ""
+    # Every origin this app spans, not just the login one — see app_origins_from.
+    app_origins = app_origins_from(url_events, login_url, click_events)
     seen: set[str] = set()
     pages: list[dict] = []
     for ev in url_events:
         url = (ev or {}).get("to_url") or ""
         if not url or not url.startswith(("http://", "https://")):
             continue
-        # Same-origin as the login page only. Third-party widget/telemetry origins
-        # (the DevRev/Dynatrace noise that poisoned the HAR-replay skill's
-        # identity) must not be treated as pages to read.
-        if app_origin and _url_origin(url) != app_origin:
+        # Belongs to this app — the login origin, or an origin the human
+        # navigated to FROM this app. Third-party widget/telemetry origins (the
+        # DevRev/Dynatrace noise that poisoned the HAR-replay skill's identity)
+        # never appear that way and are still dropped.
+        if app_origins and _url_origin(url) not in app_origins:
             continue
         if _is_login_flow_url(url):
             continue
@@ -880,7 +934,12 @@ def derive_terminal_operations(
     exactly as they did.
     """
     click_events = order_events(click_events)
-    app_origin = _url_origin(login_url) if login_url else ""
+    # Same multi-origin rule as the pages themselves: an interaction on the
+    # app's second host (ICICI's statement portal) is still this app's.
+    app_origins = {_url_origin(p["url"]) for p in pages}
+    if login_url:
+        app_origins.add(_url_origin(login_url))
+    app_origins.discard("")
     by_key = {_page_key(p["url"]): p for p in pages}
     out: list[dict] = []
     seen: set[str] = set()
@@ -890,7 +949,7 @@ def derive_terminal_operations(
         if kind is None:
             continue
         url = ev.get("url") or ""
-        if not url or (app_origin and _url_origin(url) != app_origin):
+        if not url or (app_origins and _url_origin(url) not in app_origins):
             continue
         if _is_login_flow_url(url):
             continue

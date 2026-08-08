@@ -1023,3 +1023,111 @@ def test_skill_md_tells_the_agent_what_it_can_vary():
     assert "accepts:" in md
     assert "from_date" in md
     assert "{{placeholders}}" in md
+
+
+# --- multi-origin apps --------------------------------------------------------
+#
+# ICICI serves its portal from retailnetbanking.icici.bank.in and its statement
+# DOWNLOAD from infinity.icici.bank.in. Keeping only the login origin discarded
+# the e-Statements page entirely — the one that actually produces the PDF — so
+# the compiled skill had no way to reach the file, and the agent had to
+# rediscover the whole route by trial and error at run time.
+
+_INFINITY = "https://infinity.icici.bank.in"
+
+_MULTI_ORIGIN_EVENTS = [
+    {
+        "from_url": f"{_H}/login-page",
+        "to_url": f"{_H}/overview",
+        "timestamp": "2026-08-07T10:00:00Z",
+    },
+    {
+        "from_url": f"{_H}/overview",
+        "to_url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:05Z",
+    },
+    # The human clicked "Download Previous Statement" and landed on the bank's
+    # OTHER host. This is the hop that used to be thrown away.
+    {
+        "from_url": f"{_H}/credit-card",
+        "to_url": f"{_INFINITY}/corp/AuthenticationController",
+        "timestamp": "2026-08-07T10:00:12Z",
+    },
+    # Third-party telemetry: never reached by a human navigation, still dropped.
+    {
+        "from_url": f"{_H}/credit-card",
+        "to_url": "https://rum.dynatrace.com/beacon",
+        "timestamp": "2026-08-07T10:00:13Z",
+    },
+]
+
+
+def _hop_click(text, url, **over):
+    base = {
+        "event_type": "click",
+        "text_content": text,
+        "url": url,
+        "timestamp": "2026-08-07T10:00:11.000Z",
+        "event_time": "2026-08-07T10:00:11.000Z",
+        "candidates": [{"kind": "id", "value": "#dl-prev", "match_count": 1}],
+    }
+    base.update(over)
+    return base
+
+
+def test_a_page_on_the_apps_other_host_is_kept():
+    clicks = [
+        _rich_click(),
+        _hop_click("Download Previous Statement", f"{_H}/credit-card"),
+        # The human then worked ON that host — picked Annual, pressed download.
+        _hop_click("Annual", f"{_INFINITY}/corp/AuthenticationController"),
+    ]
+    pages = derive_browser_pages(_MULTI_ORIGIN_EVENTS, clicks, login_url=LOGIN)
+
+    urls = [p["url"] for p in pages]
+    assert f"{_INFINITY}/corp/AuthenticationController" in urls
+
+
+def test_third_party_telemetry_is_still_dropped():
+    # The filter exists for a reason — this is the noise that poisoned the
+    # HAR-replay compile. It is never reached by a human navigation.
+    clicks = [
+        _rich_click(),
+        _hop_click("Download Previous Statement", f"{_H}/credit-card"),
+        _hop_click("Annual", f"{_INFINITY}/corp/AuthenticationController"),
+    ]
+    pages = derive_browser_pages(_MULTI_ORIGIN_EVENTS, clicks, login_url=LOGIN)
+
+    assert all("dynatrace" not in p["url"] for p in pages)
+
+
+def test_a_download_on_the_other_host_becomes_an_operation():
+    # The end of the real ICICI path: the PDF is produced on the second host.
+    dl = _terminal_click(url=f"{_INFINITY}/corp/AuthenticationController", seq=20)
+    clicks = [
+        _rich_click(),
+        _hop_click("Download Previous Statement", f"{_H}/credit-card"),
+        _hop_click("Annual", f"{_INFINITY}/corp/AuthenticationController", seq=15),
+        dl,
+    ]
+    pages = derive_browser_pages(_MULTI_ORIGIN_EVENTS, clicks, login_url=LOGIN)
+    ops = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"]
+
+    assert len(ops) == 1
+
+
+def test_origins_are_grown_in_order_not_matched_by_domain():
+    # A registrable-domain heuristic is guesswork: bank.in is a public suffix, so
+    # "share the last two labels" would make every Indian bank the same app. An
+    # unreached sibling host must NOT be treated as part of this app.
+    from noui_core.compile.browser_skill import app_origins_from  # noqa: PLC0415
+
+    clicks = [
+        _rich_click(),
+        _hop_click("Download Previous Statement", f"{_H}/credit-card"),
+        _hop_click("Annual", f"{_INFINITY}/corp/AuthenticationController"),
+    ]
+    origins = app_origins_from(_MULTI_ORIGIN_EVENTS, LOGIN, clicks)
+    assert _INFINITY in origins
+    assert "https://someotherbank.bank.in" not in origins
+    assert "https://rum.dynatrace.com" not in origins
