@@ -222,6 +222,10 @@ not.
 
 ### Check these before installing
 
+0. **Is the goal in there at all?** Before anything else: does an operation
+   exist that does what the user asked for? A missing `download` operation means
+   the recording missed it — re-record, never hand-write. See "Telling the human
+   what to record".
 1. **Ambiguous steps.** SKILL.md lists any whose locator matched several
    elements. Those misclick. Re-record them rather than shipping them.
 2. **Missing parameters.** If the user will ask for "last year" and the operation
@@ -235,6 +239,63 @@ not.
    `browser_policy.block_navigate` on the App Template. `navigate` is a full page
    load; on those apps it destroys the session mid-task. With the flag set Tabby
    refuses the command and tells the agent to click instead.
+
+---
+
+## Telling the human what to record
+
+You are about to hand a person a viewer link and a list of steps. What you write
+there decides what the recording contains, and therefore what the skill can ever
+do. A real ICICI build failed entirely at this step: the agent had never seen the
+app, but wrote
+
+> Click the PDF format toggle → Click the DOWNLOAD button
+> ⚠️ Don't click "View Statement", "E-Statement" …
+
+The actual route to an annual statement is *Past → Download Previous Statement →
+a second host → Annual → PDF*. The instruction prescribed a flow that fetches
+only the current month and **explicitly forbade the one that works**, so the human
+followed it, the capture missed the whole download path, and the compiled skill
+could not do the one thing it existed for. Nobody noticed until run time.
+
+**Describe the GOAL, not the clicks.** You have not seen this app. Any specific
+control you name is inferred, and a wrong guess is worse than no guess because
+the human will follow it. "Download the annual credit-card statement for the last
+financial year" is a complete instruction. "Click the PDF toggle, then DOWNLOAD"
+is a guess wearing the clothes of an instruction.
+
+**Never tell the human to avoid part of the app.** You cannot know which link is
+the dead end and which is the route. A prohibition you got backwards removes the
+only path there is.
+
+**Say to keep going until the thing actually happens** — the file lands, the
+confirmation renders, the value appears on screen. A recording that stops one
+step short compiles into a skill that stops one step short, and that is exactly
+the shape of the failure that is hardest to see afterwards: everything looks
+captured, and the last step is missing.
+
+**Warn about what breaks a capture, not about which buttons to press.** The
+useful warnings are: stay in the same window, do not reload or close it, let slow
+pages finish loading (a bank often hands off to a second host, and that hop must
+be recorded), and click "Finish & export" only once the goal is complete.
+
+**Ask rather than assume.** If you genuinely need the route — because the goal is
+ambiguous, not because you want to script it — ask the human how they normally do
+it, then repeat it back as *their* description. Do not convert it into a click
+list of your own invention.
+
+### After compiling, check the goal is actually in there
+
+Read the compiled operations before installing and ask: **is there an operation
+that does the thing the user asked for?**
+
+If the goal was "download the statement" and no `download` operation was
+emitted, the recording did not capture it — the human stopped early, or was sent
+down the wrong path. **Re-record.** Do not write the operation by hand: a
+hand-written operation has no verified selector, no expectation and no parameter,
+it is never replayed against the live page before shipping, and it fails in
+production while looking correct in review. That is precisely what happened on
+the ICICI build, twice.
 
 ---
 
