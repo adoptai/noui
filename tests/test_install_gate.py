@@ -121,3 +121,49 @@ def test_a_corrupt_approval_reads_as_absent(tmp_path):
 
 def test_is_browser_skill_reads_the_manifest_then_the_operations(tmp_path):
     assert is_browser_skill(make_skill(tmp_path)) is True
+
+
+# --- shared fingerprint vector ------------------------------------------------
+#
+# The harness recomputes this digest to check an approval covers the plan being
+# installed, because noui is installed in the sandbox and not in the worker.
+# Two implementations, one pinned vector: if either drifts, its own test fails
+# rather than the gate silently accepting an approval for different steps.
+#
+# The twin lives in adoptai-workflows:
+# tests/agent_harness/test_web_browser_dispatch.py
+
+_SHARED_FINGERPRINT_OPS = [
+    {
+        "name": "download_statement",
+        "kind": "download",
+        "tool": "call_web_browser",
+        "description": "ignored — descriptions are excluded from the digest",
+        "steps": [{"command": "click_element", "params": {"selector": "#dl"}}],
+        "parameters": [{"name": "from_date", "default": "2026-01-01", "type": "date"}],
+    }
+]
+_SHARED_FINGERPRINT = "69656c931cee13bcfee67e2e6fab4db0"
+
+
+def test_the_fingerprint_matches_the_harness_implementation():
+    from noui_core.verify.replay import operations_fingerprint  # noqa: PLC0415
+
+    assert operations_fingerprint(_SHARED_FINGERPRINT_OPS) == _SHARED_FINGERPRINT
+
+
+def test_the_digest_ignores_descriptions_but_not_steps():
+    # Pins the two properties the twin depends on: renaming is free, changing
+    # behaviour is not.
+    from noui_core.verify.replay import operations_fingerprint  # noqa: PLC0415
+
+    reworded = [{**_SHARED_FINGERPRINT_OPS[0], "description": "completely different"}]
+    assert operations_fingerprint(reworded) == _SHARED_FINGERPRINT
+
+    restepped = [
+        {
+            **_SHARED_FINGERPRINT_OPS[0],
+            "steps": [{"command": "click_element", "params": {"selector": "#other"}}],
+        }
+    ]
+    assert operations_fingerprint(restepped) != _SHARED_FINGERPRINT
