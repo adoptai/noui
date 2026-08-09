@@ -1397,6 +1397,21 @@ def generate(
                 enable_downloads if enable_downloads is not None else keepalive_style == "activity"
             ),
             "file_chooser": False,
+            # Refuse `navigate` on browser-driven apps.
+            #
+            # A full-page navigation is a RELOAD, and refresh-sensitive portals
+            # destroy the session on one: ICICI lands on /session-expire and the
+            # member is asked to sign in again mid-task. The compiled skill never
+            # emits navigate — it reaches every page by replaying the recorded
+            # click chain — so nothing legitimate is lost. What this stops is an
+            # agent that gets stuck and reaches for it anyway, which is exactly
+            # how a freshly built ICICI skill killed a live session 20 seconds
+            # after the member signed in.
+            #
+            # Set HERE rather than by hand on each profile, because every
+            # recording mints a NEW profile: setting it manually protects the app
+            # you just fixed and none of the ones you build next.
+            "block_navigate": keepalive_style == "activity",
         },
         "notification_config": {"channels": ["slack:#local-dev"]},
         "desired_session_count": 0,
