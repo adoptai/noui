@@ -753,6 +753,8 @@ def generate_browser_skill(
     session_id: str = "",
     start_url: str = "",
     description_override: str = "",
+    bundle: dict | None = None,
+    bundle_file: str = "",
 ) -> dict:
     """Compile a recording into an installable browser-driven skill directory.
 
@@ -856,6 +858,22 @@ def generate_browser_skill(
             "generator_version": "v1-browser-skill",
         },
     }
+    # Bind the skill to the recording it came from. The installer verifies this
+    # against the bundle itself, which is the only artifact here that a skill
+    # written from imagination cannot produce. See compile/provenance.py.
+    if bundle is not None:
+        from noui_core.compile import provenance as _provenance
+
+        # Write the exact bundle that was compiled, beside the skill. Pointing at
+        # the saved capture instead would not survive a combined import, where the
+        # bundle is split and only a HALF reaches this compiler — the digest would
+        # never match the file on disk and every real skill would be rejected.
+        (out_path / _provenance.BUNDLE_FILE).write_text(
+            json.dumps(bundle, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        manifest["provenance"] = _provenance.build(
+            bundle, bundle_file=bundle_file or _provenance.BUNDLE_FILE
+        )
     (out_path / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )

@@ -384,6 +384,22 @@ Do NOT run `capture_record.py`. Do NOT open a `?mode=recording` viewer. If you
 find yourself about to say "click Finish & export" when the member asked to sign
 in, you have reached for the wrong session.
 
+### A browser skill must come from a recording — the installer checks
+
+The compiler writes `recording_bundle.json` beside the skill and stamps its
+digest into `manifest.json` as `provenance`. The installer verifies both: that
+the recording is there and still hashes to the stamp, and that **every locator
+the operations drive was actually observed in it**.
+
+So a browser skill cannot be authored by hand, and adding the provenance fields
+by hand does not help — there is no recording behind them. A selector written
+from how a page probably looks reads exactly as plausibly as a real one; only
+the recording knows which ever resolved, which is why this is checked by machine
+rather than left to review.
+
+Never hand-write `operations.json`, `manifest.json`, `recording_bundle.json` or
+`replay_approval.json`. Record, compile, replay, and let the member approve.
+
 ### A missing session is a WAIT, not a failure to work around
 
 When replay reports `login_required`, the correct next action is to **tell the
