@@ -199,6 +199,26 @@ def main() -> int:
     # mode is behaviorally inert, so one session records login + workflow in one HAR.
     # NoUI splits it at import, routed by the provision ledger written below.
     tabby_mode = "login" if args.mode == "combined" else args.mode
+
+    # A combined capture ALWAYS asks Tabby for locator evidence, whether or not
+    # the caller passed --browser-driven.
+    #
+    # Whether a skill must be browser-driven is decided at COMPILE time, by
+    # inspecting the HAR for unreplayable requests — that is, after the recording
+    # is over. Tabby gates rich capture (locator candidates, element evidence) on
+    # this flag, so leaving it off until the kind is known meant the evidence was
+    # never captured for the one recording that turned out to need it: an ICICI
+    # capture came back with 718 HAR entries, auto-detected as browser-driven,
+    # and not one click interaction to compile steps from. The only way out was
+    # to record the whole thing again.
+    #
+    # Evidence is cheap and unknowable in advance; the recording is expensive and
+    # unrepeatable. So capture it always and decide the kind later.
+    #
+    # This does NOT reduce the HAR. Tabby strips bodies only for a WORKFLOW-mode
+    # browser-driven recording, and a combined capture is provisioned as 'login'
+    # precisely so its HAR stays whole for App Template registration.
+    want_evidence = args.browser_driven or args.mode == "combined"
     try:
         result = recording.provision_live_link(
             tabby_mode,
@@ -206,7 +226,7 @@ def main() -> int:
             profile=args.profile,
             from_session=args.from_session,
             residential=args.residential_proxy,
-            browser_driven=args.browser_driven,
+            browser_driven=want_evidence,
         )
     except (RuntimeError, ValueError) as exc:
         print(f"Provisioning failed: {exc}", file=sys.stderr)

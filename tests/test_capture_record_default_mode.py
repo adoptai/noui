@@ -136,3 +136,35 @@ class TestTemplateReuseCheck:
         assert rc == 0
         find.assert_not_called()
         prov.assert_called_once()
+
+
+class TestEvidenceIsAlwaysRequested:
+    """Locator evidence must be captured before anyone knows it is needed.
+
+    Whether a skill has to be browser-driven is decided at COMPILE time, from the
+    HAR. Tabby gates rich capture (locator candidates, element evidence) on the
+    browser_driven flag, so leaving it off until the kind was known meant an
+    ICICI capture came back with 718 HAR entries, auto-detected as browser-driven
+    — and not one click interaction to compile steps from. The recording had to
+    be done again.
+    """
+
+    def test_a_combined_capture_always_asks_for_evidence(self, run):
+        rc, _, prov = run("--url", "https://app.test/login")
+        assert rc == 0
+        assert prov.call_args.args[0] == "login"  # HAR stays whole for the template
+        assert prov.call_args.kwargs["browser_driven"] is True
+
+    def test_an_explicit_browser_driven_capture_still_asks(self, run):
+        rc, _, prov = run("--url", "https://app.test/login", "--browser-driven")
+        assert rc == 0
+        assert prov.call_args.kwargs["browser_driven"] is True
+
+    def test_a_workflow_capture_is_left_alone(self, run):
+        # Workflow mode already captures evidence (Tabby keys it off the mode),
+        # and forcing the flag here WOULD reduce the HAR — which is the flag's
+        # other meaning, and not something to switch on by accident.
+        rc, _, prov = run("--url", "https://app.test/x", "--profile", "acme")
+        assert rc == 0
+        assert prov.call_args.args[0] == "workflow"
+        assert prov.call_args.kwargs["browser_driven"] is False
