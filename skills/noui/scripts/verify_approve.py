@@ -57,8 +57,13 @@ def main() -> int:
 
     if report.get("status") == "login_required":
         print(
-            "That replay never ran — there was no signed-in session. Sign in and "
-            "replay before approving anything.",
+            "That replay never ran — there was no signed-in session, so there is "
+            "nothing to approve. Approving here would mean vouching for a workflow "
+            "nobody has seen work.\n"
+            "\n"
+            "Stop and wait for the member to sign in. Do not retry this, and do not "
+            "install: the installer refuses an unapproved browser skill, so every "
+            "attempt fails and hides the fact that you are waiting for them.",
             file=sys.stderr,
         )
         return 1

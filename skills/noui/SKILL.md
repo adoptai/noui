@@ -384,6 +384,25 @@ Do NOT run `capture_record.py`. Do NOT open a `?mode=recording` viewer. If you
 find yourself about to say "click Finish & export" when the member asked to sign
 in, you have reached for the wrong session.
 
+### A missing session is a WAIT, not a failure to work around
+
+When replay reports `login_required`, the correct next action is to **tell the
+member you are waiting for their sign-in, and then stop**.
+
+Do not approve. Do not install. Do not re-run the replay on a timer. None of
+those can succeed without a session — the installer refuses an unapproved
+browser skill and the approver refuses a replay that never ran — so every
+attempt fails, and the failures bury the one line the member actually needs to
+read: that you are waiting for them.
+
+Observed: a build attempted "marking skill approved and installing" and
+"installing approved skill into org catalog" repeatedly while replay was still
+returning `login_required`. Nothing shipped, because the gates held, but the
+member could not tell that the whole thing was blocked on them.
+
+One clear sentence — "I need you to sign in via the card above; I will replay
+and install once you have" — is the entire correct behaviour.
+
 ### How to tell which one you are looking at
 
 A recording viewer URL carries `?mode=recording` and shows "Finish & export". A

@@ -116,7 +116,14 @@ def main() -> int:
             "call_web_browser. It returns status=login_required with a sign-in link, "
             "the platform renders the sign-in card, the member signs in there, and the "
             "session stays warm. Then run this script again — replays after the first "
-            "sign-in are free.",
+            "sign-in are free.\n"
+            "\n"
+            "THEN STOP AND WAIT. Tell the member you are waiting for their sign-in "
+            "and say nothing else until they answer. Do not approve, do not install, "
+            "do not re-run this script on a timer. None of those can succeed without "
+            "a session, and each failed attempt buries the one thing the member needs "
+            "to read: that you are waiting for them. A missing session is a WAIT, not "
+            "a failure to work around.",
             file=sys.stderr,
         )
         return 2
