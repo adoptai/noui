@@ -400,6 +400,25 @@ rather than left to review.
 Never hand-write `operations.json`, `manifest.json`, `recording_bundle.json` or
 `replay_approval.json`. Record, compile, replay, and let the member approve.
 
+### Migrating a browser skill compiled before provenance
+
+A browser skill built before the installer started checking provenance has no
+`recording_bundle.json` and no `manifest.provenance`, so its next install is
+refused. It was compiled from a real recording, and capture always saves the
+bundle, so re-attach that recording rather than re-recording:
+
+```
+python scripts/migrate_provenance.py workbench/skills/<app>
+```
+
+It finds the bundle by the session id in the manifest, verifies every locator the
+operations drive appears in it, and only then stamps. The operations do not
+change, so an existing approval stays valid.
+
+If it refuses, believe it. Either that is the wrong recording (try `--bundle`),
+or the steps were never observed in any recording — and attaching one would only
+disguise that. This tool verifies; it does not bless.
+
 ### A missing session is a WAIT, not a failure to work around
 
 When replay reports `login_required`, the correct next action is to **tell the

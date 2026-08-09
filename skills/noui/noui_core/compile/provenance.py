@@ -92,3 +92,36 @@ def build(bundle: dict[str, Any], *, bundle_file: str) -> dict[str, Any]:
         "observed_selectors": len(observed_selectors(bundle)),
         "schema_version": bundle.get("schema_version"),
     }
+
+
+def step_locators(operations: list[dict[str, Any]]) -> list[str]:
+    """The locator each step targets, for steps that target one.
+
+    Mirrors the installer's reader (adoptai-workflows `_step_locators`). If the
+    two drift, migration blesses a skill the installer then refuses -- annoying,
+    but the failure is closed, which is the right direction for a mismatch.
+    """
+    out: list[str] = []
+    for op in operations or []:
+        for step in op.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            raw = step.get("params")
+            params: dict[str, Any] = raw if isinstance(raw, dict) else step
+            for key in ("selector", "text", "label", "value"):
+                v = params.get(key)
+                if isinstance(v, str) and v.strip():
+                    out.append(v.strip())
+                    break
+    return out
+
+
+def unobserved_locators(operations: list[dict[str, Any]], bundle: dict[str, Any]) -> list[str]:
+    """Locators the operations drive that this recording never saw.
+
+    Empty means the recording backs the operations. Non-empty is the signal that
+    a skill was not compiled from this recording -- either the wrong bundle, or
+    steps that were written rather than observed.
+    """
+    seen = observed_selectors(bundle)
+    return [loc for loc in step_locators(operations) if loc not in seen]
