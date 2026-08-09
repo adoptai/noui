@@ -74,7 +74,40 @@ def observed_selectors(bundle: dict[str, Any]) -> set[str]:
     return {s for s in seen if s}
 
 
-def build(bundle: dict[str, Any], *, bundle_file: str) -> dict[str, Any]:
+def steps_digest(operations: list[dict[str, Any]]) -> str:
+    """A digest of what the operations DO, ignoring what they are called.
+
+    Checking that every locator appears somewhere in the recording proved too
+    weak: a build read the bundle's locator vocabulary and reassembled steps out
+    of it, which passed while being no longer the compiled workflow. Locators
+    are a set; a workflow is a sequence. Pinning the sequence closes that.
+
+    Names and descriptions are excluded deliberately. Renaming an operation or
+    rewording its description changes nothing about what runs, and a gate that
+    fires on a wording fix is one people learn to route around -- which is
+    exactly how the reconstruction started.
+    """
+    material = [
+        {
+            "kind": op.get("kind") or "read",
+            "steps": op.get("steps") or [],
+            "parameters": [
+                {"name": p.get("name"), "default": p.get("default")}
+                for p in op.get("parameters") or []
+            ],
+        }
+        for op in operations or []
+    ]
+    blob = json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def build(
+    bundle: dict[str, Any],
+    *,
+    bundle_file: str,
+    operations: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """The provenance block stamped into a browser skill's manifest.
 
     bundle_file is relative to the workbench root (``bundles/<name>-<sid>.json``)
@@ -91,6 +124,8 @@ def build(bundle: dict[str, Any], *, bundle_file: str) -> dict[str, Any]:
         "recorded_urls": len(bundle.get("url_events") or []),
         "observed_selectors": len(observed_selectors(bundle)),
         "schema_version": bundle.get("schema_version"),
+        # What the compiler emitted, so a later edit to the steps is visible.
+        "steps_sha256": steps_digest(operations) if operations is not None else "",
     }
 
 

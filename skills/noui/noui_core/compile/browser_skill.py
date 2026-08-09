@@ -885,7 +885,9 @@ def generate_browser_skill(
             json.dumps(bundle, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         manifest["provenance"] = _provenance.build(
-            bundle, bundle_file=bundle_file or _provenance.BUNDLE_FILE
+            bundle,
+            bundle_file=bundle_file or _provenance.BUNDLE_FILE,
+            operations=json.loads(operations_json).get("operations") or [],
         )
     (out_path / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
