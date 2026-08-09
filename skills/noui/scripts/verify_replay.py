@@ -28,6 +28,7 @@ from pathlib import Path
 import _bootstrap  # noqa: F401
 
 from noui_core.capture.recording import resolve_agent_token
+from noui_core.compile import provenance
 from noui_core.verify.replay import plan_operations
 from noui_core.verify.session import run_replay
 
@@ -73,6 +74,39 @@ def main() -> int:
         # Not a failure: a HAR-replay skill is verified by its own test loop.
         print("No browser operations — nothing for this gate to replay.", file=sys.stderr)
         return 1
+
+    # Check provenance BEFORE spending a live session on it. The installer checks
+    # this too, but by then a replay has already run: one build rewrote the
+    # compiled operations, replayed, and spent the whole session improvising --
+    # clicking, screenshotting, hunting a nav that its invented steps could not
+    # find -- before anything said the steps were not the recorded ones.
+    bundle_path = skill_dir / provenance.BUNDLE_FILE
+    if bundle_path.is_file():
+        try:
+            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"Cannot read {bundle_path}: {exc}", file=sys.stderr)
+            return 1
+        unobserved = provenance.unobserved_locators(operations, bundle)
+        if unobserved:
+            shown = ", ".join(repr(u) for u in unobserved[:5])
+            more = f" (and {len(unobserved) - 5} more)" if len(unobserved) > 5 else ""
+            print(
+                f"These steps target controls the recording never saw: {shown}{more}.\n"
+                "\n"
+                "The operations no longer match what was compiled from the recording, "
+                "which almost always means they were edited by hand after compiling. "
+                "Replaying now would drive a live session through steps nobody has "
+                "seen work, and when they miss, the run improvises and wanders.\n"
+                "\n"
+                "You may rename an operation, reword its description, or add a "
+                "parameter. You may NOT change what a step targets, reorder steps, or "
+                "add an operation that was not recorded -- those come from the "
+                "recording and nothing else can supply them. Restore the compiled "
+                "operations.json, or re-record the part you meant to change.",
+                file=sys.stderr,
+            )
+            return 1
 
     values = {}
     for raw in args.param:

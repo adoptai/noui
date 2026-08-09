@@ -400,6 +400,28 @@ rather than left to review.
 Never hand-write `operations.json`, `manifest.json`, `recording_bundle.json` or
 `replay_approval.json`. Record, compile, replay, and let the member approve.
 
+### After compiling, do not "generalize" the operations
+
+Renaming an operation, rewording a description, adding a parameter: fine. Those
+do not change what runs.
+
+Rewriting the steps is not. Locators, step order and which operations exist come
+from the recording, and nothing else can supply them. A rewritten step targets a
+control nobody watched resolve, so at replay the run misses, improvises, and
+wanders — clicking, screenshotting, hunting a nav it will not find. Both the
+replay gate and the installer now refuse operations whose steps were never
+observed, so a rewrite costs a whole live session and installs nothing.
+
+**A URL containing a session token is NOT a bug to fix.** A browser skill never
+navigates to the URL in an operation — the URL only names the page, and the page
+is reached by replaying the recorded click chain. One build saw a `UX_TOKEN` in a
+compiled URL, concluded the operation was broken, rewrote all three operations
+into four (inventing two that were never recorded), and lost the click chains
+that were the only thing that worked. It fixed a non-bug and broke the skill.
+
+If a compiled operation really is wrong, the fix is to re-record that part. It is
+never to write the steps you think it should have had.
+
 ### Migrating a browser skill compiled before provenance
 
 A browser skill built before the installer started checking provenance has no

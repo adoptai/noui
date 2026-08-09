@@ -133,3 +133,29 @@ def test_it_is_idempotent(tmp_path):
     assert _run(d, tmp_path).returncode == 0
     again = _run(d, tmp_path)
     assert again.returncode == 0 and "nothing to do" in again.stdout
+
+
+# --- verify_replay refuses rewritten operations before spending a session -----
+
+
+def test_replay_refuses_operations_that_were_rewritten(tmp_path):
+    """The failure this catches cost a whole live session.
+
+    A build rewrote the compiled operations, replayed, and spent the session
+    improvising against steps nobody had seen work — before anything said the
+    steps were not the recorded ones. The installer would have caught it, but
+    only afterwards.
+    """
+    d = _skill(tmp_path, steps=[{"command": "click_element", "params": {"selector": "#rewritten"}}])
+    (d / "recording_bundle.json").write_text(json.dumps(RECORDING))
+    script = Path("skills/noui/scripts/verify_replay.py").resolve()
+    r = subprocess.run(
+        [sys.executable, str(script), str(d), "--profile-slug", "bank"],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": str(Path("skills/noui").resolve())},
+    )
+    assert r.returncode == 1
+    assert "the recording never saw" in r.stderr and "#rewritten" in r.stderr
+    # It must not have reached the live session at all.
+    assert not (d / "replay_report.json").exists()
