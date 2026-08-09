@@ -103,7 +103,20 @@ def main() -> int:
     if report.get("status") == "login_required":
         print(
             "\nNo signed-in session, so the workflow was never tried. This is not a "
-            "fault in the skill: show the sign-in card, then replay again.",
+            "fault in the skill.\n"
+            "\n"
+            "DO NOT start a recording session to fix this. A recording is a human "
+            "driving a browser so NoUI can capture it; this needs the profile's own "
+            "RUNTIME session, which is a different thing with a different sign-in "
+            "surface. Handing over a recording link here produces a viewer with a "
+            "'Finish & export' button, which is not what the member was asked for and "
+            "throws away the sign-in they just did.\n"
+            "\n"
+            "To get a runtime session: call the skill's own operation through "
+            "call_web_browser. It returns status=login_required with a sign-in link, "
+            "the platform renders the sign-in card, the member signs in there, and the "
+            "session stays warm. Then run this script again — replays after the first "
+            "sign-in are free.",
             file=sys.stderr,
         )
         return 2

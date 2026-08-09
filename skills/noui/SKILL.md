@@ -351,6 +351,47 @@ the ICICI build, twice.
 
 ---
 
+## Two sessions, two sign-ins — never confuse them
+
+Building a browser skill involves **two different browser sessions**, and mixing
+them up has cost more time on this project than any other single mistake.
+
+| | **Recording session** | **Runtime session** |
+|---|---|---|
+| What it is | a human drives a browser so NoUI can capture what they do | the profile's own authenticated session, the one the installed skill drives |
+| Created by | `capture_record.py` | Tabby, on demand — never by you |
+| Viewer | a VNC link with a **"Finish & export"** button | a sign-in card the platform renders |
+| Exists to | produce a bundle | run operations |
+
+**A live sign-in is never satisfied by a recording session.** When something
+reports `login_required` — replay, a verification call, an installed skill — the
+member needs a RUNTIME sign-in. Handing them a recording link instead gives them
+a viewer with a "Finish & export" button, which is not what they were asked for,
+and the sign-in they perform there does nothing for the session that needed it.
+
+This happened: the member asked for a fresh login, was handed a fresh
+*recording*, signed in, drove the whole flow, and said "I didn't know you gave
+fresh recording session". A full walkthrough for nothing.
+
+### How to get a runtime sign-in
+
+Call the skill's own operation through `call_web_browser`. It returns
+`status=login_required` with a sign-in link; the platform renders the sign-in
+card; the member signs in there. The session then stays warm, so replays after
+the first sign-in are free.
+
+Do NOT run `capture_record.py`. Do NOT open a `?mode=recording` viewer. If you
+find yourself about to say "click Finish & export" when the member asked to sign
+in, you have reached for the wrong session.
+
+### How to tell which one you are looking at
+
+A recording viewer URL carries `?mode=recording` and shows "Finish & export". A
+runtime sign-in has neither. If the link you are about to hand over has them and
+you are not asking the member to record something, stop.
+
+---
+
 ## Script reference
 
 | Script | Pillar | Purpose |
