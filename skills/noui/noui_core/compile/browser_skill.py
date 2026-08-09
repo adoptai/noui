@@ -439,6 +439,19 @@ def _step_for_click(click: dict) -> dict | None:
     if step is None:
         return None
 
+    # Which frame the human clicked in. Bank portals embed whole applications in
+    # iframes (ICICI serves statements from Finacle that way), and a step that
+    # names only the control drives the top-level page instead — the control is
+    # not there, the run improvises, and a navigation the human completed
+    # becomes one the skill cannot reproduce. The runtime matches on the name
+    # first, then the url ignoring its query string, where session tokens churn.
+    element = click.get("element") or {}
+    if isinstance(element, dict) and element.get("in_iframe"):
+        for key in ("frame_url", "frame_name"):
+            value = str(element.get(key) or "").strip()
+            if value:
+                step["params"][key] = value
+
     if locator:
         # Carried for the human reading the recipe and for a future repair pass:
         # an AMBIGUOUS step is the one to re-point first when a skill misbehaves.

@@ -1131,3 +1131,43 @@ def test_origins_are_grown_in_order_not_matched_by_domain():
     assert _INFINITY in origins
     assert "https://someotherbank.bank.in" not in origins
     assert "https://rum.dynatrace.com" not in origins
+
+
+def test_a_click_inside_an_iframe_carries_the_frame_to_the_step():
+    """A recorded in-frame click must remain executable.
+
+    The recorder runs in every frame, so the click was always captured. Without
+    the frame on the step the runtime drives the top-level page, the control is
+    not there, and a navigation the human completed becomes one the skill cannot
+    reproduce — the ICICI/Finacle statement download.
+    """
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {"value": "#PDF_Download", "kind": "css", "is_css": True,
+                        "confidence": "high", "match_count": 1},
+            "element": {
+                "in_iframe": True,
+                "frame_url": "https://finacle.bank.test/statements?tok=abc",
+                "frame_name": "finacleFrame",
+            },
+        }
+    )
+    assert step["params"]["frame_url"] == "https://finacle.bank.test/statements?tok=abc"
+    assert step["params"]["frame_name"] == "finacleFrame"
+
+
+def test_a_top_level_click_names_no_frame():
+    # Adding an empty frame to every step would make each one look embedded.
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {"value": "#nav", "kind": "css", "is_css": True,
+                        "confidence": "high", "match_count": 1},
+            "element": {"in_iframe": False},
+        }
+    )
+    assert "frame_url" not in step["params"]
+    assert "frame_name" not in step["params"]
