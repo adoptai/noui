@@ -1145,8 +1145,13 @@ def test_a_click_inside_an_iframe_carries_the_frame_to_the_step():
 
     step = _step_for_click(
         {
-            "locator": {"value": "#PDF_Download", "kind": "css", "is_css": True,
-                        "confidence": "high", "match_count": 1},
+            "locator": {
+                "value": "#PDF_Download",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
             "element": {
                 "in_iframe": True,
                 "frame_url": "https://finacle.bank.test/statements?tok=abc",
@@ -1164,8 +1169,13 @@ def test_a_top_level_click_names_no_frame():
 
     step = _step_for_click(
         {
-            "locator": {"value": "#nav", "kind": "css", "is_css": True,
-                        "confidence": "high", "match_count": 1},
+            "locator": {
+                "value": "#nav",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
             "element": {"in_iframe": False},
         }
     )
