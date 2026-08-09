@@ -231,13 +231,32 @@ python scripts/verify_replay.py workbench/skills/<app> --profile-slug <slug>
 #    Exit 2 = no signed-in session: show the sign-in card, then run it again.
 #    Nothing is installed, and the report is never self-approving.
 
-# 2. SHOW the member the report (the skill-replay card) and get their answer.
+# 2. SHOW the member what happened, and get their answer. (see below)
 
 # 3. Only if they approve:
 python scripts/verify_approve.py workbench/skills/<app>
 
 # 4. Now install.
 ```
+
+**Step 2 is not optional and does not depend on a card.** Where the
+`skill-replay` card is available the host renders it; where it is not, present
+the report in the conversation yourself. Either way the member must be able to
+see, before they answer:
+
+- **for each operation, whether it reached its GOAL** — not how many steps ran. A
+  download whose every step passed and which produced no file has NOT reached
+  its goal, and a step count would call that a success.
+- **which steps were blocked**, and what the error said.
+- **which steps the agent improvised** rather than replaying from the recording.
+  Those are the ones nobody has ever verified; that is where their attention
+  belongs.
+- **anything held for approval** — a control that moves money, is irreversible,
+  or that the human never touched during the recording.
+
+Then ask plainly whether it looks right, or which step to change. Do not
+summarise it as "the replay passed" and move on: the failures this gate exists
+to catch are the ones that look fine in summary.
 
 If they ask for a change, amend the workflow, recompile, and **replay again** —
 the approval is tied to a fingerprint of the plan, so an amended skill no longer
