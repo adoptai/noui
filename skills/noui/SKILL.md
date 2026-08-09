@@ -167,18 +167,30 @@ compile **browser-driven**: the skill drives the live page and reads what it
 renders. `detect_unreplayable` decides this automatically; `--browser-driven`
 forces it, `--no-auto-browser` disables the detection.
 
-### Declare it at capture time when you already know
+### Declare it at capture time when the user already told you
 
-Pass `browser_driven=True` when provisioning the recording (or `--browser-driven`
-to `capture_record.py`) **only when the kind is already known** — the user asked
-for a browser skill, or replay is known to fail on this app. It tells Tabby to
-reduce the workflow HAR to metadata, which keeps a bank's balances, account
-numbers and live tokens out of the bundle.
+**If the request says "browser based", "browser-driven", or names an app you
+already know cannot be replayed, pass `--browser-driven` to `capture_record.py`.**
+The user saying so IS the kind being known — there is nothing further to wait
+for, and `detect_unreplayable` will only agree with them later.
 
-Leave it off for anything unknown. It is the skill KIND, not the capture phase: a
-workflow recording of an ordinary REST app compiles by replay and needs the full
-HAR. Record full, let `detect_unreplayable` decide, re-record with the flag if
-you want the reduction.
+This was missed on a request that opened with the words "NOUI BROWSER BASED
+skill", because the guidance below reads as an argument for leaving it off. It is
+not: the caution applies to captures whose kind is genuinely unknown.
+
+What it buys, on a bank especially: Tabby reduces the workflow HAR to metadata,
+keeping balances, account numbers and live tokens out of the bundle entirely.
+That is a privacy property you cannot add afterwards — the bodies are either
+captured or they are not.
+
+Locator evidence is captured either way now (a combined capture always requests
+it), so forgetting the flag no longer makes a recording uncompilable. It did
+once: a capture came back with 718 HAR entries and no click interactions, and the
+whole recording had to be done again.
+
+Leave it off only when the kind is genuinely unknown. It is the skill KIND, not
+the capture phase: a workflow recording of an ordinary REST app compiles by
+replay and needs the full HAR. Record full, let `detect_unreplayable` decide.
 
 ### What a workflow recording now carries
 
