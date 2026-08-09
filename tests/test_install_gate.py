@@ -167,3 +167,88 @@ def test_the_digest_ignores_descriptions_but_not_steps():
         }
     ]
     assert operations_fingerprint(restepped) != _SHARED_FINGERPRINT
+
+
+# --- the approve CLI's refusals -----------------------------------------------
+#
+# The approval file is the record of a HUMAN decision. These pin the cases where
+# recording one would be a lie: a replay that never ran, and a replay that ran
+# and did not do what the skill exists for.
+
+
+def _report(skill_dir: Path, **over) -> Path:
+    import json as _json
+
+    base = {
+        "operations": [{"name": "download_statement", "goal_reached": True, "steps": []}],
+        "all_goals_reached": True,
+        "installable": False,
+        "fingerprint": "abc",
+    }
+    base.update(over)
+    path = skill_dir / "replay_report.json"
+    path.write_text(_json.dumps(base), encoding="utf-8")
+    return path
+
+
+def _run_approve(skill_dir: Path, *args) -> tuple[int, str]:
+    import subprocess
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(_ROOT / "skills" / "noui" / "scripts" / "verify_approve.py"),
+            str(skill_dir),
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+def test_approving_without_a_replay_is_refused(tmp_path):
+    d = make_skill(tmp_path)
+    code, out = _run_approve(d)
+    assert code == 1
+    assert "Replay the draft first" in out
+
+
+def test_approving_a_replay_that_never_ran_is_refused(tmp_path):
+    # login_required means the plan was not found wanting — it was never tried.
+    d = make_skill(tmp_path)
+    _report(d, status="login_required", all_goals_reached=False)
+    code, out = _run_approve(d)
+    assert code == 1
+    assert "never ran" in out
+
+
+def test_approving_a_replay_that_missed_its_goal_is_refused(tmp_path):
+    # An operation that did not do what it exists for is not something to wave
+    # through; the fix is to amend and replay again.
+    d = make_skill(tmp_path)
+    _report(
+        d,
+        all_goals_reached=False,
+        operations=[{"name": "download_statement", "goal_reached": False, "steps": []}],
+    )
+    code, out = _run_approve(d)
+    assert code == 1
+    assert "did not reach every goal" in out
+    assert "download_statement" in out
+
+
+def test_a_deliberate_override_is_possible_and_explicit(tmp_path):
+    d = make_skill(tmp_path)
+    _report(d, all_goals_reached=False)
+    code, _ = _run_approve(d, "--force")
+    assert code == 0
+    assert (d / "replay_approval.json").exists()
+
+
+def test_approving_a_good_replay_records_it(tmp_path):
+    d = make_skill(tmp_path)
+    _report(d)
+    code, out = _run_approve(d)
+    assert code == 0
+    assert "may now be installed" in out

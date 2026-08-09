@@ -220,6 +220,39 @@ The same goes for selectors: never substitute your own for a recorded one. The
 recorded one was verified to match a single element on the live page; yours was
 not.
 
+### Replay before installing — this is a GATE, not a report
+
+A browser skill installs only after a member has seen it run. `install_skill`
+REFUSES one that carries no approved replay, so this is not optional:
+
+```bash
+# 1. Replay the compiled draft against a live session. Writes replay_report.json.
+python scripts/verify_replay.py workbench/skills/<app> --profile-slug <slug>
+#    Exit 2 = no signed-in session: show the sign-in card, then run it again.
+#    Nothing is installed, and the report is never self-approving.
+
+# 2. SHOW the member the report (the skill-replay card) and get their answer.
+
+# 3. Only if they approve:
+python scripts/verify_approve.py workbench/skills/<app>
+
+# 4. Now install.
+```
+
+If they ask for a change, amend the workflow, recompile, and **replay again** —
+the approval is tied to a fingerprint of the plan, so an amended skill no longer
+matches and the installer refuses. That is what makes their confirmation
+binding rather than advisory.
+
+Replay uses the profile's own Tabby session, which means one sign-in the member
+has to do. That is deliberate: it is exactly how the skill will run once
+installed, so a pass means what it appears to mean, and it also proves the
+profile's login and keepalive can sustain a session on this app at all.
+
+Do not approve on the member's behalf. The file is the record of a human
+decision; writing it because the replay looked fine to you defeats the whole
+gate, and the failures this exists to catch are the ones that look fine.
+
 ### Check these before installing
 
 0. **Is the goal in there at all?** Before anything else: does an operation
@@ -311,6 +344,8 @@ the ICICI build, twice.
 | `compile_login.py` | 2 | Compile a saved login bundle → App/ServiceProfile drafts |
 | `activate_register.py` | 3 | Register a compiled login result with Tabby as a tenant-wide App Template |
 | `activate_verify.py` | 3 | Deterministic auth dry-run on a generated MCP server |
+| `verify_replay.py` | 2→3 | Replay a compiled browser draft against a live session; writes `replay_report.json` |
+| `verify_approve.py` | 3 | Record the member's approval of a replay, so the skill may be installed |
 | `activate_install.py` | 3 | Install a generated skill into an agent (agnostic) |
 
 ---
