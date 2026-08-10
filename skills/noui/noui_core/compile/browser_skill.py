@@ -497,6 +497,43 @@ def _resolve_nav_chains(pages: list[dict]) -> list[dict]:
     return resolved
 
 
+#: Selectors that name the document rather than a control.
+_DOCUMENT_SELECTORS = frozenset({"body", "html", ":root", "body *", "html body"})
+
+
+def _same_control(a: dict, b: dict) -> bool:
+    """Do two steps drive the same control?"""
+    pa, pb = (a.get("params") or {}), (b.get("params") or {})
+    for key in ("selector", "text", "label"):
+        if pa.get(key) and pa.get(key) == pb.get(key):
+            return True
+    return False
+
+
+def _collapse_repeats(steps: list[dict]) -> list[dict]:
+    """One gesture, one step.
+
+    A click on a submit control fires the form's submit too -- ICICI recorded a
+    click and a submit on #DOWNLOAD_ESTATEMENT_PDF four milliseconds apart. The
+    download was attributed to the submit, making it the terminal step, while the
+    click became a lead-in: one press of one button compiled as two clicks, and a
+    replay would ask the portal for the file twice.
+
+    Only ADJACENT repeats collapse. The same control clicked again later in a
+    workflow is a real second action -- a paging control, a retry -- and must
+    survive.
+    """
+    out: list[dict] = []
+    for step in steps:
+        if out and out[-1].get("command") == step.get("command") and _same_control(out[-1], step):
+            # Keep whichever carries more for the runtime (expectations, frame).
+            if len(step) > len(out[-1]):
+                out[-1] = step
+            continue
+        out.append(step)
+    return out
+
+
 def _is_css_kind(kind: str) -> bool:
     """Kinds whose value is a CSS selector rather than human-visible text."""
     return kind in ("css", "testid", "id", "name", "css_path")
@@ -543,6 +580,13 @@ def _step_for_click(click: dict) -> dict | None:
         if expect:
             step["expect"] = expect
         return step
+
+    # A locator that resolves to the document addresses no control. It appears
+    # when the click landed on padding and the walk found nothing better, and at
+    # replay it clicks the page: harmless at best, dismissing something at worst.
+    _loc = click.get("locator") or {}
+    if str(_loc.get("value") or "").strip().lower() in _DOCUMENT_SELECTORS:
+        return None
 
     if click.get("is_opener") and (click.get("candidates") or []):
         # This click OPENED the control the next one used -- a dropdown showing
@@ -709,7 +753,7 @@ def _steps_for_page(p: dict) -> list[dict]:
         )
 
     steps.append({"command": "get_page_summary"})
-    return steps
+    return _collapse_repeats(steps)
 
 
 def ambiguous_steps(pages: list[dict]) -> list[dict]:
@@ -1297,6 +1341,7 @@ def _steps_for_terminal(op: dict) -> list[dict]:
     steps.extend(op.get("lead") or [])
     steps.extend(fill_steps(op.get("parameters") or []))
     steps.append(op["terminal"])
+    steps = _collapse_repeats(steps)
     if op.get("kind") == "download":
         # The artifact IS the result, so the operation ends by naming it rather
         # than by reading the page it left behind.

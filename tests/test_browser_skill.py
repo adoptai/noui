@@ -1495,3 +1495,59 @@ def test_an_opener_with_no_stable_selector_keeps_what_it_has():
         }
     )
     assert step["command"] == "click_by_text"
+
+
+def test_a_click_and_the_submit_it_fires_are_one_step():
+    """ICICI recorded a click and a submit on #DOWNLOAD_ESTATEMENT_PDF four
+    milliseconds apart — one press of one button. The download was attributed to
+    the submit, making it the terminal step, while the click became a lead-in, so
+    a replay would have asked the portal for the file twice."""
+    from noui_core.compile.browser_skill import _collapse_repeats
+
+    steps = _collapse_repeats(
+        [
+            {"command": "click_element", "params": {"selector": "#DOWNLOAD_ESTATEMENT_PDF"}},
+            {
+                "command": "click_element",
+                "params": {"selector": "#DOWNLOAD_ESTATEMENT_PDF"},
+                "expect": {"download": True},
+            },
+        ]
+    )
+    assert len(steps) == 1
+    # the richer of the two survives, so the expectation is not lost
+    assert steps[0].get("expect") == {"download": True}
+
+
+def test_the_same_control_used_again_later_survives():
+    # A paging control or a retry is a real second action.
+    from noui_core.compile.browser_skill import _collapse_repeats
+
+    steps = _collapse_repeats(
+        [
+            {"command": "click_element", "params": {"selector": "#next"}},
+            {"command": "get_page_summary"},
+            {"command": "click_element", "params": {"selector": "#next"}},
+        ]
+    )
+    assert len(steps) == 3
+
+
+def test_a_click_that_resolved_to_the_document_is_not_a_step():
+    from noui_core.compile.browser_skill import _step_for_click
+
+    assert (
+        _step_for_click(
+            {
+                "text": "",
+                "locator": {
+                    "value": "body",
+                    "kind": "css",
+                    "is_css": True,
+                    "confidence": "low",
+                    "match_count": 1,
+                },
+            }
+        )
+        is None
+    )
