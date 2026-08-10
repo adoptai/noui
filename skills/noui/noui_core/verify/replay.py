@@ -218,7 +218,57 @@ def replay_step(
 
     result["status"] = OK
     result["data"] = response.get("data") if isinstance(response, dict) else None
+
+    # Check the postcondition the recorder observed.
+    #
+    # Until now `expect` was carried into the result and never evaluated, so a
+    # replay could execute every step, end up on a completely different page,
+    # and report success -- "no step was blocked" was the whole test. That is
+    # how a run clicked its way onto /discover and still called itself passing.
+    # The compiler already states what the recording observed after each click;
+    # this is the enforcer that was missing.
+    unmet = expectation_unmet(step.get("expect"), execute)
+    if unmet:
+        result["status"] = BLOCKED
+        result["detail"] = unmet
     return result
+
+
+def expectation_unmet(expect: Any, execute: Any) -> str:
+    """Why the recorded postcondition does not hold, or "" if it does.
+
+    Deliberately forgiving about HOW a page is reached and strict about WHERE it
+    ends up: a URL matches if the recorded one is a prefix of it (ignoring the
+    query, where session tokens churn between the recording and the replay), so
+    a portal that appends its own parameters still passes.
+    """
+    if not isinstance(expect, dict) or not expect:
+        return ""
+
+    want_url = str(expect.get("url") or "")
+    if want_url:
+        try:
+            info = execute("get_page_info", {}) or {}
+            here = str((info.get("data") or info).get("url") or "")
+        except Exception:  # noqa: BLE001 — an unreadable url is not a failed expectation
+            here = ""
+        if here:
+            bare = lambda u: u.split("?")[0].split("#")[0].rstrip("/")  # noqa: E731
+            if not bare(here).startswith(bare(want_url)) and not bare(want_url).startswith(
+                bare(here)
+            ):
+                return f"expected to be on {want_url} after this step, but the page is {here}"
+
+    if expect.get("download"):
+        try:
+            listed = execute("list_downloads", {}) or {}
+            files = ((listed.get("data") or listed) or {}).get("downloads") or []
+        except Exception:  # noqa: BLE001
+            files = []
+        if not files:
+            return "this step downloaded a file when it was recorded; no file arrived"
+
+    return ""
 
 
 def goal_reached(operation: dict, steps: list[dict]) -> bool:
