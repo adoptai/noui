@@ -31,6 +31,7 @@ def test_recording_without_a_kind_refuses(monkeypatch, capsys, tmp_path):
     rc, out, prov = _run(monkeypatch, capsys, tmp_path, "--url", "https://bank.test/login")
     assert rc == 1
     assert "--kind is required" in out.err
+    assert "browser | api | auto" in out.err
     # and it must not have spent a session on an undecided recording
     prov.assert_not_called()
 
@@ -64,3 +65,27 @@ def test_the_old_flag_still_satisfies_the_requirement(monkeypatch, capsys, tmp_p
     )
     assert rc == 0
     assert prov.call_args.kwargs["browser_driven"] is True
+
+
+def test_replay_is_accepted_but_renamed_to_api(monkeypatch, capsys, tmp_path):
+    """'replay' already means the verification step, not a skill kind.
+
+    Using one word for both would leave every reader deciding which sense was
+    meant; the manifest already calls this kind 'api'.
+    """
+    rc, out, prov = _run(
+        monkeypatch, capsys, tmp_path, "--kind", "replay", "--url", "https://bank.test/x"
+    )
+    assert rc == 0
+    assert "Reading it as --kind api" in out.err
+
+
+def test_api_is_accepted_as_a_kind(monkeypatch, capsys, tmp_path):
+    """A combined capture always asks Tabby for locator evidence, whatever the
+    kind — evidence is cheap and unknowable in advance. The KIND decides which
+    COMPILER runs later, which is a different question from what is captured."""
+    rc, _, prov = _run(
+        monkeypatch, capsys, tmp_path, "--kind", "api", "--url", "https://bank.test/x"
+    )
+    assert rc == 0
+    assert prov.called

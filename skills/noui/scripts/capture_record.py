@@ -104,11 +104,15 @@ def main() -> int:
     )
     p.add_argument(
         "--kind",
-        choices=("browser", "replay", "auto"),
+        choices=("browser", "api", "auto", "replay"),
         default=None,
         help="What KIND of skill this recording is for. REQUIRED. 'browser' drives "
-        "the live page; 'replay' fires the recorded requests; 'auto' lets the "
-        "compiler decide from the HAR. There is no default on purpose: the kind "
+        "the live page (call_web_browser); 'api' fires the recorded requests "
+        "(call_web_api); 'auto' lets the compiler decide from the HAR. NOTE: this "
+        "is the skill kind, NOT the live replay that verifies a draft before "
+        "install -- 'replay' is accepted as a deprecated alias for 'api' because "
+        "that word already means the verification step. Matches the manifest's own "
+        "operation_style. There is no default on purpose: the kind "
         "decides which compiler runs, and a recording made for the wrong one "
         "cannot be fixed by relabelling it afterwards -- it has to be recorded "
         "again. The member's request usually says which ('a browser based skill'); "
@@ -219,7 +223,7 @@ def main() -> int:
     # decision nobody was asked to make while it was still cheap.
     if args.kind is None and not args.browser_driven:
         print(
-            "--kind is required: browser | replay | auto.\n"
+            "--kind is required: browser | api | auto.\n"
             "\n"
             "It decides which compiler runs, and a recording made for the wrong "
             "one cannot be relabelled afterwards -- it has to be recorded again, "
@@ -228,10 +232,22 @@ def main() -> int:
             "The request usually says which: 'a browser based skill' means "
             "--kind browser. If it truly does not say, ask before recording; "
             "--kind auto lets the compiler decide from the HAR, and is a choice "
-            "rather than a default.",
+            "rather than a default. ('api' is the kind that fires recorded "
+            "requests -- not to be confused with the live replay that verifies a "
+            "draft before install.)",
             file=sys.stderr,
         )
         return 1
+    if args.kind == "replay":
+        # 'replay' already means the live verification of a draft; the manifest
+        # calls this kind 'api'. Accepted so nothing breaks, normalised so the
+        # two senses of the word never have to be told apart again.
+        print(
+            "note: --kind replay means the API/HAR kind; 'api' is the clearer name "
+            "(replay is the verification step). Reading it as --kind api.",
+            file=sys.stderr,
+        )
+        args.kind = "api"
     if args.kind == "browser":
         args.browser_driven = True
 
