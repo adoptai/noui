@@ -504,10 +504,7 @@ _DOCUMENT_SELECTORS = frozenset({"body", "html", ":root", "body *", "html body"}
 def _same_control(a: dict, b: dict) -> bool:
     """Do two steps drive the same control?"""
     pa, pb = (a.get("params") or {}), (b.get("params") or {})
-    for key in ("selector", "text", "label"):
-        if pa.get(key) and pa.get(key) == pb.get(key):
-            return True
-    return False
+    return any(pa.get(k) and pa.get(k) == pb.get(k) for k in ("selector", "text", "label"))
 
 
 def _collapse_repeats(steps: list[dict]) -> list[dict]:
