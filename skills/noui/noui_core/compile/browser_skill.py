@@ -225,6 +225,12 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
         (late_cands if late else cands).append(
             {
                 "text": text,
+                # Carried, or a hover becomes indistinguishable from a click the
+                # moment it passes through here -- and _step_for_click emitted
+                # click_element for ICICI's nav hover, on the same selector the
+                # real click used. Third field this function has been caught
+                # dropping, after candidates and is_opener.
+                "event_type": (c.get("event_type") or "click"),
                 "is_opener": event_seq(c) in opener_seqs,
                 # The OTHER ways this control was seen. choose_locator collapses
                 # them to one winner above; the runtime needs the rest to fall
@@ -276,11 +282,25 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
         # Collapse consecutive identical labels — but only when they are really
         # the same control. Two different icon buttons both have empty text, and
         # merging them would silently drop a step in the gesture.
-        if out and out[-1]["text"] == c["text"] and (c["text"] or _same_target(out[-1], c)):
+        # A hover and the click it revealed are NOT a repeat, even though they
+        # share a target and both have empty text: ICICI's nav hover and the
+        # submenu click both resolve to #scroll-container > div:nth-of-type(5).
+        # Collapsing them left a gesture that opens the menu and clicks nothing
+        # in it -- or, once event_type was lost below, one click_element that
+        # never opened anything.
+        same_kind = out and out[-1].get("event_type") == c.get("event_type")
+        if same_kind and out[-1]["text"] == c["text"] and (c["text"] or _same_target(out[-1], c)):
             continue
         out.append(
             {
                 "text": c["text"],
+                # Carried through the projection, not just built above it. This
+                # is where the hover lost the one field that made it a hover --
+                # the same class of gap that had already cost candidates and
+                # is_opener at the other builder.
+                "event_type": c.get("event_type") or "click",
+                "is_opener": c.get("is_opener"),
+                "candidates": c.get("candidates"),
                 "selector": c["selector"],
                 "locator": c["locator"],
                 "outcome": c["outcome"],
