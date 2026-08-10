@@ -123,6 +123,52 @@ def find_login_boundary(bundle: dict[str, Any]) -> str | None:
     return boundary["timestamp"] if boundary else None
 
 
+def split_diagnosis(bundle: dict[str, Any]) -> str:
+    """One line explaining what the splitter saw, and what it concluded.
+
+    The split turns on ONE thing -- whether any interaction was tagged as a
+    credential field -- and when that tagging fails the bundle is declared
+    login-free however plainly its URL timeline shows a sign-in. The member is
+    then asked to record a login they already recorded, and nothing anywhere
+    says why. This is the sentence that says why.
+    """
+    clicks = [c for c in (bundle.get("click_events") or []) if isinstance(c, dict)]
+    urls = [u for u in (bundle.get("url_events") or []) if isinstance(u, dict)]
+    creds = [c for c in clicks if c.get("field_role") in CREDENTIAL_FIELD_ROLES]
+    roles = sorted({str(c.get("field_role")) for c in clicks if c.get("field_role")})
+    login_urls = [
+        u
+        for u in urls
+        if any(
+            w in str(u.get("to_url") or "").lower() for w in ("login", "signin", "sign-in", "logon")
+        )
+    ]
+
+    boundary = _boundary_event(bundle)
+    if boundary is not None:
+        return (
+            f"split: login ends at seq={boundary.get('seq')} "
+            f"({boundary.get('timestamp')}); {len(creds)} credential interaction(s) "
+            f"of {len(clicks)} clicks, {len(urls)} url transitions."
+        )
+
+    detail = (
+        f"split: NO login segment. {len(clicks)} clicks, {len(urls)} url transitions, "
+        f"0 tagged as credential fields"
+    )
+    if roles:
+        detail += f" (field roles seen: {', '.join(roles)})"
+    if login_urls:
+        detail += (
+            f"; but {len(login_urls)} url(s) look like a sign-in "
+            f"(e.g. {str(login_urls[0].get('to_url'))[:70]}). The recorder did not tag the "
+            f"credential inputs -- a virtual keyboard, a masked custom control, or fields "
+            f"inside a frame will do that -- so the login cannot be sliced off even though "
+            f"it was recorded."
+        )
+    return detail
+
+
 def split_bundle(bundle: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Split a merged bundle into (login_bundle, workflow_bundle) at the boundary.
 
