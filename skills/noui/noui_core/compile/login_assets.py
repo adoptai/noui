@@ -297,6 +297,50 @@ def _first_path_segment(url: str) -> str:
     return path.split("/")[0].lower() if path else ""
 
 
+def _before_first_click(
+    transitions: list[tuple[str, str]],
+    url_events: list[dict],
+    click_events: list[dict] | None,
+) -> list[tuple[str, str]]:
+    """The URL transitions belonging to the LOGIN, not to what the human did next.
+
+    A login lands you somewhere by REDIRECT; everything after that is the human
+    clicking. So the login segment ends at the first click, and that boundary
+    holds however the app is built.
+
+    The rule it replaces stopped at the first ORIGIN CHANGE, which was written
+    for a multi-host portal (ICICI corporate on a different host than retail).
+    On a SINGLE-origin app there is never an origin change, so it walked to the
+    end of a combined recording and took wherever the human finished: ICICI
+    retail compiled `https://retailnetbanking.icici.bank.in/credit-card**` as
+    its post-login check, a page reached four clicks into the workflow, when the
+    login actually lands on /overview.
+
+    Falls back to every transition when the ordering cannot be established (no
+    seq, or a click before any navigation), because a login with no landing
+    page at all is worse than one derived the old way.
+    """
+    clicks = [c for c in (click_events or []) if isinstance(c, dict)]
+    if not clicks or len(transitions) != len(url_events):
+        return transitions
+
+    def seq_of(ev: dict) -> int | None:
+        v = ev.get("seq")
+        return v if isinstance(v, int) else None
+
+    click_seqs = [s for s in (seq_of(c) for c in clicks) if s is not None]
+    url_seqs = [seq_of(u) for u in url_events]
+    if not click_seqs or any(s is None for s in url_seqs):
+        return transitions
+
+    first_click = min(click_seqs)
+    kept = [
+        t for t, s in zip(transitions, url_seqs, strict=False) if s is not None and s < first_click
+    ]
+    # A click before any navigation (a cookie banner, say) would leave nothing.
+    return kept or transitions
+
+
 def _derive_post_login_pattern(login_url: str, landing_url: str) -> str:
     """A glob the LOGGED-IN url matches but the login page does not, or ``""``.
 
@@ -988,7 +1032,7 @@ def generate(
     # Find the last stable URL after the login sequence
     stable_urls = [
         to_url
-        for from_url, to_url in url_transitions
+        for from_url, to_url in _before_first_click(url_transitions, url_events, click_events)
         if not _is_redirect_hop(from_url, to_url) and to_url != first_url
     ]
     if stable_urls:
