@@ -122,6 +122,28 @@ _NAV_SEQ_SLACK = 3
 _NAV_TIME_SLACK_S = 1.5
 
 
+def _opener_seqs(click_events: list[dict] | None) -> set[int]:
+    """Seqs of clicks that OPENED whatever the next click used.
+
+    The recorder asserts this on the SECOND click (``opened_by_previous``),
+    because that is when it becomes true; here it is read back onto the first.
+
+    Shared by every call site on purpose. It was computed inside the nav-chain
+    builder alone, so a dropdown opened in a terminal operation's LEAD-IN never
+    carried the flag -- the value was derived and then dropped one layer above
+    the code that uses it, which is how ICICI's year trigger kept compiling to
+    click_by_text on a label that is really the widget's current value.
+    """
+    out: set[int] = set()
+    ordered = [c for c in (click_events or []) if isinstance(c, dict)]
+    for prev, nxt in zip(ordered, ordered[1:], strict=False):
+        if nxt.get("opened_by_previous"):
+            pseq = event_seq(prev)
+            if pseq is not None:
+                out.add(pseq)
+    return out
+
+
 def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> list[dict]:
     """The recorded click CHAIN that drove an in-app navigation FROM from_url.
 
@@ -150,16 +172,7 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
     from_key = _page_key(from_url)
     nav_dt = _parse_ts((nav_ev or {}).get("timestamp") or "")
     nav_seq = event_seq(nav_ev)
-    # A click is an OPENER when the click that follows says it landed inside it.
-    # The recorder asserts that on the second click (opened_by_previous), because
-    # that is when it becomes true; here it is read back onto the first.
-    opener_seqs: set[int] = set()
-    ordered = [c for c in (click_events or []) if isinstance(c, dict)]
-    for prev, nxt in zip(ordered, ordered[1:], strict=False):
-        if nxt.get("opened_by_previous"):
-            pseq = event_seq(prev)
-            if pseq is not None:
-                opener_seqs.add(pseq)
+    opener_seqs = _opener_seqs(click_events)
 
     cands: list[dict] = []
     late_cands: list[dict] = []
@@ -1151,6 +1164,7 @@ def derive_terminal_operations(
     exactly as they did.
     """
     click_events = order_events(click_events)
+    term_opener_seqs = _opener_seqs(click_events)
     # Same multi-origin rule as the pages themselves: an interaction on the
     # app's second host (ICICI's statement portal) is still this app's.
     app_origins = {_url_origin(p["url"]) for p in pages}
@@ -1233,6 +1247,7 @@ def derive_terminal_operations(
                     "text": (c.get("text_content") or "").strip(),
                     "locator": choose_locator(c.get("candidates")),
                     "candidates": c.get("candidates"),
+                    "is_opener": event_seq(c) in term_opener_seqs,
                     "outcome": c.get("outcome"),
                 }
             )
