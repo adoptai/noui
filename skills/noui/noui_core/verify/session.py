@@ -27,6 +27,7 @@ import re
 from typing import Any
 
 from noui_core import tabby_client
+from noui_core.capture.split import _is_login_flow_url
 from noui_core.verify.replay import (
     SessionNotReadyError,
     build_report,
@@ -152,6 +153,18 @@ def _return_to_entry(execute: Any, entry_url: str) -> dict | None:
 
     if here and _same_page(here, entry_url):
         return None  # already at the start; moving would only cost a load
+
+    # Sitting on the sign-in flow is not a broken skill and not a page we can
+    # find our way off: a login screen has no link to the landing page, so the
+    # reset would report "no way back" and the member would read a plan failure
+    # where the real answer is "sign in". SessionNotReadyError is what run_replay
+    # turns into login_required, which is what puts a sign-in card in front of
+    # them.
+    if here and _is_login_flow_url(here):
+        raise SessionNotReadyError(
+            f"the browser is on the sign-in flow ({here}), so there is no signed-in "
+            "session to replay against"
+        )
 
     # navigate FIRST, because on an app that allows it this is one call and
     # lands exactly where we mean. It is not always allowed: a portal that

@@ -250,3 +250,50 @@ def test_a_real_navigate_failure_is_not_mistaken_for_the_refusal():
     failed = session_mod._return_to_entry(b, ENTRY)
     assert failed is not None
     assert "get_page_summary" not in b.commands
+
+
+# --- a sign-in page is a WAIT, not a plan failure -----------------------------
+#
+# Live run: the browser sat on ICICI's AuthenticationController with LOGIN_FLAG=1
+# and the reset reported "no link back to the start was found on the page" —
+# true, and useless. A login screen has no link to the landing page. The member
+# needs a sign-in card, not a report that their skill is broken.
+
+LOGIN_PAGE = (
+    "https://infinity.icici.bank.in/corp/AuthenticationController"
+    "?FORMSGROUP_ID__=AuthenticationFG&LOGIN_FLAG=1"
+)
+
+
+def test_a_sign_in_page_becomes_login_required_not_a_blocked_step():
+    b = _Browser(LOGIN_PAGE)
+    try:
+        session_mod._return_to_entry(b, ENTRY)
+    except SessionNotReadyError as exc:
+        assert "sign-in flow" in str(exc)
+        # Nothing was attempted against a session that cannot answer.
+        assert b.commands == ["get_page_info"]
+        return
+    raise AssertionError("expected SessionNotReadyError")
+
+
+def test_the_ordinary_login_page_shape_is_caught_too():
+    for url in (
+        "https://retailnetbanking.icici.bank.in/login-page",
+        "https://example.test/auth/signin",
+        "https://example.test/session/verify",
+    ):
+        b = _Browser(url)
+        try:
+            session_mod._return_to_entry(b, ENTRY)
+        except SessionNotReadyError:
+            continue
+        raise AssertionError(f"not detected: {url}")
+
+
+def test_an_ordinary_app_page_is_still_a_reset_not_a_sign_in():
+    # The detector must not swallow a real drift: /credit-card/add-card is a
+    # deep app page, and the answer there is to go back to the start.
+    b = _Browser(DRIFTED)
+    assert session_mod._return_to_entry(b, ENTRY) is None
+    assert "navigate" in b.commands
