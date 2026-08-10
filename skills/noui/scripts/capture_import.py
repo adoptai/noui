@@ -419,6 +419,22 @@ def main() -> int:
     bundle_path = save_bundle(bundle, args.name or args.session_id)
     print(f"Saved capture bundle → {bundle_path}", file=sys.stderr)
 
+    # The kind travels with the recording, not with this command line.
+    #
+    # capture_record took --browser-driven, provisioned with it and never wrote
+    # it down, so the decision had to be repeated here. Forget it -- easily
+    # done, since nothing in the recording says so -- and an app that must be
+    # driven compiles to replayed API calls instead: an ICICI capture asked for
+    # as a BROWSER BASED skill shipped as two Finacle POSTs.
+    if not getattr(args, "browser_driven", False) and ledger.declared_browser_driven(
+        args.session_id
+    ):
+        args.browser_driven = True
+        print(
+            "browser-driven: carried from the recording (it was provisioned that way).",
+            file=sys.stderr,
+        )
+
     mode, source = _resolve_mode(args, inferred)
     _report_mode(mode, source, inferred, bundle)
 

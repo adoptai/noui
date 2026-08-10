@@ -42,6 +42,7 @@ def record(
     profile: str = "",
     from_session: str = "",
     residential: bool = False,
+    browser_driven: bool = False,
 ) -> Path:
     """Persist what this session was provisioned as. Returns the written path."""
     if declared_mode not in MODES:
@@ -58,6 +59,7 @@ def record(
                 "profile": profile,
                 "from_session": from_session,
                 "residential": residential,
+                "browser_driven": bool(browser_driven),
                 "created_at": datetime.now(UTC).isoformat(),
             },
             indent=2,
@@ -77,6 +79,20 @@ def lookup(session_id: str) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return entry if isinstance(entry, dict) else None
+
+
+def declared_browser_driven(session_id: str) -> bool:
+    """Was this session recorded FOR a browser-driven skill?
+
+    The kind is a decision, usually the member's own words ("a browser based
+    skill"), and it was taken at record time and then thrown away: capture_record
+    used the flag to provision and never wrote it down, so capture_import had to
+    be told again on its own command line. Forget it there -- easily done, since
+    nothing in the recording says so -- and an app that must be driven compiles
+    to replayed API calls instead. An ICICI capture asked for as a BROWSER BASED
+    skill shipped as two Finacle POSTs.
+    """
+    return bool((lookup(session_id) or {}).get("browser_driven"))
 
 
 def declared_mode(session_id: str) -> str:

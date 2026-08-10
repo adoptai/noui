@@ -248,6 +248,7 @@ def main() -> int:
                 profile=args.profile,
                 from_session=args.from_session,
                 residential=args.residential_proxy,
+                browser_driven=args.browser_driven,
             )
         except (OSError, ValueError) as exc:
             print(
