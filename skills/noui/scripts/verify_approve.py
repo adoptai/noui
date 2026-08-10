@@ -26,10 +26,19 @@ from pathlib import Path
 
 import _bootstrap  # noqa: F401
 
+from noui_core.compile import amendments as amendments_mod
 from noui_core.verify.gate import write_approval
 from noui_core.verify.replay import approve
 
 REPORT_FILE = "replay_report.json"
+
+
+def _read(path) -> str:
+    """File contents, or "" when absent — an unreadable file is not amendments."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 
 def main() -> int:
@@ -40,6 +49,15 @@ def main() -> int:
         action="store_true",
         help="approve although the replay did not reach every goal. The member has "
         "to have said so explicitly, knowing which operation failed.",
+    )
+    p.add_argument(
+        "--approve-amendment",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="approve one step that was discovered at replay rather than recorded. "
+        "One flag per amendment, by the id in the replay report. The member has to "
+        "have seen and answered on each: nobody watched a human perform these.",
     )
     args = p.parse_args()
 
@@ -81,11 +99,63 @@ def main() -> int:
         )
         return 1
 
+    # Record which amendments the member approved, by id.
+    #
+    # An amendment is a step discovered at replay, not one a human was watched
+    # performing, and the installer approves those ONE AT A TIME -- approving the
+    # skill as a whole would wave through exactly the steps that most need
+    # looking at. Nothing wrote this field, so an amended skill could never
+    # install however carefully it was reviewed.
+    amendments = amendments_mod.load(_read(skill_dir / amendments_mod.AMENDMENTS_FILE))
+    approved_ids: list[str] = []
+    if amendments:
+        wanted = set(args.approve_amendment or [])
+        unknown = wanted - {amendments_mod.amendment_id(a) for a in amendments}
+        if unknown:
+            print(
+                f"No amendment has id {', '.join(sorted(unknown))}. Ids come from the "
+                f"replay report; approving one that does not exist would record a "
+                f"decision about nothing.",
+                file=sys.stderr,
+            )
+            return 1
+        approved_ids = [
+            amendments_mod.amendment_id(a)
+            for a in amendments
+            if amendments_mod.amendment_id(a) in wanted
+        ]
+        outstanding = [a for a in amendments if amendments_mod.amendment_id(a) not in wanted]
+        if outstanding:
+            print(
+                f"{len(outstanding)} amendment(s) not approved -- the installer will "
+                f"refuse until the member answers on each:",
+                file=sys.stderr,
+            )
+            for a in outstanding:
+                print(
+                    f"  [{amendments_mod.amendment_id(a)}] {amendments_mod.describe(a)}",
+                    file=sys.stderr,
+                )
+
     try:
-        path = write_approval(skill_dir, approve(report))
+        record = approve(report)
+        if approved_ids:
+            record["approved_amendments"] = approved_ids
+        path = write_approval(skill_dir, record)
     except (OSError, ValueError) as exc:
         print(f"Could not record the approval: {exc}", file=sys.stderr)
         return 1
+
+    if amendments and len(approved_ids) < len(amendments):
+        # Do not say installable when it is not. The installer refuses on an
+        # unapproved amendment, and a message that contradicts it just sends the
+        # caller to an install that fails.
+        print(
+            f"Approved — recorded at {path}. The skill will NOT install yet: "
+            f"{len(amendments) - len(approved_ids)} amendment(s) still need the "
+            f"member's answer (see above)."
+        )
+        return 0
 
     print(f"Approved — recorded at {path}. The skill may now be installed.")
     return 0
