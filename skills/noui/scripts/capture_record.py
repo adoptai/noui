@@ -103,6 +103,18 @@ def main() -> int:
         "configured on Tabby; otherwise the recording-shell app default applies.",
     )
     p.add_argument(
+        "--kind",
+        choices=("browser", "replay", "auto"),
+        default=None,
+        help="What KIND of skill this recording is for. REQUIRED. 'browser' drives "
+        "the live page; 'replay' fires the recorded requests; 'auto' lets the "
+        "compiler decide from the HAR. There is no default on purpose: the kind "
+        "decides which compiler runs, and a recording made for the wrong one "
+        "cannot be fixed by relabelling it afterwards -- it has to be recorded "
+        "again. The member's request usually says which ('a browser based skill'); "
+        "if it does not, ask before spending their time on a recording.",
+    )
+    p.add_argument(
         "--browser-driven",
         dest="browser_driven",
         action="store_true",
@@ -198,6 +210,31 @@ def main() -> int:
     # A combined capture is provisioned as a normal 'login' session — the server-side
     # mode is behaviorally inert, so one session records login + workflow in one HAR.
     # NoUI splits it at import, routed by the provision ledger written below.
+    # The kind is decided BEFORE a single click is recorded.
+    #
+    # It used to be an optional flag, so a request that opened with the words
+    # "BROWSER BASED skill" still recorded with the kind unset, auto-detection
+    # chose replay, and the first compile was wrong. Everything after that --
+    # patching the manifest, recompiling, re-recording -- was compensation for a
+    # decision nobody was asked to make while it was still cheap.
+    if args.kind is None and not args.browser_driven:
+        print(
+            "--kind is required: browser | replay | auto.\n"
+            "\n"
+            "It decides which compiler runs, and a recording made for the wrong "
+            "one cannot be relabelled afterwards -- it has to be recorded again, "
+            "which costs the member another sign-in and another walkthrough.\n"
+            "\n"
+            "The request usually says which: 'a browser based skill' means "
+            "--kind browser. If it truly does not say, ask before recording; "
+            "--kind auto lets the compiler decide from the HAR, and is a choice "
+            "rather than a default.",
+            file=sys.stderr,
+        )
+        return 1
+    if args.kind == "browser":
+        args.browser_driven = True
+
     tabby_mode = "login" if args.mode == "combined" else args.mode
 
     # A combined capture ALWAYS asks Tabby for locator evidence, whether or not

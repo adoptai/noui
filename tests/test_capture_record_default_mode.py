@@ -47,6 +47,8 @@ def run(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cr.recording, "resolve_agent_token", lambda: "test-token")
 
     def _run(*argv: str):
+        if not any(a == "--kind" for a in argv) and "--browser-driven" not in argv:
+            argv = ("--kind", "auto", *argv)
         monkeypatch.setattr(sys, "argv", ["capture_record.py", *argv])
         with patch.object(
             cr.recording, "provision_live_link", return_value=dict(_PROVISIONED)
