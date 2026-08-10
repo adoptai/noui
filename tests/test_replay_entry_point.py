@@ -86,7 +86,7 @@ def test_failed_reset_is_reported_as_the_reset_not_as_step_zero():
     b = _Browser(DRIFTED, navigate_fails=True)
     failed = session_mod._return_to_entry(b, ENTRY)
     assert failed is not None
-    assert failed["command"] == "navigate"
+    assert failed["command"] == "return_to_entry"
     assert failed["status"] == "blocked"
     # The report must say where the browser actually was — that is the fact that
     # explains every step failure underneath it.
@@ -162,3 +162,91 @@ def test_the_compiler_stamps_what_entry_url_for_returns():
         )
     )
     assert doc["entry_url"] == ENTRY
+
+
+# --- navigate is not always available -----------------------------------------
+#
+# First live run of this reset: it used `navigate`, which the worker refuses on
+# an app that carries its session in the URL -- "a full-page load destroys its
+# session". The compiled SKILL.md says the same thing to the agent. The reset
+# was built without checking that the command it chose was one the app allows.
+
+_DISABLED = RuntimeError(
+    "execute/browser 'navigate' failed: navigate is disabled for this app: "
+    "a full-page load destroys its session"
+)
+
+
+class _NoNavigate(_Browser):
+    """An ICICI-shaped app: navigate refused, a home link in the summary."""
+
+    def __init__(self, at, summary):
+        super().__init__(at)
+        self.summary = summary
+
+    def __call__(self, command, params):
+        if command == "navigate":
+            self.calls.append((command, params))
+            raise _DISABLED
+        if command == "get_page_summary":
+            self.calls.append((command, params))
+            return {"data": self.summary}
+        if command == "click_element":
+            self.calls.append((command, params))
+            self.at = ENTRY  # the app's own route change
+            return {"data": {}}
+        return super().__call__(command, params)
+
+
+HOME_LINK = {"links": [{"text": "", "href": "/overview", "selector": "a.logo"}]}
+
+
+def test_when_navigate_is_refused_the_reset_clicks_the_way_back():
+    b = _NoNavigate(DRIFTED, HOME_LINK)
+    assert session_mod._return_to_entry(b, ENTRY) is None
+    assert "click_element" in b.commands
+    assert b.at == ENTRY
+
+
+def test_the_home_control_is_found_by_where_it_points_not_what_it_says():
+    # It is usually a logo with no text at all. Matching words would need a list
+    # per language and per bank.
+    got = session_mod._home_control(HOME_LINK, ENTRY)
+    assert got == {"command": "click_element", "params": {"selector": "a.logo"}}
+
+
+def test_a_link_to_somewhere_else_is_not_the_way_back():
+    other = {"links": [{"text": "Cards", "href": "/credit-card", "selector": "a.cc"}]}
+    assert session_mod._home_control(other, ENTRY) is None
+
+
+def test_no_way_back_is_reported_with_the_reason():
+    b = _NoNavigate(DRIFTED, {"links": [], "buttons": []})
+    failed = session_mod._return_to_entry(b, ENTRY)
+    assert failed is not None
+    assert "does not allow navigate" in failed["error"]
+    assert DRIFTED in failed["error"]
+
+
+def test_a_click_that_does_not_land_at_the_start_is_not_treated_as_success():
+    class _Wanders(_NoNavigate):
+        def __call__(self, command, params):
+            if command == "click_element":
+                self.calls.append((command, params))
+                self.at = "https://retailnetbanking.icici.bank.in/somewhere-else"
+                return {"data": {}}
+            return super().__call__(command, params)
+
+    b = _Wanders(DRIFTED, HOME_LINK)
+    failed = session_mod._return_to_entry(b, ENTRY)
+    assert failed is not None
+    assert "did not land on the start" in failed["error"]
+
+
+def test_a_real_navigate_failure_is_not_mistaken_for_the_refusal():
+    # Only the "navigate is disabled" refusal earns the click fallback; anything
+    # else is a genuine failure and must be reported, not worked around.
+    b = _Browser(DRIFTED, navigate_fails=True)
+    failed = session_mod._return_to_entry(b, ENTRY)
+    assert failed is not None
+    assert "get_page_summary" not in b.commands

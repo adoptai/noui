@@ -72,6 +72,57 @@ def session_is_ready(profile_slug: str, token: str) -> bool:
     return True
 
 
+def _same_page(a: str, b: str) -> bool:
+    """Same page, ignoring a trailing slash."""
+    return a.rstrip("/") == b.rstrip("/")
+
+
+def _entry_path(entry_url: str) -> str:
+    """The path part of the entry, which is what a same-app link carries."""
+    path = re.sub(r"^[a-z]+://[^/]+", "", entry_url, flags=re.I)
+    return (path.split("?")[0] or "/").rstrip("/")
+
+
+def _home_control(controls: dict, entry_url: str) -> dict | None:
+    """The app's own way back to the landing page, by where it POINTS.
+
+    Not by what it says: the control is often a logo with no text at all, and
+    matching words would need a list per language and per bank. A link whose
+    href is the entry path is the same link a person clicks, on any app.
+    """
+    want = _entry_path(entry_url)
+    if not want or want == "":
+        return None
+    for group in ("links", "buttons"):
+        for c in controls.get(group) or []:
+            if not isinstance(c, dict):
+                continue
+            href = str(c.get("href") or "")
+            sel = str(c.get("selector") or "")
+            target = href or sel
+            if want and (target.split("?")[0].rstrip("/").endswith(want)):
+                if sel:
+                    return {"command": "click_element", "params": {"selector": sel}}
+                text = str(c.get("text") or "").strip()
+                if text:
+                    return {"command": "click_by_text", "params": {"text": text}}
+    return None
+
+
+def _cannot_reset(entry_url: str, here: str, why: str) -> dict:
+    return {
+        "command": "return_to_entry",
+        "params": {"url": entry_url},
+        "status": "blocked",
+        "error": (
+            f"could not return to the start of the journey ({entry_url}): {why}. "
+            f"The browser is on {here or 'an unknown page'}, which is not where these "
+            "steps were recorded, so replaying them from here proves nothing. Sign in "
+            "again for a session that starts at the landing page."
+        ),
+    }
+
+
 def _return_to_entry(execute: Any, entry_url: str) -> dict | None:
     """Put the browser back at the start of the journey before replaying it.
 
@@ -96,27 +147,59 @@ def _return_to_entry(execute: Any, entry_url: str) -> dict | None:
         here = str((info.get("data") or info).get("url") or "")
     except SessionNotReadyError:
         raise
-    except Exception:  # noqa: BLE001 — an unreadable url just means "navigate anyway"
+    except Exception:  # noqa: BLE001 — an unreadable url just means "reset anyway"
         here = ""
 
-    if here and here.rstrip("/") == entry_url.rstrip("/"):
-        return None  # already at the start; navigating would only cost a load
+    if here and _same_page(here, entry_url):
+        return None  # already at the start; moving would only cost a load
 
+    # navigate FIRST, because on an app that allows it this is one call and
+    # lands exactly where we mean. It is not always allowed: a portal that
+    # carries its session in the URL loses it on a full page load, and the
+    # worker refuses the command outright -- which is how the first live run of
+    # this reset failed, using the one command the app forbids.
     try:
         execute("navigate", {"url": entry_url})
+        return None
     except SessionNotReadyError:
         raise
-    except Exception as exc:  # noqa: BLE001 — reported, not raised
-        return {
-            "command": "navigate",
-            "params": {"url": entry_url},
-            "status": "blocked",
-            "error": (
-                f"could not return to the start of the journey ({entry_url}): {exc}. "
-                f"The browser is on {here or 'an unknown page'}, which is not where "
-                "these steps were recorded, so replaying them from here proves nothing."
-            ),
-        }
+    except Exception as exc:  # noqa: BLE001 — may be the refusal, may be real
+        if "navigate is disabled" not in str(exc):
+            return _cannot_reset(entry_url, here, str(exc))
+
+    # Move the way a person does: the app's own link back to the landing page.
+    # Matched on where the link POINTS, not what it says, so this works on a
+    # logo with no text and in any language.
+    try:
+        summary = execute("get_page_summary", {})
+        controls = (summary.get("data") or summary) or {}
+    except SessionNotReadyError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        return _cannot_reset(entry_url, here, f"could not read the page: {exc}")
+
+    home = _home_control(controls, entry_url)
+    if home is None:
+        return _cannot_reset(
+            entry_url,
+            here,
+            "this app does not allow navigate, and no link back to the start was "
+            "found on the page",
+        )
+
+    try:
+        execute(home["command"], home["params"])
+        info = execute("get_page_info", {})
+        landed = str((info.get("data") or info).get("url") or "")
+    except SessionNotReadyError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        return _cannot_reset(entry_url, here, f"clicking the way back failed: {exc}")
+
+    if not _same_page(landed, entry_url):
+        return _cannot_reset(
+            entry_url, landed, "clicking the way back did not land on the start"
+        )
     return None
 
 
