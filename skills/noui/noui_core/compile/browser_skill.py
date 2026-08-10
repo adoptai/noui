@@ -113,6 +113,15 @@ def _same_target(a: dict, b: dict) -> bool:
     return bool(a.get("selector")) and a.get("selector") == b.get("selector")
 
 
+#: How far AFTER a navigation its driving click may still be recorded.
+#:
+#: An SPA route change is observed when the URL changes, which can be stamped
+#: before the click handler that caused it. Small on purpose: this absorbs an
+#: ordering inversion, not a gap between two human actions.
+_NAV_SEQ_SLACK = 3
+_NAV_TIME_SLACK_S = 1.5
+
+
 def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> list[dict]:
     """The recorded click CHAIN that drove an in-app navigation FROM from_url.
 
@@ -142,6 +151,7 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
     nav_dt = _parse_ts((nav_ev or {}).get("timestamp") or "")
     nav_seq = event_seq(nav_ev)
     cands: list[dict] = []
+    late_cands: list[dict] = []
     for c in click_events or []:
         # A hover that opened a menu is part of the gesture, not noise: the
         # click after it targets something that does not exist until the pointer
@@ -164,12 +174,31 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
         cdt = _parse_ts(c.get("timestamp") or "")
         cseq = event_seq(c)
         # Drop clicks made AFTER the navigation — they cannot have caused it.
+        # A click and the navigation it causes are near-simultaneous, and their
+        # recorded order can INVERT: an SPA route change is observed when the
+        # URL changes, which for ICICI's overview -> credit-card hop landed at
+        # seq 4 while the "Credit Cards" click that drove it landed at seq 6.
+        # A strict "before the navigation" rule found no driving click, so the
+        # credit-card page compiled with an empty chain -- the one hop that has
+        # failed in every run -- while later hops, whose clicks happened to be
+        # recorded first, compiled correctly.
+        #
+        # Allow a small window on the far side. Wide enough to absorb the
+        # inversion, far narrower than the gap to the human's next action, so a
+        # click belonging to the NEXT page is still never claimed by this one.
         if nav_seq is not None and cseq is not None:
-            if cseq > nav_seq:
+            if cseq > nav_seq + _NAV_SEQ_SLACK:
                 continue
-        elif nav_dt and cdt and cdt > nav_dt:
-            continue
-        cands.append(
+            late = cseq > nav_seq
+        elif nav_dt and cdt:
+            delta = (cdt - nav_dt).total_seconds()
+            if delta > _NAV_TIME_SLACK_S:
+                continue
+            late = delta > 0
+        else:
+            late = False
+
+        (late_cands if late else cands).append(
             {
                 "text": text,
                 # The OTHER ways this control was seen. choose_locator collapses
@@ -183,6 +212,14 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
                 "seq": cseq,
             }
         )
+    if not cands and late_cands:
+        # Nothing preceded the navigation, so the click that caused it was
+        # recorded just after: an SPA route change is observed when the URL
+        # changes, and ICICI stamped the overview -> credit-card hop at seq 4
+        # while the "Credit Cards" click that drove it landed at seq 6. Taking
+        # these only as a last resort keeps an ordinary later click -- a "Log
+        # out" back on the same page -- out of the gesture.
+        cands = late_cands
     if not cands:
         return []
 
