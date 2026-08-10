@@ -150,6 +150,17 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
     from_key = _page_key(from_url)
     nav_dt = _parse_ts((nav_ev or {}).get("timestamp") or "")
     nav_seq = event_seq(nav_ev)
+    # A click is an OPENER when the click that follows says it landed inside it.
+    # The recorder asserts that on the second click (opened_by_previous), because
+    # that is when it becomes true; here it is read back onto the first.
+    opener_seqs: set[int] = set()
+    ordered = [c for c in (click_events or []) if isinstance(c, dict)]
+    for prev, nxt in zip(ordered, ordered[1:], strict=False):
+        if nxt.get("opened_by_previous"):
+            pseq = event_seq(prev)
+            if pseq is not None:
+                opener_seqs.add(pseq)
+
     cands: list[dict] = []
     late_cands: list[dict] = []
     for c in click_events or []:
@@ -201,6 +212,7 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
         (late_cands if late else cands).append(
             {
                 "text": text,
+                "is_opener": event_seq(c) in opener_seqs,
                 # The OTHER ways this control was seen. choose_locator collapses
                 # them to one winner above; the runtime needs the rest to fall
                 # back on when that winner stops matching.
@@ -518,6 +530,21 @@ def _step_for_click(click: dict) -> dict | None:
         if expect:
             step["expect"] = expect
         return step
+
+    if click.get("is_opener") and (click.get("candidates") or []):
+        # This click OPENED the control the next one used -- a dropdown showing
+        # its current value, clicked to reveal the options. Its visible label is
+        # therefore the widget's VALUE ("FY2024-25"), not a control name, and it
+        # will read differently at replay: next year, or on another account. So
+        # address it by a stable selector even though a text candidate exists.
+        #
+        # Only for an opener. An ordinary control whose label happens to be a
+        # div -- ICICI's "Credit Cards" nav -- keeps its text, which is the whole
+        # point of recovering it.
+        for cand in click["candidates"]:
+            if isinstance(cand, dict) and _is_css_kind(str(cand.get("kind") or "")):
+                if cand.get("value") and cand.get("match_count") in (1, -1, None):
+                    return {"command": "click_element", "params": {"selector": str(cand["value"])}}
 
     if (click.get("event_type") or "") == "hover":
         # Hover is addressed like any other control, but it opens rather than

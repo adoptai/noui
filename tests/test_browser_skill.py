@@ -1418,3 +1418,80 @@ def test_a_hover_inside_a_frame_keeps_its_frame():
         }
     )
     assert step["params"]["frame_url"] == "https://finacle.test/x"
+
+
+def test_a_dropdown_opener_is_addressed_by_selector_not_its_value():
+    """The opener's label is the widget's VALUE, not a control name.
+
+    ICICI's year dropdown displays "FY2024-25"; you click that to open it, then
+    click the year you want. At replay the displayed value differs — next year,
+    or on another account — so click_by_text("FY2024-25") matches nothing.
+    """
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "is_opener": True,
+            "text": "FY2024-25",
+            "locator": {
+                "value": "FY2024-25",
+                "kind": "text",
+                "is_css": False,
+                "confidence": "medium",
+                "match_count": 1,
+            },
+            "candidates": [
+                {"kind": "text", "value": "FY2024-25", "match_count": 1},
+                {"kind": "css_path", "value": "#InfoPanel1 > span > div", "match_count": 1},
+            ],
+        }
+    )
+    assert step["command"] == "click_element"
+    assert step["params"]["selector"] == "#InfoPanel1 > span > div"
+
+
+def test_an_ordinary_nav_item_keeps_its_text_locator():
+    """THE GUARD. "Credit Cards" has the same shape as the dropdown opener —
+    a div with no role, distinguished only by its text — and recovering that
+    text locator is what this session was for. Only an OPENER may lose it."""
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "text": "Credit Cards",
+            "locator": {
+                "value": "Credit Cards",
+                "kind": "text",
+                "is_css": False,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "candidates": [
+                {"kind": "text", "value": "Credit Cards", "match_count": 1},
+                {"kind": "css_path", "value": "#scroll-container > div", "match_count": 1},
+            ],
+        }
+    )
+    assert step["command"] == "click_by_text"
+    assert step["params"]["text"] == "Credit Cards"
+
+
+def test_an_opener_with_no_stable_selector_keeps_what_it_has():
+    # Better a text locator that may drift than no step at all.
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "is_opener": True,
+            "text": "FY2024-25",
+            "locator": {
+                "value": "FY2024-25",
+                "kind": "text",
+                "is_css": False,
+                "confidence": "medium",
+                "match_count": 1,
+            },
+            "candidates": [{"kind": "text", "value": "FY2024-25", "match_count": 1}],
+        }
+    )
+    assert step["command"] == "click_by_text"
