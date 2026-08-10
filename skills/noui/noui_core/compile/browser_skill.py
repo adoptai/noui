@@ -785,13 +785,24 @@ def entry_url_for(url_events: list[dict], pages: list[dict]) -> str:
     A page whose own nav is None is that page by definition, and is preferred
     when one survived compilation.
     """
+    # url_events FIRST. `nav is None` looked like a clean signal for "the
+    # landing page" and is not: _resolve_nav_chains re-roots chains onto the
+    # first surviving page, so when /overview was dropped, /credit-card came
+    # back with nav None and the compiler stamped the destination again. The
+    # recorded transitions cannot be re-rooted by anything downstream.
+    # The page in effect before the FIRST transition of the slice being
+    # compiled -- literally "the page the first step acts on". The compiler is
+    # handed the WORKFLOW slice, whose first event is already /overview ->
+    # /credit-card, so the login->landing transition is not in it and a rule
+    # that looked for one fell through to the destination twice.
+    for ev in url_events or []:
+        frm = str((ev or {}).get("from_url") or "")
+        if not frm or frm == "about:blank" or _is_login_flow_url(frm):
+            continue  # the browser opening, or the sign-in nobody replays
+        return frm
     for p in pages or []:
         if p.get("nav") is None and p.get("url"):
             return str(p["url"])
-    for ev in url_events or []:
-        frm, to = str((ev or {}).get("from_url") or ""), str((ev or {}).get("to_url") or "")
-        if to and frm and _is_login_flow_url(frm) and not _is_login_flow_url(to):
-            return to
     return str((pages or [{}])[0].get("url") or "")
 
 

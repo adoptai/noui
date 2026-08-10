@@ -272,13 +272,27 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
         return 1
     try:
         prov = register.register_login(compiled, tenant_id=_default_tenant(args.tenant_id))
+        profile_slug = prov.get("profile_id", "")
+        print(f"Registered login App Template → profile slug '{profile_slug}'.", file=sys.stderr)
     except RuntimeError as exc:
-        print(f"Login register failed: {exc}", file=sys.stderr)
-        print(json.dumps({"compiled": compiled.get("service_profile_draft", {})}, indent=2))
-        return 1
-
-    profile_slug = prov.get("profile_id", "")
-    print(f"Registered login App Template → profile slug '{profile_slug}'.", file=sys.stderr)
+        # An App Template that already exists is not a failure -- it is the
+        # SECOND import of the same recording, which is what re-compiling after
+        # a compiler fix looks like. Failing here left operations.json stale at
+        # the previous compile while the run reported an error about the login
+        # half, so the fix appeared not to have worked.
+        if "409" not in str(exc) and "already exists" not in str(exc).lower():
+            print(f"Login register failed: {exc}", file=sys.stderr)
+            print(json.dumps({"compiled": compiled.get("service_profile_draft", {})}, indent=2))
+            return 1
+        profile_slug = (compiled.get("service_profile_draft") or {}).get("profile_id", "") or (
+            args.profile_slug or ""
+        )
+        print(
+            f"Login App Template '{profile_slug}' already exists — keeping it and "
+            "compiling the workflow half. The login was recorded once; re-registering "
+            "it would only overwrite a profile that is already serving sessions.",
+            file=sys.stderr,
+        )
 
     # The login compile ran on the login SLICE (not the workflow hosts), so its
     # target_urls won't cover the workflow's hosts — passing its declared headers
