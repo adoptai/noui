@@ -27,7 +27,6 @@ capture is skipped and a command to reuse that profile is printed instead
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 
 import _bootstrap  # noqa: F401  (sys.path side effect)
@@ -107,12 +106,6 @@ def main() -> int:
         "--browser-driven",
         dest="browser_driven",
         action="store_true",
-        # Defaults from NOUI_BROWSER_DRIVEN, which the platform sets when the
-        # member's own request asked for a browser skill. The kind is their
-        # decision, and it used to survive only if the agent remembered to type
-        # the flag -- an ICICI capture asked for as a "BROWSER BASED skill"
-        # shipped as replayed API calls because nobody did.
-        default=os.environ.get("NOUI_BROWSER_DRIVEN", "").strip().lower() in ("1", "true", "yes"),
         help="this recording will be compiled into a BROWSER-DRIVEN skill, so "
         "Tabby reduces the workflow HAR to metadata — no request/response bodies, "
         "headers or query strings. Use when the kind is already known (the app "
