@@ -769,8 +769,38 @@ def ambiguous_steps(pages: list[dict]) -> list[dict]:
     return out
 
 
+def entry_url_for(url_events: list[dict], pages: list[dict]) -> str:
+    """Where the journey starts: the page the FIRST step acts on.
+
+    Not pages[0]["url"] -- that is a DESTINATION. A page's recipe begins with
+    the click chain that reached it, and that chain is performed on an earlier
+    page. On a recording whose split kept /overview as a readable page the two
+    happened to coincide; on one that did not, entry_url came out as
+    /credit-card while every operation's step 0 was `click_by_text "Credit
+    Cards"` -- a click you make FROM /overview. Resetting there and then
+    clicking would land nowhere, which is the drift bug from the other side.
+
+    So: the first page reached from the login flow -- the post-login landing
+    page, which is where the session itself lands and where the chains start.
+    A page whose own nav is None is that page by definition, and is preferred
+    when one survived compilation.
+    """
+    for p in pages or []:
+        if p.get("nav") is None and p.get("url"):
+            return str(p["url"])
+    for ev in url_events or []:
+        frm, to = str((ev or {}).get("from_url") or ""), str((ev or {}).get("to_url") or "")
+        if to and frm and _is_login_flow_url(frm) and not _is_login_flow_url(to):
+            return to
+    return str((pages or [{}])[0].get("url") or "")
+
+
 def render_browser_operations_json(
-    pages: list[dict], *, profile_slug: str, terminal_ops: list[dict] | None = None
+    pages: list[dict],
+    *,
+    profile_slug: str,
+    terminal_ops: list[dict] | None = None,
+    entry_url: str = "",
 ) -> str:
     """operations.json for a browser skill — a click+read recipe per page.
 
@@ -803,13 +833,14 @@ def render_browser_operations_json(
             }
         )
     doc = {"schema_version": "1", "style": "browser", "operations": operations}
-    if pages:
+    if entry_url:
         # Where the journey starts. These operations are one recorded journey cut
         # into pieces -- op N+1 begins on the page op N left behind -- so replaying
-        # them means reproducing that journey from its first page, which is the
-        # post-login landing page and the only one reachable without the steps
-        # that precede it.
-        doc["entry_url"] = pages[0]["url"]
+        # them means reproducing that journey from the page its first step acts
+        # on, which is the post-login landing page and the only one reachable
+        # without the steps that precede it. See entry_url_for: this is NOT the
+        # first readable page, which is a destination.
+        doc["entry_url"] = entry_url
     return json.dumps(doc, indent=2, ensure_ascii=False)
 
 
@@ -1057,7 +1088,10 @@ def generate_browser_skill(
     (out_path / "SKILL.md").write_text(skill_md, encoding="utf-8")
 
     operations_json = render_browser_operations_json(
-        pages, profile_slug=profile_slug, terminal_ops=terminal_ops
+        pages,
+        profile_slug=profile_slug,
+        terminal_ops=terminal_ops,
+        entry_url=entry_url_for(url_events, pages),
     )
     (out_path / "operations.json").write_text(operations_json, encoding="utf-8")
 

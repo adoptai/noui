@@ -106,17 +106,59 @@ def test_no_session_during_reset_stays_a_login_prompt():
     raise AssertionError("expected SessionNotReadyError to propagate")
 
 
-def test_compiler_stamps_the_first_page_as_the_entry_point():
+LOGIN = "https://retailnetbanking.icici.bank.in/login-page"
+CC = "https://retailnetbanking.icici.bank.in/credit-card"
+
+# The real transitions from bundle icici-cc-stmt-local-8f23a0f8.
+URL_EVENTS = [
+    {"seq": 1, "from_url": "about:blank", "to_url": LOGIN},
+    {"seq": 3, "from_url": LOGIN, "to_url": ENTRY},
+    {"seq": 4, "from_url": ENTRY, "to_url": CC},
+]
+
+
+def test_the_entry_is_the_page_the_first_step_acts_on_not_the_first_page():
+    """The bug this file's fix shipped with.
+
+    This recording's split kept no /overview page, so pages[0] is /credit-card
+    -- a DESTINATION. Every operation's step 0 is `click_by_text "Credit Cards"`,
+    a click you make FROM /overview. Stamping /credit-card would reset the
+    browser to the page the first click is supposed to reach.
+    """
+    from noui_core.compile import browser_skill
+
+    pages = [{"name": "read_credit_card", "url": CC, "nav": [{"text": "Credit Cards"}]}]
+    assert browser_skill.entry_url_for(URL_EVENTS, pages) == ENTRY
+
+
+def test_a_landing_page_that_survived_compilation_is_the_entry():
+    from noui_core.compile import browser_skill
+
+    pages = [
+        {"name": "read_overview", "url": ENTRY, "nav": None},
+        {"name": "read_credit_card", "url": CC, "nav": [{"text": "Credit Cards"}]},
+    ]
+    assert browser_skill.entry_url_for(URL_EVENTS, pages) == ENTRY
+
+
+def test_an_unreachable_page_does_not_pass_as_the_landing_page():
+    # nav == [] means the driving click could not be recovered — NOT the landing
+    # page. Collapsing the two is the mistake this compiler already made once.
+    from noui_core.compile import browser_skill
+
+    pages = [{"name": "read_credit_card", "url": CC, "nav": []}]
+    assert browser_skill.entry_url_for(URL_EVENTS, pages) == ENTRY
+
+
+def test_the_compiler_stamps_what_entry_url_for_returns():
     from noui_core.compile import browser_skill
 
     doc = json.loads(
         browser_skill.render_browser_operations_json(
-            [
-                {"name": "read_overview", "url": ENTRY, "steps": []},
-                {"name": "read_credit_card", "url": DRIFTED, "steps": []},
-            ],
+            [{"name": "read_credit_card", "url": CC, "steps": []}],
             profile_slug="icici-credit-card-statement",
             terminal_ops=[],
+            entry_url=ENTRY,
         )
     )
     assert doc["entry_url"] == ENTRY
