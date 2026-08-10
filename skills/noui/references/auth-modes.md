@@ -32,7 +32,11 @@ tokens are cached per mode.
   `POST /admin/app-templates` (register) when broker mode is active.
 
 ## Where it applies
-- **Recording + register**: `agent_token` (recording) / `TABBY_ADMIN_TOKEN` (register).
+- **Recording + register**: both resolve in the same preference order —
+  `broker` → `platform_jwt` (`ADOPT_*`) → `agent_token` (recording:
+  `TABBY_CLIENT_ID/SECRET`) or `TABBY_ADMIN_TOKEN` (register). A pinned
+  `NOUI_TABBY_AUTH_MODE` is honoured and errors when its own credentials are
+  missing rather than resolving a different identity.
 - **Execution**: the vendored `noui_runtime/auth.py` in each generated asset
   mirrors these two modes for `POST /execute/fetch`.
 
