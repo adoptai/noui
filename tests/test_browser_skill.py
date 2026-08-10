@@ -1181,3 +1181,72 @@ def test_a_top_level_click_names_no_frame():
     )
     assert "frame_url" not in step["params"]
     assert "frame_name" not in step["params"]
+
+
+def test_a_download_keeps_the_clicks_that_decide_what_is_downloaded():
+    """The tab and the period are part of the download, not scenery.
+
+    Only the terminal click was compiled, so a statement download became "click
+    Download" alone — losing the "Past Statements" tab and the "Annual" period.
+    At replay that click landed on whatever the page happened to show, which is
+    how a run ended up hunting a control that was one tab away.
+    """
+    from noui_core.compile.browser_skill import derive_terminal_operations
+
+    page_url = "https://bank.test/statements"
+    pages = [{"name": "read_statements", "url": page_url, "nav": [], "_from_key": None}]
+    clicks = [
+        {
+            "seq": 1,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Past Statements",
+            "candidates": [{"kind": "text", "value": "Past Statements", "match_count": 1}],
+        },
+        {
+            "seq": 2,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Annual",
+            "candidates": [{"kind": "text", "value": "Annual", "match_count": 1}],
+        },
+        {
+            "seq": 3,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Download",
+            "candidates": [{"kind": "text", "value": "Download", "match_count": 1}],
+            "outcome": {"download": True},
+        },
+    ]
+    ops = derive_terminal_operations(pages, clicks, login_url="https://bank.test/login")
+    assert len(ops) == 1
+    lead = [str(s.get("params", {}).get("text") or "") for s in ops[0]["lead"]]
+    assert lead == ["Past Statements", "Annual"]
+
+
+def test_a_later_screens_clicks_do_not_leak_into_the_download():
+    from noui_core.compile.browser_skill import derive_terminal_operations
+
+    page_url = "https://bank.test/statements"
+    pages = [{"name": "read_statements", "url": page_url, "nav": [], "_from_key": None}]
+    clicks = [
+        {
+            "seq": 1,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Download",
+            "candidates": [{"kind": "text", "value": "Download", "match_count": 1}],
+            "outcome": {"download": True},
+        },
+        # After the file: the human closing a dialog is not part of the download.
+        {
+            "seq": 2,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Close",
+            "candidates": [{"kind": "text", "value": "Close", "match_count": 1}],
+        },
+    ]
+    ops = derive_terminal_operations(pages, clicks, login_url="https://bank.test/login")
+    assert ops[0]["lead"] == []

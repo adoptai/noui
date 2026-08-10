@@ -1021,6 +1021,41 @@ def derive_terminal_operations(
         ]
         parameters = derive_parameters(page_inputs)
 
+        # The clicks the human made ON THIS PAGE before the terminal one.
+        #
+        # Only the final click was kept, so a statement download compiled to
+        # "click Download" alone -- losing the "Past Statements" tab and the
+        # "Annual" period that decide WHAT is downloaded. At replay the click
+        # landed on whatever the page happened to show, which is how a run ended
+        # up hunting a control that was one tab away.
+        #
+        # Bounded to the same page and to before the terminal interaction, so a
+        # later screen's clicks never leak in. Inputs are excluded: those become
+        # parameters above, and replaying them as clicks would fight the values
+        # the caller passes.
+        lead_steps: list[dict] = []
+        for c in click_events or []:
+            if (c.get("event_type") or "click") != "click":
+                continue
+            if _page_key(c.get("url") or "") != _page_key(url):
+                continue
+            c_seq = event_seq(c)
+            if term_seq is None or c_seq is None or c_seq >= term_seq:
+                continue
+            lead = _step_for_click(
+                {
+                    "text": (c.get("text_content") or "").strip(),
+                    "locator": choose_locator(c.get("candidates")),
+                    "outcome": c.get("outcome"),
+                }
+            )
+            if lead is None:
+                continue
+            lead_expect = _expect_for_click({"outcome": c.get("outcome")})
+            if lead_expect:
+                lead["expect"] = lead_expect
+            lead_steps.append(lead)
+
         name = _op_name(kind, ev, _slug_from_path(url))
         if name in seen:
             continue
@@ -1034,6 +1069,7 @@ def derive_terminal_operations(
                 # Reach the page exactly the way the read operation for it does.
                 "nav": list(page.get("nav") or []),
                 "parameters": parameters,
+                "lead": lead_steps,
                 "terminal": step,
             }
         )
@@ -1053,6 +1089,10 @@ def _steps_for_terminal(op: dict) -> list[dict]:
         steps.append(step)
     # Values the caller can override. Templated on the parameter name, so the
     # operation does exactly what was recorded when nothing is passed.
+    # Set the page up the way the human did — tab, period, filter — before the
+    # values the caller can override, so a passed parameter lands on the screen
+    # those clicks produced rather than on whatever loaded first.
+    steps.extend(op.get("lead") or [])
     steps.extend(fill_steps(op.get("parameters") or []))
     steps.append(op["terminal"])
     if op.get("kind") == "download":
