@@ -97,6 +97,14 @@ def _is_login_flow_url(url: str) -> bool:
     return any(w in path for w in LOGIN_FLOW_WORDS)
 
 
+def _origin_of(url: str) -> str:
+    low = str(url or "")
+    if "://" not in low:
+        return ""
+    rest = low.split("://", 1)[1]
+    return rest.split("/", 1)[0].lower()
+
+
 def _boundary_from_login_exit(
     url_events: list[dict[str, Any]], key: Any, by_seq: bool
 ) -> dict[str, Any] | None:
@@ -105,14 +113,30 @@ def _boundary_from_login_exit(
     The LAST such hop, not the first: a sign-in commonly bounces through an OTP
     or consent screen and back, and only the final exit leaves the human inside
     the app.
+
+    Bounded to the origin the recording STARTED on. ICICI's statement portal
+    lives at infinity.icici.bank.in/corp/AuthenticationController -- a deep app
+    route whose path contains "auth", so it read as a sign-in page, and the last
+    "exit" from it fell at the end of the workflow. The whole statement journey
+    was then sliced into the login half and the workflow half came out empty.
+    A sign-in bounces within its own host; a different host reached by clicking
+    around inside the app is the app.
     """
+    placed = _placed(url_events, key)
+    start_origin = ""
+    for _pos, u in placed:
+        start_origin = _origin_of(u.get("to_url", "") or u.get("from_url", "") or "")
+        if start_origin:
+            break
+
     exits = [
         (pos, u)
-        for pos, u in _placed(url_events, key)
+        for pos, u in placed
         if u.get("to_url")
         and _is_login_flow_url(u.get("from_url", "") or "")
         and not _is_login_flow_url(u.get("to_url", "") or "")
         and not _is_redirect_hop(u.get("from_url", "") or "", u.get("to_url", "") or "")
+        and (not start_origin or _origin_of(u.get("from_url", "") or "") == start_origin)
     ]
     if not exits:
         return None
