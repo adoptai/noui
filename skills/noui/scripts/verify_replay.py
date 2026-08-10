@@ -226,6 +226,9 @@ def main() -> int:
         token=resolve_agent_token(),
         approvals=set(args.approve_step) or None,
         parameter_values=values or None,
+        # Every invocation restarts the journey rather than resuming it, so an
+        # amended step is judged from the same place the original one was.
+        entry_url=(doc.get("entry_url") if isinstance(doc, dict) else None),
     )
 
     out = skill_dir / REPORT_FILE

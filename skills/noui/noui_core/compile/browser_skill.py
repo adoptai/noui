@@ -802,11 +802,15 @@ def render_browser_operations_json(
                 "steps": _steps_for_terminal(op),
             }
         )
-    return json.dumps(
-        {"schema_version": "1", "style": "browser", "operations": operations},
-        indent=2,
-        ensure_ascii=False,
-    )
+    doc = {"schema_version": "1", "style": "browser", "operations": operations}
+    if pages:
+        # Where the journey starts. These operations are one recorded journey cut
+        # into pieces -- op N+1 begins on the page op N left behind -- so replaying
+        # them means reproducing that journey from its first page, which is the
+        # post-login landing page and the only one reachable without the steps
+        # that precede it.
+        doc["entry_url"] = pages[0]["url"]
+    return json.dumps(doc, indent=2, ensure_ascii=False)
 
 
 def render_browser_skill_md(

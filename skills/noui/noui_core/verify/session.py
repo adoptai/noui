@@ -72,6 +72,54 @@ def session_is_ready(profile_slug: str, token: str) -> bool:
     return True
 
 
+def _return_to_entry(execute: Any, entry_url: str) -> dict | None:
+    """Put the browser back at the start of the journey before replaying it.
+
+    A replay does not get a fresh browser -- the session is deliberately kept
+    warm so the amend-and-replay loop costs no sign-ins (see the module
+    docstring). The cost of that is a browser sitting wherever the LAST run
+    abandoned it, and these operations are one recorded journey cut into pieces:
+    every one of them assumes the page its predecessor left behind, and the first
+    assumes the landing page.
+
+    Observed: a replay died mid-journey on ICICI, an amendment fixed the step it
+    died on, and the re-run began on `/credit-card/add-card` -- where the
+    already-passing early steps no longer matched anything, so the amendment
+    looked no better than what it replaced. Re-running has to mean re-running,
+    not resuming.
+
+    Returns a step-shaped dict when the reset itself failed, so the caller can
+    report it as what stopped the replay rather than blaming the first step.
+    """
+    try:
+        info = execute("get_page_info", {})
+        here = str((info.get("data") or info).get("url") or "")
+    except SessionNotReadyError:
+        raise
+    except Exception:  # noqa: BLE001 — an unreadable url just means "navigate anyway"
+        here = ""
+
+    if here and here.rstrip("/") == entry_url.rstrip("/"):
+        return None  # already at the start; navigating would only cost a load
+
+    try:
+        execute("navigate", {"url": entry_url})
+    except SessionNotReadyError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — reported, not raised
+        return {
+            "command": "navigate",
+            "params": {"url": entry_url},
+            "status": "blocked",
+            "error": (
+                f"could not return to the start of the journey ({entry_url}): {exc}. "
+                f"The browser is on {here or 'an unknown page'}, which is not where "
+                "these steps were recorded, so replaying them from here proves nothing."
+            ),
+        }
+    return None
+
+
 def run_replay(
     operations: list[dict],
     *,
@@ -80,6 +128,7 @@ def run_replay(
     approvals: set[str] | None = None,
     parameter_values: dict[str, str] | None = None,
     timeout_ms: int = 30000,
+    entry_url: str | None = None,
 ) -> dict:
     """Replay a draft and report what happened.
 
@@ -103,6 +152,20 @@ def run_replay(
     execute = _executor(profile_slug, token, timeout_ms=timeout_ms)
 
     results: list[list[dict]] = []
+    if entry_url:
+        try:
+            failed = _return_to_entry(execute, entry_url)
+        except SessionNotReadyError as exc:
+            report = build_report([], [])
+            report["status"] = "login_required"
+            report["detail"] = str(exc)
+            return report
+        if failed is not None:
+            results.append([failed])
+            report = build_report(ops[:1], results)
+            report["detail"] = failed["error"]
+            return report
+
     for op in ops:
         steps = substitute_parameters(op, parameter_values)
         step_results: list[dict] = []
