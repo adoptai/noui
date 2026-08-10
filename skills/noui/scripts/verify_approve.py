@@ -119,6 +119,36 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
+        # An amendment the replay never ran is not approvable. One build
+        # confirmed a single control by hand, amended that step across six
+        # operations, and four of them were blocked long before the amended step
+        # could run -- all six then read "confirmed working in live session".
+        # Approving those would put the member's name on steps nothing has ever
+        # executed, which is the one thing this whole file exists to prevent.
+        unexercised = [
+            a
+            for a in amendments
+            if amendments_mod.amendment_id(a) in wanted and not amendments_mod.is_verified(a)
+        ]
+        if unexercised:
+            print(
+                f"{len(unexercised)} of the amendment(s) you are approving never ran "
+                f"in the replay:",
+                file=sys.stderr,
+            )
+            for a in unexercised:
+                print(
+                    f"  [{amendments_mod.amendment_id(a)}] {amendments_mod.describe(a)}",
+                    file=sys.stderr,
+                )
+            print(
+                "\nConfirming a control by hand on one page says nothing about the "
+                "same step in an operation the replay never reached. Fix what blocked "
+                "those operations and replay again -- then these carry evidence and "
+                "the member has something real to decide on.",
+                file=sys.stderr,
+            )
+            return 1
         approved_ids = [
             amendments_mod.amendment_id(a)
             for a in amendments

@@ -56,13 +56,30 @@ def load(raw: bytes | str | None) -> list[dict[str, Any]]:
     return out
 
 
+def is_verified(a: dict[str, Any]) -> bool:
+    """Did the replay that recorded this amendment actually RUN the new step?
+
+    An amendment is only worth what the replay proved about it. One build
+    confirmed a single control by hand and then amended the same step across six
+    operations; two of those ran, four were blocked long before reaching the
+    amended step, and all six went into the file saying "confirmed working in
+    live session". Absent means unverified: an amendment written before this
+    field existed has no evidence either.
+    """
+    return bool(a.get("verified"))
+
+
 def describe(a: dict[str, Any]) -> str:
     """One line a member can decide on."""
     rep = a.get("replacement") or {}
     params = rep.get("params") or {}
     target = params.get("selector") or params.get("text") or params.get("label") or "?"
     why = str(a.get("why") or "the recorded locator matched nothing")
+    if is_verified(a):
+        mark = "ran OK in the replay"
+    else:
+        mark = "NOT EXERCISED — the replay never reached this step"
     return (
         f"{a.get('operation')} step {a.get('step_index')}: "
-        f"{rep.get('command', '?')} {target} — {why}"
+        f"{rep.get('command', '?')} {target} — {why} [{mark}]"
     )

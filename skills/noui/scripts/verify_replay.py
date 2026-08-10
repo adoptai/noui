@@ -44,6 +44,21 @@ def _read_text(path) -> str:
         return ""
 
 
+def _step_ran_ok(report: dict, operation: str, step_index: int) -> bool:
+    """Did this exact step run, and run cleanly, in the replay just performed?
+
+    Missing is not ok: when a replay dies early an operation has fewer step
+    results than steps, and every step past the failure simply never happened.
+    """
+    for op in report.get("operations") or []:
+        if op.get("name") != operation:
+            continue
+        steps = op.get("steps") or []
+        if 0 <= step_index < len(steps):
+            return str(steps[step_index].get("status") or "") == "ok"
+    return False
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("skill_dir", help="compiled skill directory (contains operations.json)")
@@ -116,10 +131,15 @@ def main() -> int:
             "— their steps changed after compiling.\n"
             "\n"
             "Do NOT replay them: they cannot install however the replay goes, and "
-            "a live session spent on them is spent for nothing. Renaming an "
-            "operation or rewording a description is fine; changing what a step "
-            "targets, reordering steps, or adding an operation is not — those come "
-            "from the recording and nothing else can supply them.\n"
+            "a live session spent on them is spent for nothing.\n"
+            "\n"
+            "Renaming an operation, rewording a description, or adding a parameter "
+            "is fine. These are not: changing what a step targets, reordering "
+            "steps, adding an operation, and REMOVING one — deleting an operation "
+            "you judged unnecessary changes the digest exactly as much as inventing "
+            "one, because the digest covers the whole list. If some operations look "
+            "like noise, leave them; one nobody calls costs nothing, and SKILL.md "
+            "is where you say which ones matter.\n"
             "\n"
             "Restore the compiled operations.json, or re-record the part you meant "
             "to change.",
@@ -148,10 +168,11 @@ def main() -> int:
                 "seen work, and when they miss, the run improvises and wanders.\n"
                 "\n"
                 "You may rename an operation, reword its description, or add a "
-                "parameter. You may NOT change what a step targets, reorder steps, or "
-                "add an operation that was not recorded -- those come from the "
-                "recording and nothing else can supply them. Restore the compiled "
-                "operations.json, or re-record the part you meant to change.",
+                "parameter. You may NOT change what a step targets, reorder steps, "
+                "add an operation that was not recorded, or remove one you judged "
+                "unnecessary -- those come from the recording and nothing else can "
+                "supply them. Restore the compiled operations.json, or re-record the "
+                "part you meant to change.",
                 file=sys.stderr,
             )
             return 1
@@ -194,24 +215,6 @@ def main() -> int:
             # compiled, so its digest keeps proving what the recording showed.
             steps[idx] = a["replacement"]
 
-        existing = amendments_mod.load(_read_text(skill_dir / amendments_mod.AMENDMENTS_FILE))
-        seen = {amendments_mod.amendment_id(a) for a in existing}
-        merged = existing + [a for a in pending if amendments_mod.amendment_id(a) not in seen]
-        (skill_dir / amendments_mod.AMENDMENTS_FILE).write_text(
-            json.dumps({"amendments": merged}, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        print(
-            f"Recorded {len(pending)} amendment(s). These are NOT part of the "
-            f"recording -- the member approves each one separately "
-            f"(verify_approve --approve-amendment ID):",
-            file=sys.stderr,
-        )
-        for a in pending:
-            print(
-                f"  [{amendments_mod.amendment_id(a)}] {amendments_mod.describe(a)}",
-                file=sys.stderr,
-            )
-
     values = {}
     for raw in args.param:
         name, _, value = raw.partition("=")
@@ -230,6 +233,44 @@ def main() -> int:
         # amended step is judged from the same place the original one was.
         entry_url=(doc.get("entry_url") if isinstance(doc, dict) else None),
     )
+
+    # Amendments are persisted AFTER the replay, stamped with what it proved
+    # about each one. Written beforehand they all looked equally confirmed: one
+    # build verified a single control by hand, amended the same step across six
+    # operations, and four of those were blocked long before the amended step ran
+    # -- yet every one of them said "confirmed working in live session".
+    if pending:
+        for a in pending:
+            a["verified"] = _step_ran_ok(report, a["operation"], a["step_index"])
+        existing = amendments_mod.load(_read_text(skill_dir / amendments_mod.AMENDMENTS_FILE))
+        by_id = {amendments_mod.amendment_id(a): a for a in existing}
+        for a in pending:
+            by_id[amendments_mod.amendment_id(a)] = a  # a later replay re-judges it
+        (skill_dir / amendments_mod.AMENDMENTS_FILE).write_text(
+            json.dumps({"amendments": list(by_id.values())}, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        unverified = [a for a in pending if not amendments_mod.is_verified(a)]
+        print(
+            f"Recorded {len(pending)} amendment(s). These are NOT part of the "
+            f"recording -- the member approves each one separately "
+            f"(verify_approve --approve-amendment ID):",
+            file=sys.stderr,
+        )
+        for a in pending:
+            print(
+                f"  [{amendments_mod.amendment_id(a)}] {amendments_mod.describe(a)}",
+                file=sys.stderr,
+            )
+        if unverified:
+            print(
+                f"\n{len(unverified)} of them never ran. Confirming a control by hand "
+                "on one page is not evidence for the same step in another operation "
+                "the replay never reached -- fix what blocked those operations and "
+                "replay again, rather than asking the member to approve a step "
+                "nothing has exercised.",
+                file=sys.stderr,
+            )
 
     out = skill_dir / REPORT_FILE
     try:

@@ -162,3 +162,32 @@ def test_an_amendment_out_of_range_is_refused(tmp_path):
     )
     assert r.returncode == 1
     assert "out of range" in r.stderr
+
+
+# --- an amendment is only worth what the replay proved about it ----------------
+#
+# Run 050970d3: one control confirmed by hand on /overview, then step 0 amended
+# across six operations. Two ran; four were blocked long before reaching the
+# amended step. All six were written as "confirmed working in live session".
+
+from noui_core.compile.amendments import is_verified  # noqa: E402
+
+
+def test_an_amendment_is_unverified_until_the_replay_runs_it():
+    assert is_verified(AMEND) is False
+    assert is_verified({**AMEND, "verified": False}) is False
+    assert is_verified({**AMEND, "verified": True}) is True
+
+
+def test_describe_says_when_nothing_exercised_the_step():
+    # The member reads this line and nothing else. It must not read the same for
+    # a step that ran and a step that never happened.
+    assert "NOT EXERCISED" in describe(AMEND)
+    assert "NOT EXERCISED" not in describe({**AMEND, "verified": True})
+    assert "ran OK" in describe({**AMEND, "verified": True})
+
+
+def test_the_verified_flag_does_not_change_the_id():
+    # Ids are how an approval names what it approved. If replaying an amendment
+    # renamed it, the member's earlier decision would silently detach.
+    assert amendment_id({**AMEND, "verified": True}) == amendment_id(AMEND)
