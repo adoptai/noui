@@ -29,18 +29,33 @@ def _merged_bundle(with_login: bool = True) -> dict:
                 "tag_name": "input",
             },
         ],
-        "url_events": [
-            {
-                "timestamp": T[0],
-                "from_url": "about:blank",
-                "to_url": "https://app.example.com/login",
-            },
-            {
-                "timestamp": T[4],
-                "from_url": "https://app.example.com/login",
-                "to_url": "https://app.example.com/dash",
-            },
-        ],
+        # with_login=False means a capture recorded against an ALREADY
+        # authenticated profile, so its timeline never passes through a sign-in
+        # page. Merely dropping the credential field roles is not that: a login
+        # that types nothing is exactly how ICICI's QR sign-in looks, and the
+        # splitter now recognises it by the exit from the sign-in page.
+        "url_events": (
+            [
+                {
+                    "timestamp": T[0],
+                    "from_url": "about:blank",
+                    "to_url": "https://app.example.com/login",
+                },
+                {
+                    "timestamp": T[4],
+                    "from_url": "https://app.example.com/login",
+                    "to_url": "https://app.example.com/dash",
+                },
+            ]
+            if with_login
+            else [
+                {
+                    "timestamp": T[0],
+                    "from_url": "about:blank",
+                    "to_url": "https://app.example.com/dash",
+                },
+            ]
+        ),
         "har": {
             "log": {
                 "entries": [

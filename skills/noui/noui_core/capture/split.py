@@ -65,6 +65,64 @@ def _placed(events: list[dict[str, Any]], key: _PositionKey) -> list[tuple[Any, 
     return out
 
 
+#: Path words that mean "still proving who you are".
+LOGIN_FLOW_WORDS = (
+    "login",
+    "log-in",
+    "password",
+    "passcode",
+    "credential",
+    "signin",
+    "sign-in",
+    "logon",
+    "auth",
+    "sso",
+    "saml",
+    "oauth",
+    "otp",
+    "mfa",
+    "2fa",
+    "verify",
+    "challenge",
+)
+
+
+def _is_login_flow_url(url: str) -> bool:
+    """Is this URL part of the sign-in flow rather than the app proper?"""
+    low = str(url or "").lower()
+    if not low:
+        return False
+    path = low.split("://", 1)[-1]
+    path = path[path.find("/") :] if "/" in path else ""
+    return any(w in path for w in LOGIN_FLOW_WORDS)
+
+
+def _boundary_from_login_exit(
+    url_events: list[dict[str, Any]], key: Any, by_seq: bool
+) -> dict[str, Any] | None:
+    """The last hop OUT of the sign-in flow, for logins that type nothing.
+
+    The LAST such hop, not the first: a sign-in commonly bounces through an OTP
+    or consent screen and back, and only the final exit leaves the human inside
+    the app.
+    """
+    exits = [
+        (pos, u)
+        for pos, u in _placed(url_events, key)
+        if u.get("to_url")
+        and _is_login_flow_url(u.get("from_url", "") or "")
+        and not _is_login_flow_url(u.get("to_url", "") or "")
+        and not _is_redirect_hop(u.get("from_url", "") or "", u.get("to_url", "") or "")
+    ]
+    if not exits:
+        return None
+    boundary = max(exits, key=lambda placed: placed[0])[1]
+    return {
+        "seq": event_seq(boundary) if by_seq else None,
+        "timestamp": boundary.get("timestamp") or None,
+    }
+
+
 def _boundary_event(bundle: dict[str, Any]) -> dict[str, Any] | None:
     """The recorded event at which the login ends, or None if there is no login.
 
@@ -91,7 +149,20 @@ def _boundary_event(bundle: dict[str, Any]) -> dict[str, Any] | None:
 
     creds = _placed([c for c in clicks if c.get("field_role") in CREDENTIAL_FIELD_ROLES], key)
     if not creds:
-        return None
+        # No credentials were typed -- which is not the same as no login.
+        #
+        # ICICI offers a QR sign-in: the human scans it with the bank's mobile
+        # app and the web session becomes authenticated without a single field
+        # being filled. SSO redirects, magic links and biometric approval are
+        # the same shape. Defining "a login happened" as "credentials were
+        # typed" made those recordings permanently unsplittable, and the member
+        # was asked to record a login they had already recorded and could never
+        # record in the expected way.
+        #
+        # What every one of them DOES leave is the transition out of the sign-in
+        # page into the app. That is the boundary, and it is observable without
+        # knowing how the human proved who they were.
+        return _boundary_from_login_exit(url_events, key, by_seq)
     last_cred_pos, last_cred = max(creds, key=lambda placed: placed[0])
 
     navs = [
