@@ -551,7 +551,12 @@ def _step_for_click(click: dict) -> dict | None:
     Falls back to the recorded text when there is no usable candidate, which is
     what every pre-schema-4 recording will hit.
     """
-    locator = click.get("locator")
+    # Fall back to resolving the candidates here. Click events arrive with a
+    # pre-resolved "locator", hover events do not -- they carry candidates and
+    # nothing else -- so the hover branch below read None and returned None for
+    # every hover ever recorded. The recorder captured ICICI's nav hover, the
+    # runtime had a hover command, and the step still never reached the skill.
+    locator = click.get("locator") or choose_locator(click.get("candidates"))
     text = (click.get("text") or "").strip()
 
     # A radio or checkbox is SET, not clicked.
