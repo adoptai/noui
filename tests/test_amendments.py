@@ -49,3 +49,116 @@ def test_it_describes_an_amendment_in_one_line_a_member_can_decide_on():
     assert "download_statement step 3" in text
     assert "#new-btn" in text
     assert "matched nothing" in text
+
+
+# --- verify_replay records amendments without touching operations.json -------
+
+
+def _skill(tmp_path):
+    import json
+
+    from noui_core.compile.provenance import steps_digest
+
+    ops = [
+        {
+            "name": "dl",
+            "kind": "download",
+            "tool": "call_web_browser",
+            "steps": [
+                {"command": "click_element", "params": {"selector": "#old"}},
+                {"command": "list_downloads"},
+            ],
+        }
+    ]
+    (tmp_path / "operations.json").write_text(json.dumps({"operations": ops}))
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "runtime": {"operation_style": "browser"},
+                "provenance": {"steps_sha256": steps_digest(ops), "bundle_sha256": "x"},
+            }
+        )
+    )
+    return tmp_path
+
+
+def _run_amend(tmp_path, *amend_json):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path("skills/noui/scripts/verify_replay.py").resolve()
+    argv = [sys.executable, str(script), str(tmp_path), "--profile-slug", "none"]
+    for a in amend_json:
+        argv += ["--amend", a]
+    return subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": str(Path("skills/noui").resolve())},
+    )
+
+
+def test_an_amendment_never_edits_the_compiled_operations(tmp_path):
+    """THE property. Editing operations.json destroys the digest that proves the
+    rest came from a recording — which is what three builds did, losing the
+    discovery along with the evidence when the gate then refused the skill."""
+    import json
+
+    from noui_core.compile.provenance import steps_digest
+
+    d = _skill(tmp_path)
+    _run_amend(
+        d,
+        json.dumps(
+            {
+                "operation": "dl",
+                "step_index": 0,
+                "replacement": {"command": "click_element", "params": {"selector": "#new"}},
+                "why": "#old matched nothing",
+            }
+        ),
+    )
+
+    ops = json.loads((d / "operations.json").read_text())["operations"]
+    manifest = json.loads((d / "manifest.json").read_text())
+    assert ops[0]["steps"][0]["params"]["selector"] == "#old"
+    assert steps_digest(ops) == manifest["provenance"]["steps_sha256"]
+    assert len(json.loads((d / "amendments.json").read_text())["amendments"]) == 1
+
+
+def test_an_amendment_naming_an_unknown_operation_is_refused(tmp_path):
+    import json
+
+    d = _skill(tmp_path)
+    r = _run_amend(
+        d,
+        json.dumps(
+            {
+                "operation": "nope",
+                "step_index": 0,
+                "replacement": {"command": "click_element", "params": {"selector": "#x"}},
+            }
+        ),
+    )
+    assert r.returncode == 1
+    assert "No operation named" in r.stderr
+    assert not (d / "amendments.json").exists()
+
+
+def test_an_amendment_out_of_range_is_refused(tmp_path):
+    import json
+
+    d = _skill(tmp_path)
+    r = _run_amend(
+        d,
+        json.dumps(
+            {
+                "operation": "dl",
+                "step_index": 9,
+                "replacement": {"command": "click_element", "params": {"selector": "#x"}},
+            }
+        ),
+    )
+    assert r.returncode == 1
+    assert "out of range" in r.stderr

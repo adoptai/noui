@@ -28,11 +28,20 @@ from pathlib import Path
 import _bootstrap  # noqa: F401
 
 from noui_core.capture.recording import resolve_agent_token
+from noui_core.compile import amendments as amendments_mod
 from noui_core.compile import provenance
 from noui_core.verify.replay import plan_operations
 from noui_core.verify.session import run_replay
 
 REPORT_FILE = "replay_report.json"
+
+
+def _read_text(path) -> str:
+    """File contents, or "" when absent."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 
 def main() -> int:
@@ -55,6 +64,18 @@ def main() -> int:
         help="pre-approve a step the risk rules would otherwise stop on (a control "
         "that moves money, is irreversible, or the human never touched). One flag "
         "per control; the member must have said so.",
+    )
+    p.add_argument(
+        "--amend",
+        action="append",
+        default=[],
+        metavar="JSON",
+        help="replace ONE step with a control discovered at replay, as a JSON object: "
+        '{"operation": "...", "step_index": 0, "replacement": {"command": "...", '
+        '"params": {...}}, "why": "..."}. Use this instead of editing '
+        "operations.json -- editing it destroys the provenance that makes the whole "
+        "skill installable, and an amendment recorded here survives review as what it "
+        "is: a step observed working once, which the member approves separately.",
     )
     args = p.parse_args()
 
@@ -134,6 +155,62 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
+
+    # Amendments: a step whose recorded locator no longer matches, replaced by a
+    # control discovered at replay. Recorded HERE rather than by editing
+    # operations.json, which is what three builds did -- destroying the digest
+    # that proves the rest came from a recording, and losing the discovery along
+    # with the evidence when the gate then refused the skill.
+    pending: list[dict] = []
+    for raw in args.amend:
+        try:
+            a = json.loads(raw)
+        except ValueError as exc:
+            print(f"--amend expects a JSON object, got {raw[:60]!r}: {exc}", file=sys.stderr)
+            return 1
+        if not (isinstance(a, dict) and a.get("operation") and a.get("replacement")):
+            print("--amend needs at least 'operation' and 'replacement'.", file=sys.stderr)
+            return 1
+        a.setdefault("why", "the recorded locator matched nothing at replay")
+        pending.append(a)
+
+    if pending:
+        by_name = {o.get("name"): o for o in operations}
+        for a in pending:
+            op = by_name.get(a["operation"])
+            if op is None:
+                print(f"No operation named {a['operation']!r} to amend.", file=sys.stderr)
+                return 1
+            idx = a.get("step_index")
+            steps = op.get("steps") or []
+            if not isinstance(idx, int) or not (0 <= idx < len(steps)):
+                print(
+                    f"step_index {idx!r} is out of range for {a['operation']} "
+                    f"({len(steps)} steps).",
+                    file=sys.stderr,
+                )
+                return 1
+            # Applied to the in-memory plan only. operations.json stays exactly as
+            # compiled, so its digest keeps proving what the recording showed.
+            steps[idx] = a["replacement"]
+
+        existing = amendments_mod.load(_read_text(skill_dir / amendments_mod.AMENDMENTS_FILE))
+        seen = {amendments_mod.amendment_id(a) for a in existing}
+        merged = existing + [a for a in pending if amendments_mod.amendment_id(a) not in seen]
+        (skill_dir / amendments_mod.AMENDMENTS_FILE).write_text(
+            json.dumps({"amendments": merged}, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(
+            f"Recorded {len(pending)} amendment(s). These are NOT part of the "
+            f"recording -- the member approves each one separately "
+            f"(verify_approve --approve-amendment ID):",
+            file=sys.stderr,
+        )
+        for a in pending:
+            print(
+                f"  [{amendments_mod.amendment_id(a)}] {amendments_mod.describe(a)}",
+                file=sys.stderr,
+            )
 
     values = {}
     for raw in args.param:
