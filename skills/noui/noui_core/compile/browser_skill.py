@@ -168,6 +168,10 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
         cands.append(
             {
                 "text": text,
+                # The OTHER ways this control was seen. choose_locator collapses
+                # them to one winner above; the runtime needs the rest to fall
+                # back on when that winner stops matching.
+                "candidates": c.get("candidates"),
                 "selector": c.get("selector") or "",
                 "locator": locator,
                 "outcome": c.get("outcome") if isinstance(c.get("outcome"), dict) else None,
@@ -1095,6 +1099,7 @@ def derive_terminal_operations(
             {
                 "text": (ev.get("text_content") or "").strip(),
                 "locator": choose_locator(ev.get("candidates")),
+                "candidates": ev.get("candidates"),
                 "outcome": ev.get("outcome"),
             }
         )
@@ -1143,6 +1148,7 @@ def derive_terminal_operations(
                 {
                     "text": (c.get("text_content") or "").strip(),
                     "locator": choose_locator(c.get("candidates")),
+                    "candidates": c.get("candidates"),
                     "outcome": c.get("outcome"),
                 }
             )
