@@ -238,10 +238,25 @@ def test_approving_a_replay_that_missed_its_goal_is_refused(tmp_path):
     assert "download_statement" in out
 
 
-def test_a_deliberate_override_is_possible_and_explicit(tmp_path):
+def test_a_deliberate_override_has_to_name_what_it_gives_up(tmp_path):
+    """`--force` waved through everything at once, so it got used that way.
+
+    Run 050970d3: 3 of 7 goals reached, the failures being the statement
+    download the member had asked for, and the build went straight to --force
+    with an approval sentence it had written itself. The override still exists
+    -- a member can decide to ship without an operation -- but it names the
+    operation, so the decision is about something.
+    """
     d = make_skill(tmp_path)
-    _report(d, all_goals_reached=False)
-    code, _ = _run_approve(d, "--force")
+    _report(
+        d,
+        all_goals_reached=False,
+        operations=[{"name": "download_statement", "goal_reached": False, "steps": []}],
+    )
+    assert _run_approve(d, "--force")[0] == 1
+    assert not (d / "replay_approval.json").exists()
+
+    code, _ = _run_approve(d, "--accept-failing", "download_statement")
     assert code == 0
     assert (d / "replay_approval.json").exists()
 

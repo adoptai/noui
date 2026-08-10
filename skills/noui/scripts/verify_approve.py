@@ -45,10 +45,19 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("skill_dir", help="compiled skill directory (must contain replay_report.json)")
     p.add_argument(
+        "--accept-failing",
+        action="append",
+        default=[],
+        metavar="OPERATION",
+        help="approve although THIS operation did not reach its goal. One flag per "
+        "operation, named. The member has to have said so about each one, knowing "
+        "what that operation was for -- a skill whose whole point failed is not a "
+        "skill with a caveat.",
+    )
+    p.add_argument(
         "--force",
         action="store_true",
-        help="approve although the replay did not reach every goal. The member has "
-        "to have said so explicitly, knowing which operation failed.",
+        help=argparse.SUPPRESS,  # replaced by --accept-failing; kept to say so
     )
     p.add_argument(
         "--approve-amendment",
@@ -86,15 +95,68 @@ def main() -> int:
         )
         return 1
 
-    if not report.get("all_goals_reached") and not args.force:
-        failed = [
-            o.get("name") for o in report.get("operations") or [] if not o.get("goal_reached")
-        ]
+    # A waiver has to name what it waives.
+    #
+    # `--force` was one flag that covered everything, and a build reached for it
+    # with 3 of 7 goals reached -- the failures being the statement download, the
+    # entire thing the member had asked for. It then drafted the member's
+    # approval sentence and asked them to paste it back. Naming each operation
+    # makes the cost specific, puts it in the approval record, and makes a stale
+    # or copied list fail instead of passing quietly.
+    if args.force:
+        print(
+            "--force is gone. Name each operation you are asking the member to give "
+            "up: --accept-failing OPERATION, one flag each. A waiver nobody can read "
+            "is not a decision anybody made.",
+            file=sys.stderr,
+        )
+        return 1
+
+    failing = [
+        str(o.get("name"))
+        for o in report.get("operations") or []
+        if not o.get("goal_reached")
+    ]
+    accepted = [str(n) for n in (args.accept_failing or [])]
+    if failing and not accepted:
         print(
             "Refusing to approve: the replay did not reach every goal "
-            f"({', '.join(str(f) for f in failed) or 'unknown'}). Amend the workflow "
-            "and replay again, or pass --force if the member decided to ship it "
-            "knowing which operation failed.",
+            f"({', '.join(failing)}). Fix what blocked them and replay again -- that "
+            "is almost always the right move, especially when a failing operation is "
+            "the one the member asked for.\n"
+            "\n"
+            "If the member has decided to ship without them, knowing what each one "
+            "was for, name them: "
+            + " ".join(f"--accept-failing {n}" for n in failing),
+            file=sys.stderr,
+        )
+        return 1
+
+    unknown = [n for n in accepted if n not in {str(o.get("name")) for o in report.get("operations") or []}]
+    if unknown:
+        print(
+            f"No operation named {', '.join(sorted(unknown))} in this replay. A waiver "
+            "that names nothing real records a decision about nothing.",
+            file=sys.stderr,
+        )
+        return 1
+
+    passed = [n for n in accepted if n not in failing]
+    if passed:
+        print(
+            f"{', '.join(sorted(passed))} reached its goal -- there is nothing to "
+            "waive. This usually means the list was carried over from an earlier "
+            "replay; check which operations actually failed in THIS one.",
+            file=sys.stderr,
+        )
+        return 1
+
+    unnamed = [n for n in failing if n not in accepted]
+    if unnamed:
+        print(
+            f"Not approved: {', '.join(unnamed)} also failed and you did not name "
+            "them. Every failing operation has to be named, so the member is "
+            "answering about all of them and not just the ones that were mentioned.",
             file=sys.stderr,
         )
         return 1
@@ -171,6 +233,25 @@ def main() -> int:
         record = approve(report)
         if approved_ids:
             record["approved_amendments"] = approved_ids
+        if failing:
+            # Built from the report, never from what the caller said about it, so
+            # the installer and the member's card see the same thing the replay
+            # actually produced.
+            record["accepted_failing"] = [
+                {
+                    "operation": str(op.get("name")),
+                    "blocked": [
+                        {
+                            "command": st.get("command"),
+                            "error": st.get("error"),
+                        }
+                        for st in op.get("steps") or []
+                        if str(st.get("status") or "") != "ok"
+                    ],
+                }
+                for op in report.get("operations") or []
+                if not op.get("goal_reached")
+            ]
         path = write_approval(skill_dir, record)
     except (OSError, ValueError) as exc:
         print(f"Could not record the approval: {exc}", file=sys.stderr)
