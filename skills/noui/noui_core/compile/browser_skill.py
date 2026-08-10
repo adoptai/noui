@@ -143,7 +143,11 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
     nav_seq = event_seq(nav_ev)
     cands: list[dict] = []
     for c in click_events or []:
-        if (c.get("event_type") or "click") != "click":
+        # A hover that opened a menu is part of the gesture, not noise: the
+        # click after it targets something that does not exist until the pointer
+        # is over the parent. Dropping it left the compiled path with no step
+        # that opens the menu.
+        if (c.get("event_type") or "click") not in ("click", "hover"):
             continue
         cu = c.get("url") or ""
         if not cu or _page_key(cu) != from_key:
@@ -477,6 +481,21 @@ def _step_for_click(click: dict) -> dict | None:
         if expect:
             step["expect"] = expect
         return step
+
+    if (click.get("event_type") or "") == "hover":
+        # Hover is addressed like any other control, but it opens rather than
+        # activates. Only a CSS-expressible locator can be hovered: there is no
+        # hover-by-text, and guessing one would hover the wrong thing.
+        if not (locator and locator.get("is_css")):
+            return None
+        hover: dict = {"command": "hover", "params": {"selector": locator["value"]}}
+        element = click.get("element") or {}
+        if isinstance(element, dict) and element.get("in_iframe"):
+            for key in ("frame_url", "frame_name"):
+                value = str(element.get(key) or "").strip()
+                if value:
+                    hover["params"][key] = value
+        return hover
 
     step: dict | None = None
     if locator and locator.get("is_css"):
@@ -1137,7 +1156,8 @@ def derive_terminal_operations(
         # the caller passes.
         lead_steps: list[dict] = []
         for c in click_events or []:
-            if (c.get("event_type") or "click") != "click":
+            # A hover that opened a menu is part of the gesture, not noise.
+            if (c.get("event_type") or "click") not in ("click", "hover"):
                 continue
             if _page_key(c.get("url") or "") != _page_key(url):
                 continue

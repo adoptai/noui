@@ -1352,3 +1352,69 @@ def test_an_ordinary_button_still_compiles_to_a_click():
         }
     )
     assert step["command"] == "click_element"
+
+
+def test_a_recorded_hover_compiles_to_a_hover_step():
+    """The menu that opens on hover must be opened at replay too.
+
+    ICICI's top nav reveals its items on hover: hover "Cards", click "Credit
+    Cards". With no hover step the compiled path never opens the menu, and the
+    click targets something that does not exist yet.
+    """
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "event_type": "hover",
+            "text": "Cards",
+            "locator": {
+                "value": "#nav-cards",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+        }
+    )
+    assert step["command"] == "hover"
+    assert step["params"]["selector"] == "#nav-cards"
+
+
+def test_a_hover_with_only_a_text_locator_is_not_compiled():
+    # There is no hover-by-text at runtime, and guessing one would hover the
+    # wrong thing — worse than leaving the gesture out.
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "event_type": "hover",
+            "text": "Cards",
+            "locator": {
+                "value": "Cards",
+                "kind": "text",
+                "is_css": False,
+                "confidence": "medium",
+                "match_count": 1,
+            },
+        }
+    )
+    assert step is None
+
+
+def test_a_hover_inside_a_frame_keeps_its_frame():
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "event_type": "hover",
+            "locator": {
+                "value": "#menu",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {"in_iframe": True, "frame_url": "https://finacle.test/x"},
+        }
+    )
+    assert step["params"]["frame_url"] == "https://finacle.test/x"
