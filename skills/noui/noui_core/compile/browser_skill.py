@@ -176,6 +176,7 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
 
     cands: list[dict] = []
     late_cands: list[dict] = []
+    prev_was_hover = False
     for c in click_events or []:
         # A hover that opened a menu is part of the gesture, not noise: the
         # click after it targets something that does not exist until the pointer
@@ -210,8 +211,21 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
         # Allow a small window on the far side. Wide enough to absorb the
         # inversion, far narrower than the gap to the human's next action, so a
         # click belonging to the NEXT page is still never claimed by this one.
+        # A hover is exempt, and so is the click it revealed.
+        #
+        # The window guards against claiming a LATER, unrelated click -- a "Log
+        # out" back on the same page. A hover is never that: it cannot cause a
+        # navigation, so it is not the thing being guarded against, and the
+        # click it reveals is not a separate action but the second half of one
+        # gesture. On ICICI the route change is stamped at seq 4 while the human
+        # hovers at 7 and clicks at 9; with a slack of 3 the window closed at 7,
+        # so the click that does the work was dropped outright and the menu-
+        # opening hover was all that survived.
+        is_hover = (c.get("event_type") or "click") == "hover"
+        in_gesture = is_hover or prev_was_hover
+        prev_was_hover = is_hover
         if nav_seq is not None and cseq is not None:
-            if cseq > nav_seq + _NAV_SEQ_SLACK:
+            if cseq > nav_seq + _NAV_SEQ_SLACK and not in_gesture:
                 continue
             late = cseq > nav_seq
         elif nav_dt and cdt:
