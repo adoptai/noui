@@ -406,6 +406,11 @@ def _resolve_nav_chains(pages: list[dict]) -> list[dict]:
     return resolved
 
 
+def _is_css_kind(kind: str) -> bool:
+    """Kinds whose value is a CSS selector rather than human-visible text."""
+    return kind in ("css", "testid", "id", "name", "css_path")
+
+
 def _step_for_click(click: dict) -> dict | None:
     """One compiled step for one recorded click.
 
@@ -475,6 +480,35 @@ def _step_for_click(click: dict) -> dict | None:
             value = str(element.get(key) or "").strip()
             if value:
                 step["params"][key] = value
+
+    # The OTHER ways the recorder saw this control, for the runtime to try when
+    # the chosen one matches nothing.
+    #
+    # The recorder ranks several candidates -- id, aria-label, role+name, visible
+    # text, css path -- and choose_locator committed to one and discarded the
+    # rest. On a portal whose nav is icon divs the winner is a positional css
+    # path, and when the page shifts by one node the step is simply dead, while
+    # the text candidate that would have worked was recorded and thrown away.
+    # An ICICI replay failed every nav step this way, and a hand-written skill
+    # using click_by_text("Cards") on the same portal worked.
+    #
+    # Ordered as the recorder ranked them, unique matches only: a fallback that
+    # matches several nodes would trade a dead step for a wrong click.
+    alts = []
+    for cand in click.get("candidates") or []:
+        if not isinstance(cand, dict) or not cand.get("value"):
+            continue
+        if locator and cand.get("value") == locator.get("value"):
+            continue
+        if cand.get("match_count") not in (1, -1, None):
+            continue
+        value = str(cand["value"])
+        kind = str(cand.get("kind") or "")
+        if kind == "role_name" and "|" in value:
+            value = value.split("|", 1)[1]
+        alts.append({"selector": value} if _is_css_kind(kind) else {"text": value})
+    if alts:
+        step["params"]["fallbacks"] = alts[:4]
 
     if locator:
         # Carried for the human reading the recipe and for a future repair pass:
