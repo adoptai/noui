@@ -399,9 +399,30 @@ def _resolve_nav_chains(pages: list[dict]) -> list[dict]:
             # out) means we are already at the start of the in-app path.
             cur = by_key.get(parent_key)
         out = {k: v for k, v in page.items() if not k.startswith("_")}
-        if not ok:
-            continue
         out["nav"] = chain if chain else None
+        if not ok:
+            # Keep the page with the PARTIAL chain instead of discarding it.
+            #
+            # Dropping was meant to avoid a worse bug: a page with no chain
+            # looked like the landing page, so its recipe became a bare
+            # get_page_summary and the operation claimed to read /accounts while
+            # returning the landing DOM. Confidently wrong data is worse than a
+            # missing operation, and that reasoning still holds.
+            #
+            # But on a bank it discards the whole workflow. An ICICI recording
+            # captured 15 clicks -- Cards, Credit Cards, Past, download previous
+            # statement -- crossed to the Finacle host, and every hop there was an
+            # unlabelled control whose driving click could not be recovered. One
+            # unresolvable hop dropped every statement page, the compile emitted
+            # a single overview operation, and three re-recordings could not fix
+            # data that was already correct.
+            #
+            # So keep what was resolved and make the uncertainty explicit: the
+            # page is marked partial, and the operation asserts the URL it is
+            # supposed to reach. If the partial chain does not arrive, replay
+            # blocks on that expectation -- which is the honest failure the drop
+            # was protecting against, without throwing the workflow away.
+            out["nav_partial"] = True
         resolved.append(out)
     return resolved
 
@@ -569,6 +590,24 @@ def _steps_for_page(p: dict) -> list[dict]:
         if expect:
             step["expect"] = expect
         steps.append(step)
+
+    # A page reached by a PARTIAL chain must prove it arrived.
+    #
+    # This is what makes keeping the page safe. Without it, a chain that stops
+    # short leaves the run on whatever page it managed to reach and
+    # get_page_summary returns THAT -- the operation claims to read the
+    # statements page and hands back the landing DOM, which is the failure the
+    # old drop was protecting against. Asserting the url turns a silent wrong
+    # answer into a blocked step naming the page it did not reach.
+    if p.get("nav_partial") and p.get("url"):
+        steps.append(
+            {
+                "command": "get_page_info",
+                "expect": {"url": p["url"]},
+                "note": "the recorded path to this page was incomplete — verify arrival",
+            }
+        )
+
     steps.append({"command": "get_page_summary"})
     return steps
 

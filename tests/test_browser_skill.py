@@ -80,7 +80,11 @@ LOGIN = f"{_H}/login-page"
 
 def test_derive_pages_keeps_only_readable_app_pages():
     pages = derive_browser_pages(ICICI_EVENTS, ICICI_CLICKS, login_url=LOGIN)
-    assert [p["name"] for p in pages] == ["read_overview", "read_credit_card"]
+    # read_pay is kept now rather than dropped: its driving click could not be
+    # recovered, and discarding such pages is what cost an entire bank workflow.
+    # It carries nav_partial and must prove arrival before it reads anything.
+    assert [p["name"] for p in pages] == ["read_overview", "read_credit_card", "read_pay"]
+    assert next(p for p in pages if p["name"] == "read_pay")["nav_partial"] is True
     assert pages[1]["url"] == "https://retailnetbanking.icici.bank.in/credit-card"
 
 
@@ -278,7 +282,11 @@ def test_generate_browser_skill_writes_installable_dir(tmp_path):
     assert manifest["runtime"]["operation_style"] == "browser"
     assert manifest["runtime"]["type"] == "agent-harness-skill"
     assert manifest["auth"]["execution_strategy"] == "harness_call_web_browser"
-    assert [o["name"] for o in manifest["operations"]] == ["read_overview", "read_credit_card"]
+    assert [o["name"] for o in manifest["operations"]] == [
+        "read_overview",
+        "read_credit_card",
+        "read_pay",
+    ]
     assert all(o["tool"] == "call_web_browser" for o in manifest["operations"])
 
 
@@ -338,7 +346,7 @@ def test_compile_workflow_bundle_browser_driven(tmp_path):
     )
     m = res["skill"]
     assert m["runtime"]["operation_style"] == "browser"
-    assert [o["name"] for o in m["operations"]] == ["read_overview", "read_credit_card"]
+    assert [o["name"] for o in m["operations"]] == ["read_overview", "read_credit_card", "read_pay"]
     assert all(o["tool"] == "call_web_browser" for o in m["operations"])
 
 
@@ -419,11 +427,20 @@ def test_multi_hop_page_gets_the_whole_chain_from_the_landing_page():
     assert [c["text"] for c in by_name["read_statements"]["nav"]] == ["Accounts", "Statements"]
 
 
-def test_page_whose_driving_click_is_untextual_is_dropped_not_read_as_landing():
-    """`nav = [] or None` made an unreachable page look like the landing page: its
-    recipe became a bare get_page_summary, so the operation claimed to read
-    /accounts and actually returned the landing DOM. Icon/SVG nav buttons (no
-    text) are common in bank portals, so this was silently wrong data."""
+def test_a_page_whose_driving_click_is_untextual_is_kept_and_must_prove_arrival():
+    """Icon/SVG nav buttons carry no text, and bank portals are full of them.
+
+    Dropping the page avoided a worse bug -- `nav = [] or None` made it look like
+    the LANDING page, so the recipe became a bare get_page_summary and the
+    operation claimed to read /accounts while returning the landing DOM. But
+    dropping cost the whole workflow: an ICICI recording captured 15 clicks
+    through to the statement download, one unlabelled hop on the Finacle host
+    made the chain unresolvable, and the compile emitted a single overview
+    operation. Three re-recordings could not fix data that was already correct.
+
+    So keep the page with what was resolved, mark it partial, and make it prove
+    it arrived -- which is the honest failure the drop was protecting against.
+    """
     pages = derive_browser_pages(
         [
             _url_ev(f"{_B}/login", f"{_B}/home", "2026-01-01T00:00:01+00:00"),
@@ -432,7 +449,30 @@ def test_page_whose_driving_click_is_untextual_is_dropped_not_read_as_landing():
         [_click(f"{_B}/home", "", "2026-01-01T00:00:04+00:00")],  # icon button
         login_url=f"{_B}/login",
     )
-    assert [p["name"] for p in pages] == ["read_home"]
+    assert [p["name"] for p in pages] == ["read_home", "read_accounts"]
+
+    accounts = next(p for p in pages if p["name"] == "read_accounts")
+    assert accounts["nav_partial"] is True
+
+    # It must never be mistaken for the landing page: the recipe asserts the url.
+    from noui_core.compile.browser_skill import _steps_for_page
+
+    steps = _steps_for_page(accounts)
+    checks = [s for s in steps if s.get("expect", {}).get("url")]
+    assert checks and checks[0]["expect"]["url"] == accounts["url"]
+
+
+def test_a_fully_resolved_page_carries_no_partial_marker():
+    pages = derive_browser_pages(
+        [
+            _url_ev(f"{_B}/login", f"{_B}/home", "2026-01-01T00:00:01+00:00"),
+            _url_ev(f"{_B}/home", f"{_B}/accounts", "2026-01-01T00:00:05+00:00"),
+        ],
+        [_click(f"{_B}/home", "Accounts", "2026-01-01T00:00:04+00:00")],
+        login_url=f"{_B}/login",
+    )
+    accounts = next(p for p in pages if p["name"] == "read_accounts")
+    assert "nav_partial" not in accounts
 
 
 def test_hash_router_screens_are_separate_pages():
