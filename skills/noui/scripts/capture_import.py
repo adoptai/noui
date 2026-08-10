@@ -95,6 +95,49 @@ def _default_tenant(tenant_id: str) -> str:
     return auth.tenant_id_from_token(recording.resolve_agent_token())
 
 
+def _report_kind(result: dict, skill: dict | None, *, declared: bool) -> None:
+    """Say which KIND was compiled, why, and ask when nobody chose it.
+
+    This used to speak only when browser mode was auto-selected, so choosing
+    REPLAY was silent -- and an ICICI capture asked for as a browser skill
+    compiled to two Finacle POSTs with nothing anywhere saying a decision had
+    been taken. A default is fine; a default nobody is told about is not.
+
+    Auto-detection remains the default answer. What changes is that the answer
+    is stated, with its basis, and when the member never said which kind they
+    wanted the agent is told to confirm before installing -- the kind decides
+    whether the skill drives the page or replays requests, and changing it means
+    compiling again.
+    """
+    det = result.get("browser_detection") or {}
+    app = (skill.get("skill_id") if skill else None) or "this app"
+    browser = bool(det.get("unreplayable")) or declared
+
+    if browser:
+        from noui_core.compile.unreplayable import recommendation_message
+
+        basis = "you asked for it" if declared else recommendation_message(det, app_name=app)
+        print(f"KIND: browser-driven — {basis}", file=sys.stderr)
+    else:
+        reasons = "; ".join(det.get("reasons") or []) or "no unreplayable fingerprint in the HAR"
+        print(
+            f"KIND: replay (call_web_api) — auto-detected: {reasons}. The skill will "
+            f"fire the recorded requests rather than drive the page.",
+            file=sys.stderr,
+        )
+
+    if not declared:
+        print(
+            "CONFIRM THE KIND WITH THE MEMBER BEFORE INSTALLING. Nobody chose this; "
+            "it was detected. If they asked for a browser-driven skill -- or the app "
+            "encrypts or signs its requests in the page, so replay will 403 later -- "
+            "re-import with --browser-driven. Changing it afterwards means compiling "
+            "again, and a replay skill that looks fine today fails the first time the "
+            "app rotates what it signs.",
+            file=sys.stderr,
+        )
+
+
 def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     mcp = result.get("mcp") or {}
     skill = result.get("skill") or {}
@@ -105,16 +148,7 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     # Tell the operator when the app was auto-routed to browser mode, and why —
     # this is the recommendation surfaced to a user authoring a skill in the
     # harness, so browser mode is never picked silently.
-    det = result.get("browser_detection") or {}
-    if det.get("unreplayable"):
-        from noui_core.compile.unreplayable import recommendation_message
-
-        app = (skill.get("skill_id") if skill else None) or "this app"
-        print(
-            "Browser mode auto-selected —",
-            recommendation_message(det, app_name=app),
-            file=sys.stderr,
-        )
+    _report_kind(result, skill, declared=bool(getattr(args, "browser_driven", False)))
     if args.auth_type == "api-key":
         secrets = (skill.get("secrets_required") if skill else None) or (
             mcp.get("secrets_required") if mcp else None

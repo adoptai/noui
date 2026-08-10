@@ -412,6 +412,26 @@ rather than left to review.
 Never hand-write `operations.json`, `manifest.json`, `recording_bundle.json` or
 `replay_approval.json`. Record, compile, replay, and let the member approve.
 
+### Confirm the KIND at import, before installing
+
+The import prints one of:
+
+```
+KIND: browser-driven — ...
+KIND: replay (call_web_api) — auto-detected: ...
+```
+
+Auto-detection is the default and is usually right, but nobody chose it. When
+the line is followed by CONFIRM THE KIND, say which was chosen and why, and ask
+the member before installing. If they asked for a browser skill — or the app
+signs or encrypts requests in the page, so replay will 403 later — re-import
+with `--browser-driven`.
+
+This is not a formality. A capture asked for as a "BROWSER BASED skill" compiled
+to two replayed Finacle POSTs, and nothing said a decision had been taken.
+Changing the kind afterwards means compiling again, and a replay skill that
+looks fine today fails the first time the app rotates what it signs.
+
 ### After compiling, do not "generalize" the operations
 
 Renaming an operation, rewording a description, adding a parameter: fine. Those
