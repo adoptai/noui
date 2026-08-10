@@ -424,6 +424,30 @@ def _step_for_click(click: dict) -> dict | None:
     locator = click.get("locator")
     text = (click.get("text") or "").strip()
 
+    # A radio or checkbox is SET, not clicked.
+    #
+    # Portals style these as images or spans over a hidden input, so a click
+    # lands on the decoration and the input never changes -- ICICI's Monthly /
+    # Annual period is exactly that, and a replay that "clicked Annual" was
+    # still asking for the monthly statement. set_checked drives the control and
+    # verifies the state actually changed, which a click cannot promise.
+    element = click.get("element") or {}
+    role = str(element.get("role") or "").lower() if isinstance(element, dict) else ""
+    if role in ("radio", "checkbox") and locator and locator.get("is_css"):
+        step = {
+            "command": "set_checked",
+            "params": {"selector": locator["value"], "checked": True},
+        }
+        if element.get("in_iframe"):
+            for key in ("frame_url", "frame_name"):
+                value = str(element.get(key) or "").strip()
+                if value:
+                    step["params"][key] = value
+        expect = _expect_for_click(click)
+        if expect:
+            step["expect"] = expect
+        return step
+
     step: dict | None = None
     if locator and locator.get("is_css"):
         step = {"command": "click_element", "params": {"selector": locator["value"]}}

@@ -1250,3 +1250,65 @@ def test_a_later_screens_clicks_do_not_leak_into_the_download():
     ]
     ops = derive_terminal_operations(pages, clicks, login_url="https://bank.test/login")
     assert ops[0]["lead"] == []
+
+
+def test_a_radio_compiles_to_set_checked_not_a_click():
+    """ICICI's Monthly / Annual period is a styled radio.
+
+    Portals draw these as images or spans over a hidden input, so a click lands
+    on the decoration and the input never changes — a replay that "clicked
+    Annual" was still asking for the monthly statement. set_checked drives the
+    control and verifies the state changed, which a click cannot promise.
+    """
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {
+                "value": "#annual",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {"role": "radio", "tag": "input"},
+        }
+    )
+    assert step["command"] == "set_checked"
+    assert step["params"] == {"selector": "#annual", "checked": True}
+
+
+def test_a_radio_inside_a_frame_keeps_its_frame():
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {
+                "value": "#annual",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {"role": "radio", "in_iframe": True, "frame_url": "https://finacle.test/x"},
+        }
+    )
+    assert step["params"]["frame_url"] == "https://finacle.test/x"
+
+
+def test_an_ordinary_button_still_compiles_to_a_click():
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {
+                "value": "#go",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {"role": "button"},
+        }
+    )
+    assert step["command"] == "click_element"
