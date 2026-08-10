@@ -80,34 +80,38 @@ def main() -> int:
     # compiled operations, replayed, and spent the whole session improvising --
     # clicking, screenshotting, hunting a nav that its invented steps could not
     # find -- before anything said the steps were not the recorded ones.
+    # The steps digest first, and OUTSIDE the bundle check: a rewrite is knowable
+    # from the manifest alone, and a build that had rewritten its operations was
+    # sent to replay them -- spending a live session, and a member's sign-in, on
+    # steps that could never install.
+    try:
+        manifest = json.loads((skill_dir / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        manifest = {}
+    stamped = str((manifest.get("provenance") or {}).get("steps_sha256") or "")
+    if stamped and stamped != provenance.steps_digest(operations):
+        print(
+            "These are not the operations that were compiled from the recording "
+            "— their steps changed after compiling.\n"
+            "\n"
+            "Do NOT replay them: they cannot install however the replay goes, and "
+            "a live session spent on them is spent for nothing. Renaming an "
+            "operation or rewording a description is fine; changing what a step "
+            "targets, reordering steps, or adding an operation is not — those come "
+            "from the recording and nothing else can supply them.\n"
+            "\n"
+            "Restore the compiled operations.json, or re-record the part you meant "
+            "to change.",
+            file=sys.stderr,
+        )
+        return 1
+
     bundle_path = skill_dir / provenance.BUNDLE_FILE
     if bundle_path.is_file():
         try:
             bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             print(f"Cannot read {bundle_path}: {exc}", file=sys.stderr)
-            return 1
-        try:
-            manifest = json.loads((skill_dir / "manifest.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            manifest = {}
-        stamped = str((manifest.get("provenance") or {}).get("steps_sha256") or "")
-        if stamped and stamped != provenance.steps_digest(operations):
-            print(
-                "These are not the operations that were compiled from the recording "
-                "— their steps changed after compiling.\n"
-                "\n"
-                "Renaming an operation or rewording a description does not trigger "
-                "this. Changing what a step targets, reordering steps, or adding an "
-                "operation does. Reassembling steps out of locators that appear in "
-                "the recording is not the same as having recorded them, and the "
-                "installer checks this too — replaying now spends a live session on "
-                "a skill that cannot install.\n"
-                "\n"
-                "Restore the compiled operations.json, or re-record the part you "
-                "meant to change.",
-                file=sys.stderr,
-            )
             return 1
 
         unobserved = provenance.unobserved_locators(operations, bundle)
