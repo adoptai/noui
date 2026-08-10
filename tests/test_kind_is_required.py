@@ -67,17 +67,15 @@ def test_the_old_flag_still_satisfies_the_requirement(monkeypatch, capsys, tmp_p
     assert prov.call_args.kwargs["browser_driven"] is True
 
 
-def test_replay_is_accepted_but_renamed_to_api(monkeypatch, capsys, tmp_path):
-    """'replay' already means the verification step, not a skill kind.
+def test_replay_is_not_a_kind(monkeypatch, capsys, tmp_path):
+    """One word, one meaning. 'replay' is the verification of a draft before
+    install; it was never a skill kind, and accepting it as an alias would have
+    preserved exactly the ambiguity the rename removed."""
+    import pytest
 
-    Using one word for both would leave every reader deciding which sense was
-    meant; the manifest already calls this kind 'api'.
-    """
-    rc, out, prov = _run(
-        monkeypatch, capsys, tmp_path, "--kind", "replay", "--url", "https://bank.test/x"
-    )
-    assert rc == 0
-    assert "Reading it as --kind api" in out.err
+    with pytest.raises(SystemExit):
+        _run(monkeypatch, capsys, tmp_path, "--kind", "replay", "--url", "https://bank.test/x")
+    assert "invalid choice: 'replay'" in capsys.readouterr().err
 
 
 def test_api_is_accepted_as_a_kind(monkeypatch, capsys, tmp_path):
