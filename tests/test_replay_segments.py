@@ -97,3 +97,37 @@ def test_a_skill_without_segments_runs_as_it_always_did(monkeypatch):
     run_replay(legacy, profile_slug="p", token="t", entry_url=OVERVIEW)
     # The full chain runs, so "Cards" is clicked by both operations.
     assert page.calls.count("click_by_text") == 2
+
+
+def test_an_arrival_is_given_time_to_paint(monkeypatch):
+    """The URL matches before the DOM is up.
+
+    ICICI's statement portal is reached by a cross-origin hop that completes
+    after the click returns. The next operation asked for #PDF_Download while
+    the form was still building; probed by hand a minute later it was there.
+    """
+    waited: list[float] = []
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: waited.append(s))
+    page = _Page(OVERVIEW, after_first=CC)
+    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+
+    nav = {"command": "click_by_text", "params": {"text": "Cards"},
+           "expect": {"settle_ms": 4000}}
+    dl = {"command": "click_element", "params": {"selector": "#DL"}}
+    ops = [
+        _op("read_cc", None, [nav], [nav]),
+        _op("download", CC, [dl], [nav, dl]),
+    ]
+    run_replay(ops, profile_slug="p", token="t", entry_url=OVERVIEW)
+    # The second operation arrived at its starts_from and waited before acting.
+    assert 4.0 in waited
+
+
+def test_no_wait_when_the_predecessor_did_not_arrive(monkeypatch):
+    # A blocked operation must not also pay the settle.
+    waited: list[float] = []
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: waited.append(s))
+    page = _Page(OVERVIEW, after_first="https://x.test/elsewhere")
+    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+    run_replay(OPS, profile_slug="p", token="t", entry_url=OVERVIEW)
+    assert waited == []

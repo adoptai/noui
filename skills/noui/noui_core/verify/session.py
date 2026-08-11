@@ -549,6 +549,23 @@ def run_replay(
                         ),
                     }])
                     continue
+                # Arrived -- now let it PAINT.
+                #
+                # Measured from the step that CAUSED the arrival -- the
+                # previous operation's last one. That is where the recorder
+                # stamped how long this page took to come up; the arriving
+                # operation's own first step describes what it does once here.
+                #
+                # The URL matches the moment the navigation resolves, while the
+                # DOM is still coming up. ICICI's statement portal is reached by
+                # a cross-origin hop that completes after the click returns, and
+                # the next operation's first step asked for #PDF_Download while
+                # the form was still building. Probed by hand a minute later,
+                # that control was there. The reset already learned this; an
+                # arrival needs the same courtesy.
+                prev = ops[index - 1]
+                prev_steps = (prev.get("segment_steps") if segmented else prev.get("steps")) or []
+                time.sleep(_settle_after_reset([{"steps": list(reversed(prev_steps))}]))
             try:
                 for step in steps:
                     step_results.append(
