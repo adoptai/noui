@@ -29,7 +29,17 @@ def test_the_pair_becomes_one_step():
         {"command": "get_page_summary", "params": {}},
     ])
     assert [s["command"] for s in out] == ["click_element", "get_page_summary"]
-    assert out[0]["params"] == {"selector": ITEM, "hover_first": NAV}
+    # The click is addressed INSIDE what the hover revealed. `a.sub-menu-list-
+    # item-link` is a class every submenu item in this nav carries, so unscoped
+    # it resolved whichever match came first in the document — and when that one
+    # sat in a menu that was not open, the step failed "on the page but not
+    # visible" on about half of all runs. The bare selector stays as a fallback
+    # for a menu rendered in an overlay rather than inside its trigger.
+    assert out[0]["params"] == {
+        "selector": f"{NAV} {ITEM}",
+        "hover_first": NAV,
+        "fallbacks": [{"selector": ITEM}],
+    }
     # The click's expectation describes where the gesture lands; the hover's
     # described opening a menu and is not the postcondition.
     assert out[0]["expect"] == {"url": "https://x/credit-card"}
@@ -64,3 +74,56 @@ def test_consecutive_pairs_both_fold():
     assert len(out) == 2
     assert out[0]["params"]["hover_first"] == "#a"
     assert out[1]["params"]["hover_first"] == "#c"
+
+
+def test_a_selector_that_already_names_one_node_is_left_alone():
+    """An id addresses one node by definition; scoping it would only add risk."""
+    from noui_core.compile.browser_skill import _fold_hover_into_click
+
+    out = _fold_hover_into_click([
+        {"command": "hover", "params": {"selector": "#nav"}},
+        {"command": "click_element", "params": {"selector": "#cards"}},
+    ])
+    assert out[0]["params"] == {"selector": "#cards", "hover_first": "#nav"}
+
+
+def test_a_recorded_path_is_left_alone_too():
+    """A css_path is a walk down the tree, not a style shared by many nodes."""
+    from noui_core.compile.browser_skill import _fold_hover_into_click
+
+    path = "#scroll-container > div > div:nth-of-type(2) > a"
+    out = _fold_hover_into_click([
+        {"command": "hover", "params": {"selector": "#nav"}},
+        {"command": "click_element", "params": {"selector": path}},
+    ])
+    assert out[0]["params"]["selector"] == path
+    assert "fallbacks" not in out[0]["params"]
+
+
+def test_an_existing_fallback_is_kept_behind_the_unscoped_one():
+    from noui_core.compile.browser_skill import _fold_hover_into_click
+
+    out = _fold_hover_into_click([
+        {"command": "hover", "params": {"selector": "#nav"}},
+        {"command": "click_element",
+         "params": {"selector": "a.item", "fallbacks": [{"text": "Credit Cards"}]}},
+    ])
+    assert out[0]["params"]["selector"] == "#nav a.item"
+    assert out[0]["params"]["fallbacks"] == [{"selector": "a.item"}, {"text": "Credit Cards"}]
+
+
+def test_scoping_a_recorded_control_inside_another_keeps_its_provenance():
+    """The gate must not read the compiler's own output as a hand edit.
+
+    Scoping composes two selectors the recording DID see, and the result can
+    only match fewer nodes than the half on its right — so nothing was invented.
+    """
+    from noui_core.compile.provenance import _is_observed_scoped_inside_observed
+
+    seen = {"#nav", "a.item"}
+    assert _is_observed_scoped_inside_observed("#nav a.item", seen) is True
+    # Neither half invented, and nothing looser: a control nobody saw stays
+    # unobserved however it is combined.
+    assert _is_observed_scoped_inside_observed("#nav a.invented", seen) is False
+    assert _is_observed_scoped_inside_observed("#other a.item", seen) is False
+    assert _is_observed_scoped_inside_observed("a.item", seen) is False

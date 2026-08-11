@@ -159,4 +159,30 @@ def unobserved_locators(operations: list[dict[str, Any]], bundle: dict[str, Any]
     steps that were written rather than observed.
     """
     seen = observed_selectors(bundle)
-    return [loc for loc in step_locators(operations) if loc not in seen]
+    return [
+        loc
+        for loc in step_locators(operations)
+        if loc not in seen and not _is_observed_scoped_inside_observed(loc, seen)
+    ]
+
+
+def _is_observed_scoped_inside_observed(locator: str, seen: set[str]) -> bool:
+    """Is this one observed control narrowed by another observed one?
+
+    The compiler scopes a hover-revealed control inside the thing that revealed
+    it -- "<hover> <control>" -- because a class like `a.sub-menu-list-item-link`
+    names a style every submenu item shares, and unscoped it resolves whichever
+    match comes first in the document.
+
+    That composition invents nothing: both halves were observed, and the result
+    can only ever match FEWER nodes than the half on its right. Deliberately not
+    a general "all the words are observed" rule -- the whole string either splits
+    into exactly two observed selectors or it does not.
+    """
+    if " " not in locator:
+        return False
+    for part in seen:
+        prefix = f"{part} "
+        if locator.startswith(prefix) and locator[len(prefix) :] in seen:
+            return True
+    return False

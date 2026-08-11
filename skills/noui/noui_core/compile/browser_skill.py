@@ -869,6 +869,49 @@ def _expect_for_click(click: dict) -> dict | None:
     return expect or None
 
 
+def _is_shared_class_selector(selector: str) -> bool:
+    """Is this a selector that could name many controls at once?
+
+    An id addresses one node by definition, and a recorded css_path is a walk
+    down the tree. A bare tag.class is neither: `a.sub-menu-list-item-link` names
+    a STYLE, and a nav gives every submenu item in it the same one.
+    """
+    value = (selector or "").strip()
+    if not value or "#" in value or ">" in value or " " in value:
+        return False
+    return "." in value
+
+
+def _scope_under_the_hover(step: dict, hover_selector: str) -> None:
+    """Address the revealed control INSIDE the thing that revealed it.
+
+    ICICI's nav compiled to `a.sub-menu-list-item-link` -- a class every submenu
+    item in the nav carries, and one the recorder never checked for uniqueness:
+    the `match_count: 1` on that step belongs to a DIFFERENT candidate, a css_path
+    to an ancestor. So the click resolved whichever match came first in the
+    document, and when that one sat in a menu that was not open the step failed
+    "on the page but not visible". About half of all runs died there, on step 0,
+    and passed on an immediate retry.
+
+    A control revealed by a hover lives inside what revealed it, so the hover's
+    own selector is the scope that disambiguates -- no site knowledge, no
+    guessing which of the matches was meant.
+
+    The unscoped selector stays as the first fallback, since a menu rendered in
+    an overlay rather than inside its trigger would not match the scoped form.
+    Only for a selector that could name many controls: an id or a recorded path
+    is left exactly as it was.
+    """
+    params = step.get("params") or {}
+    selector = str(params.get("selector") or "")
+    if not _is_shared_class_selector(selector):
+        return
+    params["selector"] = f"{hover_selector} {selector}"
+    fallbacks = list(params.get("fallbacks") or [])
+    params["fallbacks"] = [{"selector": selector}, *fallbacks]
+    step["params"] = params
+
+
 def _fold_hover_into_click(steps: list[dict]) -> list[dict]:
     """A hover and the click it enables are ONE gesture, so emit one step.
 
@@ -895,6 +938,7 @@ def _fold_hover_into_click(steps: list[dict]) -> list[dict]:
         ):
             merged = {**nxt, "params": {**(nxt.get("params") or {}),
                                         "hover_first": step["params"]["selector"]}}
+            _scope_under_the_hover(merged, step["params"]["selector"])
             # The hover's own expectation described opening the menu; the click's
             # describes where the gesture lands. Keep the click's.
             out.append(merged)
