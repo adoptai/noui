@@ -530,7 +530,14 @@ def run_replay(
             # entry page, which is the one position the recording observed. The
             # rest continue from their predecessor, so a reset would undo it.
             starts_from = op.get("starts_from")
-            if index == 0:
+            # "Begins the journey" is a property of the operation, not its
+            # position in the list. An operation with no starts_from is the one
+            # a fresh session lands on; one WITH it continues from that page.
+            #
+            # Using the index broke as soon as --only ran a single operation:
+            # download_statement became index 0 and was sent back to /overview
+            # from the statement portal, where it had correctly just arrived.
+            if not starts_from:
                 if entry_url:
                     try:
                         # The JOURNEY's entry, not this host's.

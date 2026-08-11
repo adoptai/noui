@@ -271,3 +271,35 @@ def test_operation_zero_resets_to_the_journey_entry_not_the_host_entry(monkeypat
                          "https://retailnetbanking.icici.bank.in": OVERVIEW},
     )
     assert aimed == [OVERVIEW]
+
+
+def test_a_mid_journey_operation_run_alone_is_not_sent_to_the_entry(monkeypatch):
+    """--only made download_statement index 0, and the index-based rule sent it
+    back to /overview from the statement portal it had just reached.
+
+    Beginning the journey is a property of the operation — no starts_from —
+    not of its position in the list.
+    """
+    reset_called: list[str] = []
+    monkeypatch.setattr(
+        session_mod, "_return_to_entry",
+        lambda *a, **k: reset_called.append(a[1]) or None,
+    )
+    page = _Page(CC)
+    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+
+    only = [OPS[1], dict(OPS[1], name="second")]  # both carry starts_from=CC
+    run_replay(only, profile_slug="p", token="t", entry_url=OVERVIEW)
+    assert reset_called == [], "a continuing operation must never reset"
+
+
+def test_the_journey_opener_still_resets_wherever_it_sits(monkeypatch):
+    reset_called: list[str] = []
+    monkeypatch.setattr(
+        session_mod, "_return_to_entry",
+        lambda *a, **k: reset_called.append(a[1]) or None,
+    )
+    page = _Page(OVERVIEW, after_first=CC)
+    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+    run_replay(OPS, profile_slug="p", token="t", entry_url=OVERVIEW)
+    assert reset_called == [OVERVIEW]
