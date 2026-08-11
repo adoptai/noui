@@ -795,6 +795,42 @@ def _expect_for_click(click: dict) -> dict | None:
     return expect or None
 
 
+def _fold_hover_into_click(steps: list[dict]) -> list[dict]:
+    """A hover and the click it enables are ONE gesture, so emit one step.
+
+    As two steps they are two round trips to the worker, and a menu that only
+    exists while the pointer rests on its trigger cannot survive the gap.
+    Measured on ICICI: hover returned ok and the submenu was not visible on any
+    later call -- 1s, 2s, 3s, 4s. The click was racing the menu closing, which
+    looked like slowness and got "fixed" twice by waiting longer.
+
+    Only a css-addressable hover immediately followed by a click_element: there
+    is no hover-by-text, and a hover followed by anything else is not this
+    pattern.
+    """
+    out: list[dict] = []
+    i = 0
+    while i < len(steps):
+        step = steps[i]
+        nxt = steps[i + 1] if i + 1 < len(steps) else None
+        if (
+            step.get("command") == "hover"
+            and nxt is not None
+            and nxt.get("command") == "click_element"
+            and (step.get("params") or {}).get("selector")
+        ):
+            merged = {**nxt, "params": {**(nxt.get("params") or {}),
+                                        "hover_first": step["params"]["selector"]}}
+            # The hover's own expectation described opening the menu; the click's
+            # describes where the gesture lands. Keep the click's.
+            out.append(merged)
+            i += 2
+            continue
+        out.append(step)
+        i += 1
+    return out
+
+
 def _inherit_hover_settle(steps: list[dict]) -> None:
     """A click after a hover waits for the menu the hover opened.
 
@@ -900,7 +936,7 @@ def _steps_for_page(p: dict) -> list[dict]:
         )
 
     steps.append({"command": "get_page_summary"})
-    out = _collapse_repeats(steps)
+    out = _fold_hover_into_click(_collapse_repeats(steps))
     _inherit_hover_settle(out)
     return out
 
@@ -1625,6 +1661,7 @@ def _steps_for_terminal(op: dict) -> list[dict]:
         steps.append({"command": "list_downloads"})
     else:
         steps.append({"command": "get_page_summary"})
+    steps = _fold_hover_into_click(steps)
     _inherit_hover_settle(steps)
     return steps
 
