@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from noui_core.compile.locators import AMBIGUOUS, choose_locator
+from noui_core.compile.locators import AMBIGUOUS, UNKNOWN, choose_locator
 from noui_core.compile.login_assets import (
     _LOGIN_FLOW_SEGMENTS,
     _first_path_segment,
@@ -644,10 +644,41 @@ def _step_for_click(click: dict) -> dict | None:
     # verifies the state actually changed, which a click cannot promise.
     element = click.get("element") or {}
     role = str(element.get("role") or "").lower() if isinstance(element, dict) else ""
-    if role in ("radio", "checkbox") and locator and locator.get("is_css"):
+    # The ROLE_NAME candidate announces it too: "radio|Annual". ICICI's period
+    # control reports no element role and its unique candidate is that
+    # role_name, so both halves of the old test failed -- the step compiled to
+    # click_by_text "Annual", which clicks the LABEL. The click reported ok, the
+    # radio stayed on Monthly, and the replay downloaded a monthly statement
+    # while asking for the annual one.
+    if not role:
+        for cand in click.get("candidates") or []:
+            if isinstance(cand, dict) and str(cand.get("kind")) == "role_name":
+                head = str(cand.get("value") or "").split("|", 1)[0].strip().lower()
+                if head in ("radio", "checkbox"):
+                    role = head
+                    break
+    # set_checked needs a SELECTOR, and the chosen locator may be the role_name
+    # that identified the control rather than a css one. Fall back to the best
+    # css candidate: addressing the input directly is the whole point.
+    target = locator if (locator and locator.get("is_css")) else None
+    if role in ("radio", "checkbox") and target is None:
+        for cand in click.get("candidates") or []:
+            if not isinstance(cand, dict) or not _is_css_kind(str(cand.get("kind") or "")):
+                continue
+            # UNIQUE only. ICICI's Monthly and Annual radios share an id and a
+            # name, so that candidate matches two nodes -- set_checked would
+            # take the first and select MONTHLY, which is the exact bug this is
+            # meant to fix, made silent again. An ambiguous selector is worse
+            # here than no selector: falling through leaves the step as it was.
+            if cand.get("value") and cand.get("match_count") in (1, -1):
+                target = {"value": str(cand["value"]), "kind": cand.get("kind"),
+                          "match_count": cand.get("match_count"),
+                          "confidence": UNKNOWN, "is_css": True}
+                break
+    if role in ("radio", "checkbox") and target:
         step = {
             "command": "set_checked",
-            "params": {"selector": locator["value"], "checked": True},
+            "params": {"selector": target["value"], "checked": True},
         }
         if element.get("in_iframe"):
             for key in ("frame_url", "frame_name"):
