@@ -1030,11 +1030,32 @@ def generate(
 
     # Determine post-login success condition
     # Find the last stable URL after the login sequence
-    stable_urls = [
-        to_url
-        for from_url, to_url in _before_first_click(url_transitions, url_events, click_events)
-        if not _is_redirect_hop(from_url, to_url) and to_url != first_url
-    ]
+    def _landings(transitions: list[tuple[str, str]]) -> list[str]:
+        return [
+            to_url
+            for from_url, to_url in transitions
+            if not _is_redirect_hop(from_url, to_url) and to_url != first_url
+        ]
+
+    stable_urls = _landings(_before_first_click(url_transitions, url_events, click_events))
+    if not stable_urls and manual_takeover:
+        # "The login segment ends at the first click" assumes the login lands you
+        # by REDIRECT. A manual takeover is the opposite: the human IS the login,
+        # so every click belongs to it and the landing necessarily comes after
+        # them. Narrowing then keeps only the login page, which the filter above
+        # drops as first_url -- leaving no landing page at all.
+        #
+        # ICICI recorded login-page -> (human signs in) -> /overview and compiled
+        # a takeover with no wait_for_url, so every session asked a human to
+        # confirm a login they had already completed. The auto-resolve mechanism
+        # was working; it had no pattern to resolve against.
+        #
+        # Only for a takeover, and only when the narrow rule found nothing: the
+        # automated path keeps its bound, and this branch replaces "no pattern"
+        # rather than a good one. Its wait_for_url carries on_failure: skip, so a
+        # pattern that turns out not to match costs one timeout, not a stuck
+        # session.
+        stable_urls = _landings(url_transitions)
     if stable_urls:
         # The landing page is the end of the FIRST same-origin run of stable URLs,
         # not the last URL of the recording.
