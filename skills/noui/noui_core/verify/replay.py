@@ -167,6 +167,28 @@ def plan_operations(operations: list[dict], *, browser_only: bool = True) -> lis
     return [op for op in operations or [] if (op.get("tool") or "") == "call_web_browser"]
 
 
+_ABSENT = ("nothing on the page matches", "unknown command", "not visible")
+
+
+def _satisfied_already(step: dict, detail: str) -> bool:
+    """Is this an optional step whose control is simply not there?
+
+    ICICI's statement portal has its own sign-in, INSIDE the workflow. The
+    recording had to do it -- click Log In, and the URL gains a jsessionid. A
+    replay whose session already satisfies it arrives past that point, so the
+    button is absent and the compiled step matched nothing. The step is
+    unnecessary, not broken.
+
+    Only for a step the compiler marked optional, and only when the control is
+    ABSENT. A login button that is present and fails to click is a real failure
+    and must stay one.
+    """
+    if not step.get("optional"):
+        return False
+    low = str(detail or "").lower()
+    return any(marker in low for marker in _ABSENT)
+
+
 def replay_step(
     execute: Any,
     step: dict,
@@ -207,13 +229,30 @@ def replay_step(
         # instead of recording the plan as broken.
         raise
     except Exception as exc:  # noqa: BLE001 — a blocked step is data, not a crash
+        if _satisfied_already(step, str(exc)):
+            result["status"] = SKIPPED
+            result["detail"] = (
+                f"{step.get('optional_reason') or 'optional step'}: its control is not "
+                "on the page, which means this was already satisfied before the "
+                "replay arrived."
+            )
+            return result
         result["status"] = BLOCKED
         result["detail"] = str(exc)
         return result
 
     if isinstance(response, dict) and response.get("success") is False:
+        detail = str(response.get("error") or "the command reported failure")
+        if _satisfied_already(step, detail):
+            result["status"] = SKIPPED
+            result["detail"] = (
+                f"{step.get('optional_reason') or 'optional step'}: its control is not "
+                "on the page, which means this was already satisfied before the "
+                "replay arrived."
+            )
+            return result
         result["status"] = BLOCKED
-        result["detail"] = str(response.get("error") or "the command reported failure")
+        result["detail"] = detail
         return result
 
     result["status"] = OK

@@ -580,6 +580,32 @@ def _is_css_kind(kind: str) -> bool:
     return kind in ("css", "testid", "id", "name", "css_path")
 
 
+_LOGIN_CONTROL = re.compile(r"\|\s*(log ?in|sign ?in|login|signin|continue to login)\s*$", re.I)
+
+
+def _is_login_control(click: dict) -> bool:
+    """Does this click operate a sign-in control?
+
+    A workflow can contain a SECOND login, to another origin, inside the slice
+    the splitter already separated the first one from. ICICI's statement portal
+    has its own: the recording clicked "Log In" and the URL gained a jsessionid.
+    A replay whose session already satisfies it arrives past that point, the
+    button is absent, and the compiled step matches nothing -- unnecessary, not
+    broken.
+
+    Matched on the accessible NAME, not on a selector: #DEH_LOGIN says nothing,
+    while `role_name: button|Log In` is the control announcing what it is.
+    """
+    for cand in click.get("candidates") or []:
+        if not isinstance(cand, dict):
+            continue
+        if str(cand.get("kind") or "") == "role_name" and _LOGIN_CONTROL.search(
+            str(cand.get("value") or "")
+        ):
+            return True
+    return False
+
+
 def _step_for_click(click: dict) -> dict | None:
     """One compiled step for one recorded click.
 
@@ -664,6 +690,11 @@ def _step_for_click(click: dict) -> dict | None:
                     hover["params"][key] = value
         return hover
 
+    # Marked, not dropped: on a cold replay this login IS needed. Optional means
+    # "skip when its control is absent", which is the only reading that is true
+    # both times.
+    optional = _is_login_control(click)
+
     step: dict | None = None
     if locator and locator.get("is_css"):
         step = {"command": "click_element", "params": {"selector": locator["value"]}}
@@ -731,6 +762,12 @@ def _step_for_click(click: dict) -> dict | None:
         }
         if text and not locator.get("is_css"):
             step["locator"]["recorded_text"] = text
+    if step is not None and optional:
+        step["optional"] = True
+        step["optional_reason"] = (
+            "this signs in to the app this operation runs on, which a replay "
+            "may already have done"
+        )
     return step
 
 
