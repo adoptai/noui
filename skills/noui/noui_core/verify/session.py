@@ -447,9 +447,86 @@ def run_replay(
     known = _workflow_urls(ops, entry_url or "")
     reset_notes: list = []
     results: list[list[dict]] = []
-    for op in ops:
-        steps = substitute_parameters(op, parameter_values)
+    # Segments: run the recorded journey ONCE, in order, each operation
+    # continuing where the last one ended.
+    #
+    # `steps` repeats the whole chain from the entry page into every operation,
+    # so replaying operation 2 demands being back somewhere the recording left
+    # once and never returned to -- and the reset had to invent a route there.
+    # Watched failing: operations 2-5 reported "could not return to the start of
+    # the journey" while the browser sat on /credit-card with the next recorded
+    # click visible on screen.
+    #
+    # A skill compiled before segments existed has none, and runs exactly as it
+    # did.
+    segmented = all(op.get("segment_steps") is not None for op in ops) and len(ops) > 1
+
+    for index, op in enumerate(ops):
+        source = op if not segmented else {**op, "steps": op.get("segment_steps") or []}
+        steps = substitute_parameters(source, parameter_values)
         step_results: list[dict] = []
+
+        if segmented:
+            # Only the first operation may reset: a fresh session lands on the
+            # entry page, which is the one position the recording observed. The
+            # rest continue from their predecessor, so a reset would undo it.
+            starts_from = op.get("starts_from")
+            if index == 0:
+                if entry_url:
+                    try:
+                        failed = _return_to_entry(
+                            execute, entry_url, known, entry_by_origin, ops, reset_notes
+                        )
+                    except SessionNotReadyError as exc:
+                        report = build_report([], [])
+                        report["status"] = "login_required"
+                        report["detail"] = str(exc)
+                        return report
+                    if failed is not None:
+                        results.append([failed])
+                        continue
+            elif starts_from:
+                # The predecessor was supposed to leave us here. When it did not,
+                # say so instead of running steps against the wrong page -- an
+                # operation that reads whatever loaded is how a skill claims to
+                # have fetched a statement it never opened.
+                try:
+                    info = execute("get_page_info", {})
+                    here = str((info.get("data") or info).get("url") or "")
+                except SessionNotReadyError as exc:
+                    report = build_report(ops[: len(results)], results)
+                    report["status"] = "login_required"
+                    report["detail"] = str(exc)
+                    return report
+                except Exception:  # noqa: BLE001 — unreadable url: let the steps report
+                    here = ""
+                if here and not _same_page(here.split("?")[0], starts_from.split("?")[0]):
+                    results.append([{
+                        "command": "starts_from",
+                        "params": {"url": starts_from},
+                        "status": "blocked",
+                        "error": (
+                            f"this operation continues from {starts_from}, but the "
+                            f"browser is on {here}. The operation before it did not "
+                            "arrive, so running these steps here would act on the "
+                            "wrong page and report whatever it found."
+                        ),
+                    }])
+                    continue
+            try:
+                for step in steps:
+                    step_results.append(
+                        replay_step(execute, step, recorded=recorded, approvals=approvals)
+                    )
+            except SessionNotReadyError as exc:
+                results.append(step_results)
+                report = build_report(ops[: len(results)], results)
+                report["status"] = "login_required"
+                report["detail"] = str(exc)
+                return report
+            results.append(step_results)
+            continue
+
         # Before EVERY operation, not once per replay.
         #
         # Each operation carries the whole chain from the entry page -- they are
