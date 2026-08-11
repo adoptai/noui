@@ -92,6 +92,16 @@ def main() -> int:
         "skill installable, and an amendment recorded here survives review as what it "
         "is: a step observed working once, which the member approves separately.",
     )
+    p.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        metavar="OPERATION",
+        help="replay just these operations, from wherever the browser already is. "
+        "For iterating on one operation without re-walking the journey to reach "
+        "it -- the run is NOT evidence the skill works end to end, and its report "
+        "says so.",
+    )
     args = p.parse_args()
 
     skill_dir = Path(args.skill_dir)
@@ -176,6 +186,31 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
+
+    # Narrow the run AFTER the provenance gates, never before.
+    #
+    # Filtering first made the digest check see a skill with four operations
+    # removed, and it refused -- correctly in its own terms, since removing an
+    # operation changes the digest exactly as much as inventing one. But --only
+    # is a choice about what to EXERCISE, not a change to what was compiled, and
+    # the gates must judge the file on disk. The other ordering is worse: it
+    # would let a genuinely edited skill through by passing --only.
+    if operations and args.only:
+        wanted = {str(n) for n in args.only}
+        missing = wanted - {str(o.get("name")) for o in operations}
+        if missing:
+            print(
+                f"No operation named {', '.join(sorted(missing))} in this skill.",
+                file=sys.stderr,
+            )
+            return 1
+        operations = [o for o in operations if str(o.get("name")) in wanted]
+        print(
+            f"Replaying {len(operations)} of {len(doc['operations'])} operations, from "
+            f"wherever the browser is. This is for iterating, not for approval: a "
+            f"partial run cannot show the skill works end to end.",
+            file=sys.stderr,
+        )
 
     # Amendments: a step whose recorded locator no longer matches, replaced by a
     # control discovered at replay. Recorded HERE rather than by editing
@@ -274,6 +309,15 @@ def main() -> int:
                 "nothing has exercised.",
                 file=sys.stderr,
             )
+
+    if args.only:
+        # Stamped BEFORE the file is written, not after. Marking only the copy
+        # printed to stdout left replay_report.json looking like a full run --
+        # and that file is what the card renders and the installer reads, which
+        # is how a skill gets approved on evidence that only ever covered one
+        # operation.
+        report["partial"] = sorted(str(n) for n in args.only)
+        report["installable"] = False
 
     out = skill_dir / REPORT_FILE
     try:
