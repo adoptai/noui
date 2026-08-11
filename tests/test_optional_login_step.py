@@ -89,3 +89,44 @@ def test_a_non_optional_step_is_never_skipped():
         raise RuntimeError("nothing on the page matches \"#DL\"")
 
     assert replay_step(execute, step, recorded={_control_identity(step)})["status"] == BLOCKED
+
+
+# --- a click after a hover waits for the menu the hover opened -----------------
+
+
+def test_the_click_after_a_hover_inherits_its_settle():
+    # The recorder measures the settle on the HOVER — 4322ms on ICICI's nav —
+    # and the click that follows carries none, so it fell back to the runtime's
+    # 3s floor. The reveal sits right around 3s: the step passed in one live run
+    # and failed "on the page but not visible" in the next.
+    from noui_core.compile.browser_skill import _inherit_hover_settle
+
+    steps = [
+        {"command": "hover", "expect": {"settle_ms": 4322}},
+        {"command": "click_element"},
+        {"command": "get_page_summary"},
+    ]
+    _inherit_hover_settle(steps)
+    assert steps[1]["expect"]["settle_ms"] == 4322
+    assert steps[2].get("expect") is None, "only the step immediately after"
+
+
+def test_a_click_keeps_its_own_measurement():
+    # Its own settle describes its own page and is the better number.
+    from noui_core.compile.browser_skill import _inherit_hover_settle
+
+    steps = [
+        {"command": "hover", "expect": {"settle_ms": 4322}},
+        {"command": "click_element", "expect": {"settle_ms": 900, "url": "https://x/y"}},
+    ]
+    _inherit_hover_settle(steps)
+    assert steps[1]["expect"]["settle_ms"] == 900
+    assert steps[1]["expect"]["url"] == "https://x/y", "nothing else is disturbed"
+
+
+def test_a_hover_with_no_measurement_gives_nothing():
+    from noui_core.compile.browser_skill import _inherit_hover_settle
+
+    steps = [{"command": "hover"}, {"command": "click_element"}]
+    _inherit_hover_settle(steps)
+    assert steps[1].get("expect") is None

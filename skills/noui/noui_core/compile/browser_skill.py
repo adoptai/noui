@@ -795,6 +795,32 @@ def _expect_for_click(click: dict) -> dict | None:
     return expect or None
 
 
+def _inherit_hover_settle(steps: list[dict]) -> None:
+    """A click after a hover waits for the menu the hover opened.
+
+    The recorder measures the settle on the HOVER -- 4322ms on ICICI's nav --
+    and the click that follows it carries none, so it fell back to the runtime's
+    3s floor. The reveal sits right around 3s, which made the step a coin flip:
+    it passed in one live run and failed "on the page but not visible" in the
+    next.
+
+    The hover's measurement IS how long its menu takes to appear, which is
+    exactly what the next click is waiting on. Inherited only when the click has
+    no settle of its own -- its own measurement, where it has one, describes its
+    own page and is the better number.
+    """
+    for before, after in zip(steps, steps[1:]):
+        if before.get("command") != "hover":
+            continue
+        settle = (before.get("expect") or {}).get("settle_ms")
+        if not isinstance(settle, int) or settle <= 0:
+            continue
+        expect = after.get("expect") or {}
+        if expect.get("settle_ms"):
+            continue
+        after["expect"] = {**expect, "settle_ms": settle}
+
+
 def _steps_for_page(p: dict) -> list[dict]:
     """Recipe to read a page WITHOUT a reload.
 
@@ -874,7 +900,9 @@ def _steps_for_page(p: dict) -> list[dict]:
         )
 
     steps.append({"command": "get_page_summary"})
-    return _collapse_repeats(steps)
+    out = _collapse_repeats(steps)
+    _inherit_hover_settle(out)
+    return out
 
 
 def ambiguous_steps(pages: list[dict]) -> list[dict]:
@@ -1597,6 +1625,7 @@ def _steps_for_terminal(op: dict) -> list[dict]:
         steps.append({"command": "list_downloads"})
     else:
         steps.append({"command": "get_page_summary"})
+    _inherit_hover_settle(steps)
     return steps
 
 
