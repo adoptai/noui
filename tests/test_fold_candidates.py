@@ -170,3 +170,41 @@ def test_the_landing_page_starts_from_nothing():
          "nav": None, "_from_key": None},
     ])
     assert pages[0]["starts_from"] is None
+
+
+def test_a_terminal_operation_drops_the_journey_from_its_segment():
+    # A download repeats four clicks the previous operation already made. Its
+    # segment is what happens ON the statement page: the lead-in, the fills, and
+    # the download itself.
+    from noui_core.compile import browser_skill as bs
+
+    op = {
+        "name": "download_statement",
+        "kind": "download",
+        "nav": [
+            {"text": "Cards", "outcome": {"to_url": "https://x.test/credit-card"}},
+            {"text": "Past", "outcome": {"to_url": "https://x.test/stmt"}},
+        ],
+        "lead": [{"command": "click_by_text", "params": {"text": "Annual"}}],
+        "parameters": [],
+        "terminal": {"command": "click_element", "params": {"selector": "#DL"}},
+    }
+    full = bs._steps_for_terminal(op)
+    seg = bs._terminal_segment(op)
+    # The segment is the full recipe minus exactly the two journey clicks --
+    # and it keeps the tail (list_downloads) that confirms the download landed,
+    # which a hand-mirrored version dropped.
+    assert len(full) == len(seg) + 2, "the journey is what the segment drops"
+    assert full[2:] == seg
+    assert seg[0]["params"]["text"] == "Annual"
+    assert seg[-1]["command"] == "list_downloads"
+    assert bs._terminal_starts_from(op) == "https://x.test/stmt"
+
+
+def test_a_terminal_with_no_journey_starts_from_the_landing_page():
+    from noui_core.compile import browser_skill as bs
+
+    op = {"nav": [], "lead": [], "parameters": [],
+          "terminal": {"command": "click_element", "params": {"selector": "#DL"}}}
+    assert bs._terminal_starts_from(op) is None
+    assert bs._terminal_segment(op) == bs._steps_for_terminal(op)

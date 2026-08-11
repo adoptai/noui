@@ -968,6 +968,12 @@ def render_browser_operations_json(
                 "kind": op["kind"],
                 "parameters": op.get("parameters") or [],
                 "steps": _steps_for_terminal(op),
+                # Alongside steps, exactly as for page operations: the work this
+                # operation does on its own page, and the page it starts on.
+                # Nothing reads these yet -- wiring the replay to run segments in
+                # recorded order is a separate change.
+                "starts_from": _terminal_starts_from(op),
+                "segment_steps": _terminal_segment(op),
             }
         )
     doc = {"schema_version": "1", "style": "browser", "operations": operations}
@@ -1497,6 +1503,35 @@ def derive_terminal_operations(
             }
         )
     return out
+
+
+def _terminal_segment(op: dict) -> list[dict]:
+    """A terminal operation's own work, without the journey that reaches it.
+
+    `_steps_for_terminal` prefixes the whole nav chain from the landing page, so
+    a download repeats four clicks the previous operation already made. The
+    segment is what actually happens ON the page: the lead-in that sets it up
+    (tab, period, filter), the parameter fills, and the terminal action itself.
+
+    Built by the real recipe with the journey removed, not by re-listing its
+    parts: a hand-mirrored version already dropped the trailing list_downloads
+    that confirms a download actually arrived, which is the operation's whole
+    success condition.
+    """
+    return _steps_for_terminal({**op, "nav": []})
+
+
+def _terminal_starts_from(op: dict) -> str | None:
+    """The page a terminal operation begins on: where its nav chain arrived.
+
+    None means the landing page -- a terminal reached without any nav, which a
+    fresh session is already positioned for.
+    """
+    for click in reversed(op.get("nav") or []):
+        outcome = click.get("outcome")
+        if isinstance(outcome, dict) and outcome.get("to_url"):
+            return str(outcome["to_url"])
+    return None
 
 
 def _steps_for_terminal(op: dict) -> list[dict]:
