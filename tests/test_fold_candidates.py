@@ -230,3 +230,33 @@ def test_a_terminal_starts_from_its_own_page_not_the_last_stamped_hop():
         "terminal": {"command": "click_element", "params": {"selector": "#DL"}},
     }
     assert bs._terminal_starts_from(op) == "https://infinity.icici.bank.in/corp/AuthenticationController"
+
+
+def test_the_segment_is_folded_too_not_just_the_full_steps():
+    """A segmented replay runs segment_steps. Leaving it as operation A's copy
+    meant `timeframe=annual` ran the monthly branch — the skill offered a choice
+    it could not honour, which is worse than not folding at all.
+    """
+    from noui_core.compile.browser_skill import apply_fold, fold_candidates
+    from noui_core.verify.replay import substitute_parameters
+
+    ops = [
+        {**_op("monthly", [_s("#HDisplay23")]),
+         "segment_steps": [_s("#HDisplay23"), _s("#DL")], "starts_from": "https://x/p"},
+        {**_op("annual", [_s("#Annual"), _s("#GO")]),
+         "segment_steps": [_s("#Annual"), _s("#GO"), _s("#DL")], "starts_from": "https://x/p"},
+    ]
+    fold = fold_candidates(ops)[0]
+    out = apply_fold(ops, fold, name="download_statement", param="timeframe",
+                     values=["monthly", "annual"])[0]
+
+    def seg(tf):
+        return [
+            (s.get("params") or {}).get("selector")
+            for s in substitute_parameters({**out, "steps": out["segment_steps"]},
+                                           {"timeframe": tf})
+        ]
+
+    assert seg("monthly") == ["#HDisplay23", "#DL"]
+    assert seg("annual") == ["#Annual", "#GO", "#DL"]
+    assert "#Annual" not in seg("monthly"), "branches must not leak into each other"

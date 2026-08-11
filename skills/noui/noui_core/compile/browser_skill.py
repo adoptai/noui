@@ -1823,6 +1823,27 @@ def fold_candidates(operations: list[dict]) -> list[dict]:
     return out
 
 
+def _merge_branches(a_steps: list[dict], b_steps: list[dict], param: str,
+                    values: list[str]) -> list[dict]:
+    """One list: shared prefix, each divergent middle tagged, shared ending.
+
+    Used for BOTH `steps` and `segment_steps`. Folding only the former left the
+    segment holding operation A's copy, so a segmented replay ran the monthly
+    branch whatever timeframe was asked for -- the skill offered a choice it
+    could not honour, which is worse than not folding at all.
+    """
+    pre = _common_prefix_len(a_steps, b_steps)
+    suf = _common_suffix_len(a_steps, b_steps, pre)
+    merged = list(a_steps[:pre])
+    for branch, value in zip(
+        (a_steps[pre : len(a_steps) - suf], b_steps[pre : len(b_steps) - suf]), values
+    ):
+        merged.extend({**step, "when": {param: value}} for step in branch)
+    if suf:
+        merged.extend(a_steps[len(a_steps) - suf :])
+    return merged
+
+
 def apply_fold(
     operations: list[dict], fold: dict, *, name: str, param: str, values: list[str]
 ) -> list[dict]:
@@ -1843,18 +1864,18 @@ def apply_fold(
     if a is None or b is None or len(values) != 2:
         return operations
 
-    steps_a = a.get("steps") or []
-    pre, suf = fold["prefix"], fold["suffix"]
-    merged = list(steps_a[:pre])
-    for branch, value in zip(fold["branches"], values):
-        for step in branch:
-            merged.append({**step, "when": {param: value}})
-    merged.extend(steps_a[len(steps_a) - suf :] if suf else [])
-
     folded = {
         **a,
         "name": name,
-        "steps": merged,
+        "steps": _merge_branches(
+            a.get("steps") or [], b.get("steps") or [], param, values
+        ),
+        # The segment gets the same treatment. It is what a segmented replay
+        # runs, and leaving it as operation A's copy meant every timeframe ran
+        # the monthly branch.
+        "segment_steps": _merge_branches(
+            a.get("segment_steps") or [], b.get("segment_steps") or [], param, values
+        ),
         "parameters": [
             *(a.get("parameters") or []),
             {
