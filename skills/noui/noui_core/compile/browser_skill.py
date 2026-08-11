@@ -504,6 +504,16 @@ def _resolve_nav_chains(pages: list[dict]) -> list[dict]:
             cur = by_key.get(parent_key)
         out = {k: v for k, v in page.items() if not k.startswith("_")}
         out["nav"] = chain if chain else None
+        # The SEGMENT: only the hop from the previous page, and the page it
+        # starts on. The full chain above is the whole journey repeated into
+        # every operation, which is why a replay of operation 2 demands being
+        # back at a landing page the recording left once and never returned to.
+        # Kept alongside rather than instead of `nav` so nothing downstream
+        # moves until it opts in.
+        own_hop = page.get("nav")
+        out["segment"] = list(own_hop) if own_hop else ([] if own_hop == [] else None)
+        parent = by_key.get(page.get("_from_key") or "")
+        out["starts_from"] = parent["url"] if parent else None
         if not ok:
             # Keep the page with the PARTIAL chain instead of discarding it.
             #
@@ -925,15 +935,27 @@ def render_browser_operations_json(
     """
     operations = []
     for p in pages:
-        operations.append(
-            {
-                "name": p["name"],
-                "description": f"Read the rendered contents of {p['url']}",
-                "tool": "call_web_browser",
-                "profile_slug": profile_slug,
-                "steps": _steps_for_page(p),
-            }
-        )
+        op = {
+            "name": p["name"],
+            "description": f"Read the rendered contents of {p['url']}",
+            "tool": "call_web_browser",
+            "profile_slug": profile_slug,
+            "steps": _steps_for_page(p),
+        }
+        # The segment: the page this operation starts on, and only the hop from
+        # it. `steps` above repeats the whole journey into every operation,
+        # which is why replaying operation 2 demands being back at a landing
+        # page the recording left once and never returned to -- and why the
+        # replay grew a reset that has to invent a way there.
+        #
+        # Emitted ALONGSIDE steps, not instead of them: switching the replay
+        # over is a separate change, and until it happens nothing here moves.
+        # Note `starts_from: null` means the landing page, where a fresh session
+        # already is.
+        if p.get("starts_from") is not None or p.get("segment") is not None:
+            op["starts_from"] = p.get("starts_from")
+            op["segment_steps"] = _steps_for_page({**p, "nav": p.get("segment")})
+        operations.append(op)
     # Goals that finish without landing on a new page — a download, a form
     # submission. The page-centric model above cannot express them at all.
     for op in terminal_ops or []:

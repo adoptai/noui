@@ -135,3 +135,38 @@ def test_a_fold_naming_missing_operations_changes_nothing():
     ops = [_op("monthly", [_s("#a")]), _op("annual", [_s("#b")])]
     bad = {"operations": ["monthly", "gone"], "prefix": 4, "suffix": 1, "branches": [[], []]}
     assert apply_fold(ops, bad, name="x", param="p", values=["a", "b"]) == ops
+
+
+# --- segments: the hop, not the whole journey ----------------------------------
+#
+# `steps` repeats the full chain from the landing page into every operation, so
+# replaying operation 2 demands being back somewhere the recording left once and
+# never returned to. `segment_steps` is only the hop from `starts_from`.
+
+
+def test_the_compiler_emits_the_hop_alongside_the_journey():
+    from noui_core.compile import browser_skill as bs
+
+    pages = bs._resolve_nav_chains([
+        {"name": "read_overview", "url": "https://x.test/overview",
+         "nav": None, "_from_key": None},
+        {"name": "read_cc", "url": "https://x.test/credit-card",
+         "nav": [{"text": "Cards"}], "_from_key": bs._page_key("https://x.test/overview")},
+        {"name": "read_stmt", "url": "https://x.test/stmt",
+         "nav": [{"text": "Past"}], "_from_key": bs._page_key("https://x.test/credit-card")},
+    ])
+    stmt = [p for p in pages if p["name"] == "read_stmt"][0]
+    assert [c["text"] for c in stmt["nav"]] == ["Cards", "Past"]   # the journey
+    assert [c["text"] for c in stmt["segment"]] == ["Past"]        # the hop
+    assert stmt["starts_from"] == "https://x.test/credit-card"
+
+
+def test_the_landing_page_starts_from_nothing():
+    # A fresh session is already there, so there is no hop to record.
+    from noui_core.compile import browser_skill as bs
+
+    pages = bs._resolve_nav_chains([
+        {"name": "read_overview", "url": "https://x.test/overview",
+         "nav": None, "_from_key": None},
+    ])
+    assert pages[0]["starts_from"] is None
