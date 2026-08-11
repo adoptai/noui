@@ -51,7 +51,8 @@ class _Browser:
 def test_drifted_browser_is_returned_to_the_entry_point():
     b = _Browser(DRIFTED)
     assert session_mod._return_to_entry(b, ENTRY) is None
-    assert b.commands == ["get_page_info", "navigate"]
+    # History is tried first — same tab, same cookies — then navigate.
+    assert b.commands == ["get_page_info", "go_back", "navigate"]
     assert b.at == ENTRY
 
 
@@ -79,7 +80,8 @@ def test_unreadable_url_navigates_rather_than_guessing():
 
     b = _Blind(DRIFTED)
     assert session_mod._return_to_entry(b, ENTRY) is None
-    assert b.commands == ["get_page_info", "navigate"]
+    # History is tried first — same tab, same cookies — then navigate.
+    assert b.commands == ["get_page_info", "go_back", "navigate"]
 
 
 def test_failed_reset_is_reported_as_the_reset_not_as_step_zero():
@@ -297,3 +299,65 @@ def test_an_ordinary_app_page_is_still_a_reset_not_a_sign_in():
     b = _Browser(DRIFTED)
     assert session_mod._return_to_entry(b, ENTRY) is None
     assert "navigate" in b.commands
+
+
+# --- walking history home ------------------------------------------------------
+#
+# A recorded journey can cross origins: ICICI's statement portal is a different
+# host from the net-banking SPA. From there nothing links back to the landing
+# page and navigate is refused, so every operation after the first had no way
+# home and the reset failed six times in a row.
+
+
+class _History(_Browser):
+    """A back stack. goBack pops it; navigate is refused, as on ICICI."""
+
+    def __init__(self, stack):
+        super().__init__(stack[-1])
+        self.stack = list(stack)
+
+    def __call__(self, command, params):
+        if command == "go_back":
+            self.calls.append((command, params))
+            moved = len(self.stack) > 1
+            if moved:
+                self.stack.pop()
+                self.at = self.stack[-1]
+            return {"data": {"url": self.at, "moved": moved}}
+        if command == "navigate":
+            self.calls.append((command, params))
+            raise _DISABLED
+        return super().__call__(command, params)
+
+
+def test_history_walks_back_to_the_entry_page():
+    portal = "https://infinity.icici.bank.in/corp/AuthenticationController"
+    b = _History([ENTRY, portal])
+    # known_urls is what run_replay supplies: the portal is a page the recording
+    # visited, so "auth" in its path must not read as a sign-in screen.
+    assert session_mod._return_to_entry(b, ENTRY, {portal}) is None
+    assert b.at == ENTRY
+    assert "navigate" not in b.commands, "history got there; nothing else should be tried"
+
+
+def test_history_is_tried_before_navigate():
+    b = _History([ENTRY, DRIFTED])
+    session_mod._return_to_entry(b, ENTRY)
+    assert b.commands.index("go_back") < len(b.commands)
+    assert b.commands[1] == "go_back"
+
+
+def test_exhausted_history_stops_instead_of_pressing_back_forever():
+    # moved=False means there is nowhere further back. Walking on would only
+    # waste calls, and eventually leave the app entirely.
+    portal = "https://infinity.icici.bank.in/corp/AuthenticationController"
+    b = _History([portal])
+    session_mod._return_to_entry(b, ENTRY, {portal})
+    assert b.commands.count("go_back") == 1
+
+
+def test_history_that_never_reaches_the_entry_is_bounded():
+    deep = [f"https://infinity.icici.bank.in/corp/p{n}" for n in range(30)]
+    b = _History(deep)
+    session_mod._return_to_entry(b, ENTRY)
+    assert b.commands.count("go_back") <= session_mod._MAX_BACK_STEPS

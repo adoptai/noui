@@ -74,6 +74,12 @@ def session_is_ready(profile_slug: str, token: str) -> bool:
     return True
 
 
+_MAX_BACK_STEPS = 8
+"""How far to walk history home. Bounded: a replay that cannot find the entry
+page in eight steps is lost, and pressing back forever would eventually leave
+the app entirely."""
+
+
 def _same_page(a: str, b: str) -> bool:
     """Same page, ignoring a trailing slash."""
     return a.rstrip("/") == b.rstrip("/")
@@ -192,7 +198,26 @@ def _return_to_entry(
             "session to replay against"
         )
 
-    # navigate FIRST, because on an app that allows it this is one call and
+    # History FIRST: same tab, same cookies, and for an in-app SPA hop a
+    # client-side pop rather than a load. A recorded journey can cross origins
+    # -- ICICI's statement portal is a different host from the net-banking SPA
+    # -- and from there nothing links back to the landing page and navigate is
+    # refused, so every operation after the first had no way home.
+    for _ in range(_MAX_BACK_STEPS):
+        try:
+            res = execute("go_back", {})
+        except SessionNotReadyError:
+            raise
+        except Exception:  # noqa: BLE001 — no history, or the app refuses it
+            break
+        data = (res.get("data") or res) or {}
+        here = str(data.get("url") or here)
+        if _same_page(here, entry_url):
+            return None
+        if not data.get("moved"):
+            break  # history exhausted; walking further only wastes calls
+
+    # navigate NEXT, because on an app that allows it this is one call and
     # lands exactly where we mean. It is not always allowed: a portal that
     # carries its session in the URL loses it on a full page load, and the
     # worker refuses the command outright -- which is how the first live run of
