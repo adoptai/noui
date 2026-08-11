@@ -198,7 +198,7 @@ def test_a_terminal_operation_drops_the_journey_from_its_segment():
     assert full[2:] == seg
     assert seg[0]["params"]["text"] == "Annual"
     assert seg[-1]["command"] == "list_downloads"
-    assert bs._terminal_starts_from(op) == "https://x.test/stmt"
+    assert bs._terminal_starts_from(dict(op, url="https://x.test/stmt")) == "https://x.test/stmt"
 
 
 def test_a_terminal_with_no_journey_starts_from_the_landing_page():
@@ -208,3 +208,25 @@ def test_a_terminal_with_no_journey_starts_from_the_landing_page():
           "terminal": {"command": "click_element", "params": {"selector": "#DL"}}}
     assert bs._terminal_starts_from(op) is None
     assert bs._terminal_segment(op) == bs._steps_for_terminal(op)
+
+
+def test_a_terminal_starts_from_its_own_page_not_the_last_stamped_hop():
+    """download_statement came out starting from /credit-card while it runs on
+    the statement portal, so its starts_from guard refused it every time.
+
+    A cross-origin hop completes after the click returns, so it is never stamped
+    as that click's outcome — and walking the nav chain for one fell back to the
+    last hop that WAS stamped. The operation already carries the page it acts on.
+    """
+    from noui_core.compile import browser_skill as bs
+
+    op = {
+        "url": "https://infinity.icici.bank.in/corp/AuthenticationController",
+        "nav": [
+            {"text": "Cards", "outcome": {"to_url": "https://retailnetbanking.icici.bank.in/credit-card"}},
+            {"text": "Past", "outcome": {"navigated": False, "to_url": None}},
+        ],
+        "lead": [], "parameters": [],
+        "terminal": {"command": "click_element", "params": {"selector": "#DL"}},
+    }
+    assert bs._terminal_starts_from(op) == "https://infinity.icici.bank.in/corp/AuthenticationController"

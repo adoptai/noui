@@ -1697,11 +1697,14 @@ def _terminal_starts_from(op: dict) -> str | None:
     None means the landing page -- a terminal reached without any nav, which a
     fresh session is already positioned for.
     """
-    for click in reversed(op.get("nav") or []):
-        outcome = click.get("outcome")
-        if isinstance(outcome, dict) and outcome.get("to_url"):
-            return str(outcome["to_url"])
-    return None
+    # The operation's OWN page, which it already carries. Walking the nav chain
+    # for a recorded outcome was wrong: a cross-origin hop completes after the
+    # click returns, so it is never stamped on that click, and the walk fell
+    # back to the last hop that WAS stamped. download_statement came out
+    # starting from /credit-card while it runs on the statement portal, and its
+    # starts_from guard refused it every time.
+    url = str(op.get("url") or "").strip()
+    return url or None
 
 
 def _steps_for_terminal(op: dict) -> list[dict]:
