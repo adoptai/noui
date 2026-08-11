@@ -384,8 +384,41 @@ def substitute_parameters(operation: dict, values: dict[str, str] | None = None)
 
     out: list[dict] = []
     for step in operation.get("steps") or []:
+        if not step_applies(step, values):
+            continue
         params = {
             k: (fill(v) if isinstance(v, str) else v) for k, v in (step.get("params") or {}).items()
         }
         out.append({**step, "params": params})
     return out
+
+
+def step_applies(step: dict, values: dict) -> bool:
+    """Does this step run for these parameter values?
+
+    Two operations recorded from one page often differ by WHICH STEPS RUN rather
+    than by a value: ICICI's monthly and annual statements share four steps to
+    reach the page, then diverge -- annual clicks a radio and picks a financial
+    year, monthly does not. Substitution cannot express that, so the compiler had
+    to emit both as separate operations, each replaying the whole journey from
+    the landing page.
+
+    ``when`` is how a step says which variant it belongs to::
+
+        {"command": "click_by_text", "params": {...}, "when": {"timeframe": "annual"}}
+
+    A step with no ``when`` always runs -- every operation compiled before this
+    existed keeps behaving exactly as it did. All named keys must match, so a
+    step can belong to a combination of choices, and an unknown parameter never
+    silently matches: a ``when`` naming something the operation does not declare
+    means the step is skipped rather than run by accident.
+    """
+    cond = step.get("when")
+    if not isinstance(cond, dict) or not cond:
+        return True
+    for name, wanted in cond.items():
+        if name not in values:
+            return False
+        if str(values.get(name)) != str(wanted):
+            return False
+    return True
