@@ -16,7 +16,12 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "skills" / "noui"))
 
+from noui_core.verify import session as session_mod  # noqa: E402
 from noui_core.verify.session import run_replay  # noqa: E402
+
+# The wrong-page case waits for a hop that never lands; a real wait would add
+# eight seconds to the suite for no signal.
+session_mod._STARTS_FROM_WAIT_S = 0
 
 OVERVIEW = "https://x.test/overview"
 CC = "https://x.test/credit-card"

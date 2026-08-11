@@ -81,6 +81,21 @@ page in eight steps is lost, and pressing back forever would eventually leave
 the app entirely."""
 
 
+_STARTS_FROM_WAIT_S = 8.0
+"""How long to let a hop land before deciding an operation is on the wrong page.
+
+A click that causes a cross-origin navigation returns ok before the navigation
+completes -- "download previous statement" reported success with the browser
+still on /credit-card, and the statement portal appeared a moment later. The
+first version of this guard sampled once and blocked the next operation on a
+page that was in the middle of becoming the right one.
+"""
+
+_STARTS_FROM_POLL_S = 2.0
+"""Seconds between checks while waiting for a hop to land. Four samples over the
+eight-second window, not sixteen: this is watching for a navigation, not racing
+it."""
+
 _RESET_SETTLE_MS = 3000
 """How long to let the entry page paint after a reset MOVED it.
 
@@ -490,9 +505,30 @@ def run_replay(
                 # say so instead of running steps against the wrong page -- an
                 # operation that reads whatever loaded is how a skill claims to
                 # have fetched a statement it never opened.
+                # WAIT for it, do not sample it once.
+                #
+                # A click that causes a cross-origin hop returns ok before the
+                # hop lands: "download previous statement" reported success with
+                # the browser still on /credit-card, and the portal appeared a
+                # moment later. Checking instantly blocked the next operation on
+                # a page that was in the middle of becoming the right one.
+                deadline = time.monotonic() + _STARTS_FROM_WAIT_S
                 try:
-                    info = execute("get_page_info", {})
-                    here = str((info.get("data") or info).get("url") or "")
+                    while True:
+                        info = execute("get_page_info", {})
+                        here = str((info.get("data") or info).get("url") or "")
+                        if not here or _same_page(
+                            here.split("?")[0], starts_from.split("?")[0]
+                        ):
+                            break
+                        if time.monotonic() >= deadline:
+                            break
+                        # Gently. Polling twice a second across several
+                        # operations tripped the API's rate limit (HTTP 429) and
+                        # every later step failed on that instead of on
+                        # anything real -- a check for a page turning into
+                        # another page must not cost more than the wait itself.
+                        time.sleep(_STARTS_FROM_POLL_S)
                 except SessionNotReadyError as exc:
                     report = build_report(ops[: len(results)], results)
                     report["status"] = "login_required"
