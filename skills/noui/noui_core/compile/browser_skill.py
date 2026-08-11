@@ -859,13 +859,17 @@ def entry_urls_by_origin(url_events: list[dict]) -> dict:
     """
     out: dict = {}
     for ev in url_events or []:
-        to = str((ev or {}).get("to_url") or "")
-        if not to or to == "about:blank" or _is_login_flow_url(to):
-            continue
-        m = re.match(r"^[a-z]+://[^/]+", to, re.I)
-        if not m:
-            continue
-        out.setdefault(m.group(0).lower(), to)
+        # from_url BEFORE to_url. The compiler is handed the workflow slice,
+        # whose first transition is already /overview -> /credit-card, so
+        # reading destinations alone made the net-banking entry /credit-card --
+        # the page the first step is trying to REACH. The same trap entry_url
+        # fell into.
+        for url in (str((ev or {}).get("from_url") or ""), str((ev or {}).get("to_url") or "")):
+            if not url or url == "about:blank" or _is_login_flow_url(url):
+                continue
+            m = re.match(r"^[a-z]+://[^/]+", url, re.I)
+            if m:
+                out.setdefault(m.group(0).lower(), url)
     return out
 
 

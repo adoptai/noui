@@ -505,3 +505,18 @@ def test_the_query_string_does_not_hide_a_match():
          "expect": {"url": ENTRY + "?ref=nav"}}]}]
     got = session_mod._recorded_way_back(ops, ENTRY)
     assert got == {"command": "click_element", "params": {"selector": "#home"}}
+
+
+def test_the_origin_map_uses_the_page_before_the_first_hop():
+    # The compiler gets the WORKFLOW slice, whose first transition is already
+    # /overview -> /credit-card. Reading destinations alone made the
+    # net-banking entry /credit-card — the page the first step is trying to
+    # reach, not the one it acts on.
+    from noui_core.compile import browser_skill
+
+    got = browser_skill.entry_urls_by_origin([
+        {"seq": 4, "from_url": ENTRY, "to_url": CC},
+        {"seq": 13, "from_url": CC, "to_url": PORTAL},
+    ])
+    assert got["https://retailnetbanking.icici.bank.in"] == ENTRY
+    assert got["https://infinity.icici.bank.in"] == PORTAL
