@@ -1352,12 +1352,18 @@ def render_browser_operations_json(
         if (
             segment is None
             and p.get("starts_from") is None
-            and entry_url
             and _page_key(p["url"]) != _page_key(entry_url)
         ):
             # The FIRST operation continues from a fresh session, which lands on
             # the entry page -- so getting from there to its own page is ITS
             # work, not a journey shared with anything before it.
+            #
+            # Not conditioned on KNOWING the entry page. `entry_url_for` returns
+            # "" when it cannot name a landing page, and requiring it meant the
+            # first operation silently kept its bare read on exactly the
+            # recordings where the compiler understood the least. It owns its nav
+            # chain either way; an operation that really is the landing page has
+            # no nav, so this still yields an empty segment for it.
             #
             # Without this, an operation whose nav chain has no parent was given
             # `starts_from: null` ("you are already here") while asserting a page
