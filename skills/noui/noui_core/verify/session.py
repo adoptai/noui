@@ -179,6 +179,34 @@ def _cannot_reset(entry_url: str, here: str, why: str) -> dict:
     }
 
 
+def _recorded_way_back(operations: list[dict], entry_url: str) -> dict | None:
+    """A control the RECORDING watched land on this entry page.
+
+    The preferred way to reposition on a browser-driven app is a click, because
+    navigate is banned there -- a full load destroys the session. But WHICH
+    click matters: hunting the live page for something that looks like a way
+    home is a guess, while a step whose recorded outcome arrived at this exact
+    page is evidence.
+
+    Often there is none. A journey that went forward and never returned never
+    watched anyone go back, and then the caller falls through to the guess --
+    which is fine, as long as it is not mistaken for something observed.
+    """
+    want = entry_url.split("?")[0].split(";")[0].rstrip("/")
+    if not want:
+        return None
+    for op in operations or []:
+        for step in op.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            got = str(((step.get("expect") or {}).get("url")) or "")
+            if not got:
+                continue
+            if got.split("?")[0].split(";")[0].rstrip("/") == want:
+                return {"command": step.get("command"), "params": dict(step.get("params") or {})}
+    return None
+
+
 def _entry_for_origin(here: str, entry_url: str, by_origin: dict | None) -> str:
     """The entry page on the host we are ALREADY on.
 
@@ -199,6 +227,8 @@ def _return_to_entry(
     entry_url: str,
     known_urls: set[str] | None = None,
     entry_by_origin: dict | None = None,
+    operations: list[dict] | None = None,
+    notes: list | None = None,
 ) -> dict | None:
     """Put the browser back at the start of the journey before replaying it.
 
@@ -246,6 +276,24 @@ def _return_to_entry(
             f"the browser is on the sign-in flow ({here}), so there is no signed-in "
             "session to replay against"
         )
+
+    # A recorded control first: on a browser-driven app the way to reposition is
+    # a click, and a click the recording watched arrive HERE is evidence rather
+    # than a guess. Usually absent -- a journey that never went back never
+    # watched anyone go back -- in which case we fall through.
+    back = _recorded_way_back(operations or [], entry_url)
+    if back and back.get("command"):
+        try:
+            execute(back["command"], back.get("params") or {})
+            info = execute("get_page_info", {})
+            landed = str((info.get("data") or info).get("url") or "")
+            if _same_page(landed, entry_url):
+                return None
+            here = landed or here
+        except SessionNotReadyError:
+            raise
+        except Exception:  # noqa: BLE001 — recorded once is not guaranteed now
+            pass
 
     # History FIRST: same tab, same cookies, and for an in-app SPA hop a
     # client-side pop rather than a load. A recorded journey can cross origins
@@ -305,6 +353,19 @@ def _return_to_entry(
             "found on the page",
         )
 
+    # Nobody watched a human click this. It is the live page's own link back,
+    # matched on where it points -- a reasonable guess and still a guess, so it
+    # is recorded as one rather than passing as observed behaviour.
+    if notes is not None:
+        notes.append(
+            {
+                "kind": "unobserved_reset",
+                "entry_url": entry_url,
+                "control": dict(home.get("params") or {}),
+                "why": "no recorded control was seen arriving at this page, so the "
+                "way back was taken from the live page",
+            }
+        )
     try:
         execute(home["command"], home["params"])
         info = execute("get_page_info", {})
@@ -354,6 +415,7 @@ def run_replay(
     execute = _executor(profile_slug, token, timeout_ms=timeout_ms)
 
     known = _workflow_urls(ops, entry_url or "")
+    reset_notes: list = []
     results: list[list[dict]] = []
     for op in ops:
         steps = substitute_parameters(op, parameter_values)
@@ -372,7 +434,9 @@ def run_replay(
         # and does nothing when it matches.
         if entry_url:
             try:
-                failed = _return_to_entry(execute, entry_url, known, entry_by_origin)
+                failed = _return_to_entry(
+                    execute, entry_url, known, entry_by_origin, ops, reset_notes
+                )
             except SessionNotReadyError as exc:
                 results.append(step_results)
                 report = build_report(ops[: len(results)], results)
@@ -395,4 +459,9 @@ def run_replay(
             return report
         results.append(step_results)
 
-    return build_report(ops, results)
+    report = build_report(ops, results)
+    if reset_notes:
+        # Surfaced, not buried: a member reviewing this should see which resets
+        # were taken from the live page rather than from the recording.
+        report["unobserved_resets"] = reset_notes
+    return report

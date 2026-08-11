@@ -442,3 +442,66 @@ def test_the_compiler_emits_one_entry_per_host():
     ])
     assert got["https://retailnetbanking.icici.bank.in"] == ENTRY   # not /login-page
     assert got["https://infinity.icici.bank.in"] == PORTAL          # the FIRST one
+
+
+# --- repositioning by click, and being honest about which click ----------------
+#
+# On a browser-driven app navigate is banned — a full load destroys the session —
+# so a click is how you reposition. WHICH click matters: one the recording
+# watched arrive at this page is evidence; one hunted from the live page is a
+# guess, and must not pass as the former.
+
+RECORDED_OPS = [
+    {
+        "name": "read_overview",
+        "steps": [
+            {"command": "click_by_text", "params": {"text": "Home"},
+             "expect": {"url": ENTRY}},
+            {"command": "get_page_summary", "params": {}},
+        ],
+    }
+]
+
+
+def test_a_recorded_control_is_preferred_over_hunting_the_page():
+    class _B(_NoNavigate):
+        def __call__(self, command, params):
+            if command == "click_by_text" and params.get("text") == "Home":
+                self.calls.append((command, params))
+                self.at = ENTRY
+                return {"data": {}}
+            return super().__call__(command, params)
+
+    b = _B(DRIFTED, HOME_LINK)
+    notes: list = []
+    assert session_mod._return_to_entry(
+        b, ENTRY, {ENTRY}, None, RECORDED_OPS, notes
+    ) is None
+    assert ("click_by_text", {"text": "Home"}) in b.calls
+    assert "get_page_summary" not in b.commands, "should not hunt when evidence exists"
+    assert notes == [], "a recorded control is not an unobserved reset"
+
+
+def test_the_live_page_fallback_is_recorded_as_unobserved():
+    b = _NoNavigate(DRIFTED, HOME_LINK)
+    notes: list = []
+    assert session_mod._return_to_entry(b, ENTRY, {ENTRY}, None, [], notes) is None
+    assert len(notes) == 1
+    assert notes[0]["kind"] == "unobserved_reset"
+    assert notes[0]["entry_url"] == ENTRY
+    assert "a.logo" in str(notes[0]["control"])
+
+
+def test_a_recorded_control_for_another_page_is_not_used():
+    ops = [{"name": "x", "steps": [
+        {"command": "click_by_text", "params": {"text": "Cards"},
+         "expect": {"url": DRIFTED}}]}]
+    assert session_mod._recorded_way_back(ops, ENTRY) is None
+
+
+def test_the_query_string_does_not_hide_a_match():
+    ops = [{"name": "x", "steps": [
+        {"command": "click_element", "params": {"selector": "#home"},
+         "expect": {"url": ENTRY + "?ref=nav"}}]}]
+    got = session_mod._recorded_way_back(ops, ENTRY)
+    assert got == {"command": "click_element", "params": {"selector": "#home"}}
