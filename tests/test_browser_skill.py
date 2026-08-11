@@ -777,7 +777,15 @@ def test_recordings_without_candidates_still_compile_the_old_way():
     pages = derive_browser_pages(_RICH_EVENTS, [legacy], login_url=LOGIN)
     steps = _ops(pages)["operations"][1]["steps"]
 
-    assert steps[0] == {"command": "click_by_text", "params": {"text": "Credit Cards"}}
+    # Compared on what the step DOES. Underscore keys are compile-time
+    # provenance (which interaction, and the page it ran on) — they never change
+    # behaviour, and `_behaviour` is what the compiler itself uses to decide
+    # whether two steps are the same action.
+    from noui_core.compile.browser_skill import _behaviour
+
+    assert _behaviour(steps[0]) == {
+        "command": "click_by_text", "params": {"text": "Credit Cards"},
+    }
     assert steps[-1] == {"command": "get_page_summary"}
 
 

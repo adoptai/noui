@@ -255,6 +255,9 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
                 "outcome": c.get("outcome") if isinstance(c.get("outcome"), dict) else None,
                 "dt": cdt,
                 "seq": cseq,
+                # The page it happened on. Carried for the same reason as seq:
+                # a folded variant needs to know where it BEGINS.
+                "url": cu,
             }
         )
     if not cands and late_cands:
@@ -319,6 +322,7 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
                 # time the loss showed up somewhere far away, as a compiled
                 # skill quietly missing something it had recorded.
                 "seq": c.get("seq"),
+                "url": c.get("url"),
                 "is_opener": c.get("is_opener"),
                 "candidates": c.get("candidates"),
                 "selector": c["selector"],
@@ -620,8 +624,14 @@ def _stamp_source(step: dict | None, click: dict) -> dict | None:
     `_behaviour`, which keeps it from making two identical actions look
     different.
     """
-    if step is not None and click.get("seq") is not None:
+    if step is None:
+        return step
+    if click.get("seq") is not None:
         step["_seq"] = click["seq"]
+    # And the page it ran on. A folded variant begins where its FIRST step runs,
+    # which is not always where its terminal lands.
+    if click.get("url"):
+        step["_url"] = str(click["url"])
     return step
 
 
@@ -1815,14 +1825,15 @@ def derive_terminal_operations(
         if page is None:
             continue
 
-        step = _step_for_click(
-            {
-                "text": (ev.get("text_content") or "").strip(),
-                "locator": choose_locator(ev.get("candidates")),
-                "candidates": ev.get("candidates"),
-                "outcome": ev.get("outcome"),
-            }
-        )
+        terminal_source = {
+            "text": (ev.get("text_content") or "").strip(),
+            "locator": choose_locator(ev.get("candidates")),
+            "candidates": ev.get("candidates"),
+            "outcome": ev.get("outcome"),
+            "url": ev.get("url"),
+            "seq": event_seq(ev),
+        }
+        step = _stamp_source(_step_for_click(terminal_source), terminal_source)
         if step is None:
             continue
         expect = _expect_for_click({"outcome": ev.get("outcome")})
@@ -1879,15 +1890,20 @@ def derive_terminal_operations(
             c_seq = event_seq(c)
             if term_seq is None or c_seq is None or c_seq >= term_seq:
                 continue
-            lead = _step_for_click(
-                {
-                    "text": (c.get("text_content") or "").strip(),
-                    "locator": choose_locator(c.get("candidates")),
-                    "candidates": c.get("candidates"),
-                    "is_opener": event_seq(c) in term_opener_seqs,
-                    "outcome": c.get("outcome"),
-                }
-            )
+            source = {
+                "text": (c.get("text_content") or "").strip(),
+                "locator": choose_locator(c.get("candidates")),
+                "candidates": c.get("candidates"),
+                "is_opener": event_seq(c) in term_opener_seqs,
+                "outcome": c.get("outcome"),
+                # Provenance, as at the other two build sites. Without it a
+                # folded variant could not say which page it BEGINS on, only
+                # where its terminal landed -- and for ICICI's annual statement
+                # those differ by a whole origin.
+                "url": c.get("url"),
+                "seq": event_seq(c),
+            }
+            lead = _stamp_source(_step_for_click(source), source)
             if lead is None:
                 continue
             lead_expect = _expect_for_click({"outcome": c.get("outcome")})
@@ -2231,6 +2247,24 @@ def apply_fold(
     # as they always did.
     segmented = a.get("segment_steps") is not None and b.get("segment_steps") is not None
     starts = [a.get("starts_from"), b.get("starts_from")]
+
+    def _origin(branch_steps: list, fallback: object) -> object:
+        """Where this variant BEGINS -- the page its first step runs on.
+
+        Not where its terminal landed. `starts_from` comes from the terminal's
+        own page, and for ICICI's annual statement those differ: the radio and
+        GO happen on /corp/AuthenticationController and only that submit reaches
+        /corp/Finacle. Guarding the variant on its destination refused it while
+        standing on the page it was supposed to start from -- which only became
+        visible once the page read stopped navigating there as a side effect.
+        """
+        for step in branch_steps:
+            url = step.get("_url") if isinstance(step, dict) else None
+            if url:
+                return url
+        return fallback
+
+    origins = [_origin(work[0], starts[0]), _origin(work[1], starts[1])]
     merged_steps = (
         shared + _merge_branches(*work, param, values)
         if segmented
@@ -2269,8 +2303,8 @@ def apply_fold(
         # Only when the two actually differ, so nothing changes for a fold whose
         # variants share a page.
         **(
-            {"starts_from_by": {"param": param, "by": dict(zip(values, starts))}}
-            if len(set(starts)) > 1
+            {"starts_from_by": {"param": param, "by": dict(zip(values, origins))}}
+            if len(set(origins)) > 1
             else {}
         ),
         "parameters": [
