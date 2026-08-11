@@ -149,7 +149,7 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     # this is the recommendation surfaced to a user authoring a skill in the
     # harness, so browser mode is never picked silently.
     _report_kind(result, skill, declared=bool(getattr(args, "browser_driven", False)))
-    _report_folds(skill)
+    _apply_folds(skill, getattr(args, "fold", []) or []) or _report_folds(skill)
     if args.auth_type == "api-key":
         secrets = (skill.get("secrets_required") if skill else None) or (
             mcp.get("secrets_required") if mcp else None
@@ -330,6 +330,83 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
     return rc
 
 
+def _apply_folds(skill: dict, specs: list[str]) -> bool:
+    """Fold named pairs in the written skill. True when anything was folded.
+
+    Rewrites operations.json AND re-stamps the manifest's steps digest: folding
+    changes the steps, and a skill whose digest no longer matches its manifest
+    cannot install however well it replays. The compiler is doing this fold, so
+    re-stamping is the honest record -- these are still exactly the recorded
+    steps, in the recorded order, with a condition naming which variant each
+    belongs to.
+    """
+    if not specs:
+        return False
+    from pathlib import Path
+
+    from noui_core.compile import provenance
+    from noui_core.config import settings
+    from noui_core.compile.browser_skill import apply_fold, fold_candidates
+
+    skill_dir = Path(settings.workbench_dir) / "skills" / str(skill.get("skill_id") or "")
+    ops_path, man_path = skill_dir / "operations.json", skill_dir / "manifest.json"
+    try:
+        doc = json.loads(ops_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"Cannot fold: {ops_path} is unreadable ({exc}).", file=sys.stderr)
+        return False
+
+    operations = doc.get("operations") or []
+    for raw in specs:
+        try:
+            spec = json.loads(raw)
+        except ValueError as exc:
+            print(f"--fold expects a JSON object, got {raw[:60]!r}: {exc}", file=sys.stderr)
+            return False
+        wanted = [str(n) for n in (spec.get("operations") or [])]
+        match = next(
+            (f for f in fold_candidates(operations) if list(f["operations"]) == wanted), None
+        )
+        if match is None:
+            print(
+                f"{' and '.join(wanted) or 'those operations'} are not a foldable pair. "
+                "Run the import without --fold to see which are, in the order the "
+                "report names them.",
+                file=sys.stderr,
+            )
+            return False
+        values = [str(v) for v in (spec.get("values") or [])]
+        if len(values) != 2 or not spec.get("name") or not spec.get("param"):
+            print(
+                "--fold needs 'name', 'param', and exactly two 'values' -- one per "
+                "branch, in the order the report listed them.",
+                file=sys.stderr,
+            )
+            return False
+        operations = apply_fold(
+            operations, match, name=str(spec["name"]), param=str(spec["param"]), values=values
+        )
+        print(
+            f"Folded {' + '.join(wanted)} -> {spec['name']} "
+            f"({spec['param']}: {', '.join(values)}).",
+            file=sys.stderr,
+        )
+
+    doc["operations"] = operations
+    ops_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+    try:
+        manifest = json.loads(man_path.read_text(encoding="utf-8"))
+        manifest.setdefault("provenance", {})["steps_sha256"] = provenance.steps_digest(operations)
+        man_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        print(
+            f"Folded, but could not re-stamp {man_path} ({exc}) -- the skill will be "
+            "refused at install until it is recompiled.",
+            file=sys.stderr,
+        )
+    return True
+
+
 def _report_folds(skill: dict) -> None:
     """Surface operations that are one workflow with a choice in the middle.
 
@@ -481,6 +558,18 @@ def main() -> int:
         help="(login/takeover) glob the LOGGED-IN url matches but the login page does NOT "
         "(e.g. '**/lightning/**'). Enables auto-resolve: reaching it completes login with no "
         "'Mark as Resolved' click. Needed for same-origin apps where it can't be auto-derived.",
+    )
+    p.add_argument(
+        "--fold",
+        action="append",
+        default=[],
+        metavar="JSON",
+        help="fold two operations that are one workflow with a choice into ONE, "
+        'as a JSON object: {"operations": ["a", "b"], "name": "download_statement", '
+        '"param": "timeframe", "values": ["monthly", "annual"]}. Run the import '
+        "once without this to see which pairs are foldable, ASK THE MEMBER what "
+        "the choice is called, then re-run. The recorded names say where the "
+        "pages were served from, not what they mean.",
     )
     args = p.parse_args()
 
