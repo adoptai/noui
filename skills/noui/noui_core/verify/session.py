@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 from noui_core import tabby_client
@@ -78,6 +79,38 @@ _MAX_BACK_STEPS = 8
 """How far to walk history home. Bounded: a replay that cannot find the entry
 page in eight steps is lost, and pressing back forever would eventually leave
 the app entirely."""
+
+
+_RESET_SETTLE_MS = 3000
+"""How long to let the entry page paint after a reset MOVED it.
+
+A history restore does not render instantly. The reset would land on /overview,
+return success, and the very next step would ask whether the sidebar control was
+visible -- on a page still coming up. It resolved and was not yet visible, so
+every operation after the first failed at step 0 while the reset itself had
+worked perfectly.
+
+Only after an actual move: a reset that found the browser already at the entry
+changed nothing, so there is nothing to wait for.
+"""
+
+
+def _settle_after_reset(operations: list[dict]) -> float:
+    """Seconds to wait, preferring what the recording measured.
+
+    The first step of an operation carries the settle its own page needed when
+    recorded (4.3s on the ICICI nav). That is a real measurement of this app on
+    this connection, which beats a constant -- the constant is only the floor.
+    """
+    observed = 0
+    for op in operations or []:
+        for step in op.get("steps") or []:
+            if isinstance(step, dict):
+                got = (step.get("expect") or {}).get("settle_ms")
+                if isinstance(got, int):
+                    observed = max(observed, got)
+                break
+    return min(max(observed, _RESET_SETTLE_MS), 10_000) / 1000.0
 
 
 def _origin(url: str) -> str:
@@ -288,6 +321,7 @@ def _return_to_entry(
             info = execute("get_page_info", {})
             landed = str((info.get("data") or info).get("url") or "")
             if _same_page(landed, entry_url):
+                time.sleep(_settle_after_reset(operations or []))
                 return None
             here = landed or here
         except SessionNotReadyError:
@@ -310,6 +344,7 @@ def _return_to_entry(
         data = (res.get("data") or res) or {}
         here = str(data.get("url") or here)
         if _same_page(here, entry_url):
+            time.sleep(_settle_after_reset(operations or []))
             return None
         if _left_the_app(here, entry_url, known):
             # Overshot. Stop pressing -- every further press goes further from
@@ -326,6 +361,7 @@ def _return_to_entry(
     # this reset failed, using the one command the app forbids.
     try:
         execute("navigate", {"url": entry_url})
+        time.sleep(_settle_after_reset(operations or []))
         return None
     except SessionNotReadyError:
         raise
@@ -379,6 +415,7 @@ def _return_to_entry(
         return _cannot_reset(
             entry_url, landed, "clicking the way back did not land on the start"
         )
+    time.sleep(_settle_after_reset(operations or []))
     return None
 
 

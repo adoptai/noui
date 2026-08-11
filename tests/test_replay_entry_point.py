@@ -20,6 +20,9 @@ sys.path.insert(0, str(_ROOT / "skills" / "noui"))
 from noui_core.verify import session as session_mod  # noqa: E402
 from noui_core.verify.replay import SessionNotReadyError  # noqa: E402
 
+# Tests drive fakes: a real settle would add seconds per case for no signal.
+session_mod._RESET_SETTLE_MS = 0
+
 ENTRY = "https://retailnetbanking.icici.bank.in/overview"
 DRIFTED = "https://retailnetbanking.icici.bank.in/credit-card/add-card"
 
@@ -520,3 +523,61 @@ def test_the_origin_map_uses_the_page_before_the_first_hop():
     ])
     assert got["https://retailnetbanking.icici.bank.in"] == ENTRY
     assert got["https://infinity.icici.bank.in"] == PORTAL
+
+
+# --- letting the entry page paint after a reset --------------------------------
+#
+# A history restore does not render instantly. The reset landed on /overview,
+# returned success, and the very next step asked whether the sidebar control was
+# visible — on a page still coming up. It resolved and was not yet visible, so
+# every operation after the first failed at step 0 while the reset itself had
+# worked perfectly.
+
+
+def test_the_settle_prefers_what_the_recording_measured():
+    ops = [{"steps": [{"command": "hover", "expect": {"settle_ms": 4322}}]}]
+    assert session_mod._settle_after_reset(ops) == 4.322
+
+
+def test_the_constant_is_only_a_floor():
+    ops = [{"steps": [{"command": "hover", "expect": {"settle_ms": 200}}]}]
+    session_mod._RESET_SETTLE_MS = 3000
+    try:
+        assert session_mod._settle_after_reset(ops) == 3.0
+    finally:
+        session_mod._RESET_SETTLE_MS = 0
+
+
+def test_a_wild_recorded_settle_is_capped():
+    ops = [{"steps": [{"command": "hover", "expect": {"settle_ms": 90_000}}]}]
+    assert session_mod._settle_after_reset(ops) == 10.0
+
+
+def test_only_the_first_step_of_each_operation_counts():
+    # A slow step deep in a flow says nothing about how long the ENTRY page
+    # takes to paint.
+    ops = [{"steps": [
+        {"command": "hover", "expect": {"settle_ms": 100}},
+        {"command": "click_element", "expect": {"settle_ms": 9000}},
+    ]}]
+    session_mod._RESET_SETTLE_MS = 0
+    assert session_mod._settle_after_reset(ops) == 0.1
+
+
+def test_no_recorded_settle_falls_back_to_the_constant():
+    session_mod._RESET_SETTLE_MS = 2500
+    try:
+        assert session_mod._settle_after_reset([]) == 2.5
+    finally:
+        session_mod._RESET_SETTLE_MS = 0
+
+
+def test_already_at_the_entry_does_not_wait():
+    # Nothing moved, so there is nothing to paint. This path must stay free.
+    session_mod._RESET_SETTLE_MS = 5000
+    try:
+        b = _Browser(ENTRY)
+        assert session_mod._return_to_entry(b, ENTRY) is None
+        assert b.commands == ["get_page_info"]
+    finally:
+        session_mod._RESET_SETTLE_MS = 0
