@@ -1478,3 +1478,78 @@ def _terminal_description(op: dict) -> str:
     if op.get("kind") == "download":
         return f"Download the file produced from {op['url']}"
     return f"Submit the form on {op['url']} and read the result"
+
+
+def _common_prefix_len(a: list[dict], b: list[dict]) -> int:
+    """How many leading steps two operations perform identically."""
+    n = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        n += 1
+    return n
+
+
+def _common_suffix_len(a: list[dict], b: list[dict], skip: int) -> int:
+    """How many trailing steps match, without eating into the shared prefix."""
+    n = 0
+    limit = min(len(a), len(b)) - skip
+    while n < limit and a[len(a) - 1 - n] == b[len(b) - 1 - n]:
+        n += 1
+    return n
+
+
+#: A fold has to rest on a real shared journey, not a coincidence. Two steps in
+#: common is the sort of overlap any two operations on one site have -- both open
+#: with the same nav click -- and folding on that would merge workflows that have
+#: nothing to do with each other.
+_MIN_FOLD_PREFIX = 3
+
+
+def fold_candidates(operations: list[dict]) -> list[dict]:
+    """Operations that are one workflow with a choice in the middle.
+
+    ICICI's monthly and annual statements share four steps to reach the download
+    page -- hover the nav, Credit Cards, Past, download previous statement -- then
+    diverge: annual clicks a radio and picks a financial year, monthly does not.
+    They also END the same way, on the download button and list_downloads. The
+    compiler emits them as two operations, each replaying the whole journey, so
+    every one of them needs the browser returned to the landing page first.
+
+    Reported, not applied. What the divergent branches should be CALLED is a
+    judgement this function cannot make: "corp_finacle" is the recorded page
+    name and means nothing to a caller choosing between monthly and annual. A
+    fold that emits a meaningless parameter is worse than two honest operations.
+
+    Returns one entry per foldable pair::
+
+        {"operations": [nameA, nameB], "prefix": int, "suffix": int,
+         "branches": [[steps...], [steps...]]}
+    """
+    out: list[dict] = []
+    ops = [o for o in operations or [] if (o.get("steps") or [])]
+    for i, a in enumerate(ops):
+        for b in ops[i + 1 :]:
+            if (a.get("kind") or "read") != (b.get("kind") or "read"):
+                continue
+            sa, sb = a.get("steps") or [], b.get("steps") or []
+            pre = _common_prefix_len(sa, sb)
+            if pre < _MIN_FOLD_PREFIX:
+                continue
+            suf = _common_suffix_len(sa, sb, pre)
+            if not suf:
+                # No shared ending means they do different things, however
+                # similarly they start.
+                continue
+            mid_a, mid_b = sa[pre : len(sa) - suf], sb[pre : len(sb) - suf]
+            if not mid_a and not mid_b:
+                continue  # identical operations; a fold is not what they need
+            out.append(
+                {
+                    "operations": [a.get("name"), b.get("name")],
+                    "prefix": pre,
+                    "suffix": suf,
+                    "branches": [mid_a, mid_b],
+                }
+            )
+    return out
