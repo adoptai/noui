@@ -2076,6 +2076,7 @@ def apply_fold(
     # subtract and the decomposition yields an empty skill. Those fold exactly
     # as they always did.
     segmented = a.get("segment_steps") is not None and b.get("segment_steps") is not None
+    starts = [a.get("starts_from"), b.get("starts_from")]
     merged_steps = (
         shared + _merge_branches(*work, param, values)
         if segmented
@@ -2102,6 +2103,22 @@ def apply_fold(
         # is the way to the fork; whatever they do not is the branch choosing
         # itself, and belongs with the branch.
         "segment_steps": _merge_branches(*work, param, values),
+        # Each variant begins where ITS OWN work happens.
+        #
+        # The folded operation inherits its scalar fields from A, and
+        # `starts_from` is not shared: ICICI's monthly statement is produced on
+        # /corp/AuthenticationController, and choosing Annual navigates to
+        # /corp/Finacle -- so the annual variant carried the monthly page as its
+        # precondition and its guard refused it every time, on the page it was
+        # supposed to run on.
+        #
+        # Only when the two actually differ, so nothing changes for a fold whose
+        # variants share a page.
+        **(
+            {"starts_from_by": {"param": param, "by": dict(zip(values, starts))}}
+            if len(set(starts)) > 1
+            else {}
+        ),
         "parameters": [
             *(a.get("parameters") or []),
             {

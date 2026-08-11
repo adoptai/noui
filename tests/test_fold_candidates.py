@@ -467,3 +467,56 @@ def test_provenance_never_makes_two_identical_actions_differ():
     b = [{"command": "click_element", "params": {"selector": "#D"}, "_seq": 39}]
     assert _common_prefix_len(a, b) == 1
     assert _common_suffix_len(a, b, 0) == 1
+
+
+def _pair():
+    """The monthly/annual pair, shaped like the real fold."""
+    to_fork = [_s("#nav"), _s("#past"), _s("#stmt")]
+    monthly = {**_op("monthly", [_s("#DL")]),
+               "steps": to_fork + [_s("#DL")] + TAIL,
+               "segment_steps": [_s("#DL")] + TAIL}
+    annual = {**_op("annual", [_s("#DL")]),
+              "steps": to_fork + [_s("#Annual"), _s("#GO")] + [_s("#year"), _s("#DL")] + TAIL,
+              "segment_steps": [_s("#year"), _s("#DL")] + TAIL}
+    return monthly, annual
+
+def test_each_variant_starts_where_its_own_work_happens():
+    """A folded operation's variants need not share a page.
+
+    ICICI produces the monthly statement on /corp/AuthenticationController;
+    choosing Annual navigates to /corp/Finacle. The folded operation inherited
+    the monthly page as its single precondition, so the annual variant's guard
+    refused it while standing on exactly the page it was supposed to run on.
+    """
+    from noui_core.compile.browser_skill import apply_fold, fold_candidates
+
+    monthly, annual = _pair()
+    monthly["starts_from"] = "https://p.test/corp/AuthenticationController"
+    annual["starts_from"] = "https://p.test/corp/Finacle"
+
+    fold = fold_candidates([monthly, annual])[0]
+    out = apply_fold([monthly, annual], fold, name="download_statement",
+                     param="timeframe", values=["monthly", "annual"])
+    op = [o for o in out if o["name"] == "download_statement"][0]
+
+    assert op["starts_from_by"] == {
+        "param": "timeframe",
+        "by": {
+            "monthly": "https://p.test/corp/AuthenticationController",
+            "annual": "https://p.test/corp/Finacle",
+        },
+    }
+
+
+def test_variants_that_share_a_page_carry_no_override():
+    """Nothing changes for a fold whose variants begin in the same place."""
+    from noui_core.compile.browser_skill import apply_fold, fold_candidates
+
+    monthly, annual = _pair()
+    monthly["starts_from"] = annual["starts_from"] = "https://p.test/same"
+
+    fold = fold_candidates([monthly, annual])[0]
+    out = apply_fold([monthly, annual], fold, name="d", param="timeframe",
+                     values=["monthly", "annual"])
+    op = [o for o in out if o["name"] == "d"][0]
+    assert "starts_from_by" not in op

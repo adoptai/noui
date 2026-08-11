@@ -9,6 +9,7 @@ execute every step, land on a completely different page, and report success —
 from noui_core.verify.replay import (
     BLOCKED,
     OK,
+    SKIPPED,
     _control_identity,
     expectation_unmet,
     replay_step,
@@ -162,3 +163,124 @@ def test_a_download_step_passes_on_a_file_that_arrived_here():
     assert res["status"] == OK
     # Both are accounted for now, so the NEXT download step cannot reuse either.
     assert known == {"dl-1", "dl-2"}
+
+
+# --- arrived past a step ------------------------------------------------------
+
+def _invisible(_cmd, _params=None):
+    return {"success": False, "error": "this control is on the page but not visible, so acting on it would do nothing"}
+
+
+def test_a_step_the_page_has_moved_past_is_skipped_not_blocked():
+    """ICICI's GO button after the Annual radio.
+
+    The human pressed GO because their radio selection did not submit the form.
+    The replay's set_checked DOES submit it, so the page is already on the
+    annual view and GO is hidden -- permanently: it stayed hidden through a full
+    30s wait. The step is unnecessary, not broken.
+    """
+    calls = []
+
+    def execute(command, params=None):
+        calls.append((command, params))
+        if command == "wait_for_selector":
+            return {"success": True}          # the NEXT control is on screen
+        return _invisible(command, params)
+
+    step = {"command": "click_element", "params": {"selector": "#DUMMY1"}}
+    res = replay_step(
+        execute, step, recorded={_control_identity(step)},
+        following=[{"command": "click_element", "params": {"selector": "#PDF_Download"}}],
+    )
+
+    assert res["status"] == SKIPPED
+    assert "moved past" in res["detail"]
+
+
+def test_an_invisible_control_whose_successor_is_also_hidden_still_blocks():
+    """The hover menu, which is the reason 'invisible' cannot simply mean skip.
+
+    The credit-card link is invisible until its menu opens, and so is everything
+    after it. Blocking there is right -- something that should have revealed it
+    has not run.
+    """
+    def execute(command, params=None):
+        if command == "wait_for_selector":
+            return {"success": False, "error": "Timeout"}   # successor not there either
+        return _invisible(command, params)
+
+    step = {"command": "click_element", "params": {"selector": "a.sub-menu-list-item-link"}}
+    res = replay_step(
+        execute, step, recorded={_control_identity(step)},
+        following=[{"command": "click_element", "params": {"selector": "#deeper"}}],
+    )
+
+    assert res["status"] == BLOCKED
+
+
+def test_the_last_step_of_an_operation_never_skips_this_way():
+    """With no successor there is no evidence, and no evidence means blocked."""
+    step = {"command": "click_element", "params": {"selector": "#DUMMY1"}}
+    res = replay_step(_invisible, step, recorded={_control_identity(step)}, following=[])
+    assert res["status"] == BLOCKED
+
+
+def test_a_successor_named_only_by_text_is_not_evidence():
+    """Only a CSS selector can be probed without acting on the page."""
+    step = {"command": "click_element", "params": {"selector": "#DUMMY1"}}
+    res = replay_step(
+        _invisible, step, recorded={_control_identity(step)},
+        following=[{"command": "click_by_text", "params": {"text": "FY2025-26"}}],
+    )
+    assert res["status"] == BLOCKED
+
+
+def test_a_control_that_is_gone_entirely_is_the_same_situation():
+    """The GO button showed up both ways on consecutive runs.
+
+    Once present-but-hidden, once absent — how far the portal has re-rendered
+    when the step fires varies. Both mean the step cannot be performed here, and
+    what decides whether that is a failure is the same either way: what comes
+    next.
+    """
+    def execute(command, params=None):
+        if command == "wait_for_selector":
+            return {"success": True}
+        return {"success": False,
+                "error": 'nothing on the page matches "#DUMMY1", nor any of the 1 recorded alternative(s)'}
+
+    step = {"command": "click_element", "params": {"selector": "#DUMMY1"}}
+    res = replay_step(
+        execute, step, recorded={_control_identity(step)},
+        following=[{"command": "click_element", "params": {"selector": "#PDF_Download"}}],
+    )
+    assert res["status"] == SKIPPED
+
+
+def test_evidence_comes_from_the_next_step_that_names_a_control():
+    """A read operation ends with get_page_summary, which addresses nothing.
+
+    Anchoring on the immediate successor found no selector to probe and blocked
+    — on the very case this rule exists for. ICICI's GO button is followed by
+    get_page_summary in one operation and by the download icon in another; the
+    situation is identical and so is the evidence.
+    """
+    probed = []
+
+    def execute(command, params=None):
+        if command == "wait_for_selector":
+            probed.append((params or {}).get("selector"))
+            return {"success": True}
+        return {"success": False, "error": "this control is on the page but not visible"}
+
+    step = {"command": "click_element", "params": {"selector": "#DUMMY1"}}
+    res = replay_step(
+        execute, step, recorded={_control_identity(step)},
+        following=[
+            {"command": "get_page_summary", "params": {}},          # names nothing
+            {"command": "click_element", "params": {"selector": "#PDF_Download"}},
+        ],
+    )
+
+    assert res["status"] == SKIPPED
+    assert probed == ["#PDF_Download"]

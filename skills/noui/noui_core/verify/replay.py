@@ -189,6 +189,70 @@ def _satisfied_already(step: dict, detail: str) -> bool:
     return any(marker in low for marker in _ABSENT)
 
 
+_INVISIBLE = "on the page but not visible"
+
+
+def _unactionable(detail: str) -> bool:
+    """Could this control not be acted on, whether it is hidden or simply gone?
+
+    ICICI's GO button showed up both ways on consecutive runs -- once present
+    but hidden, once absent entirely -- because how far the portal has re-rendered
+    when the step fires varies. Both mean the same thing: the step cannot be
+    performed here. Whether that is a FAILURE is decided by `arrived_past`, which
+    looks at what comes next.
+    """
+    low = (detail or "").lower()
+    return any(marker in low for marker in _ABSENT) or _INVISIBLE in low
+
+
+def _selector_of(step: Any) -> str:
+    if not isinstance(step, dict):
+        return ""
+    return str((step.get("params") or {}).get("selector") or "")
+
+
+def arrived_past(step: dict, following: Any, execute: Any) -> bool:
+    """Has the page already moved beyond this step, leaving its control behind?
+
+    ICICI's annual statement is chosen with a radio. The human then pressed GO,
+    because their selection did not submit the form. The replay's `set_checked`
+    DOES submit it, so the page is already on the annual view and that GO button
+    is hidden -- present, unclickable, and permanently so: it stayed hidden
+    through a full 30s wait. The step is unnecessary, not broken.
+
+    "Invisible" alone cannot mean "skip". The very first step of this same
+    replay -- the credit-card link inside a hover menu -- is invisible until its
+    menu opens, and blocking there is exactly right. What separates the two is
+    what comes NEXT: the menu item's successor is not reachable yet either,
+    while the GO button's successor is already on screen. A control we cannot
+    see, followed by one we can, means the page went past this step.
+
+    Looks ahead to the next step that addresses a CONTROL, not merely the next
+    step. A read operation ends with `get_page_summary`, which names nothing, so
+    anchoring on the immediate successor found no evidence and blocked -- on the
+    very case this rule was written for.
+
+    Requires that successor to name a CSS selector, because that is the only
+    thing that can be probed without acting on the page. Anything else is
+    treated as a real failure, which is the safe direction.
+    """
+    selector = ""
+    for candidate in (following if isinstance(following, list) else [following]):
+        selector = _selector_of(candidate)
+        if selector:
+            break
+    if not selector:
+        return False
+    try:
+        result = execute(
+            "wait_for_selector",
+            {"selector": selector, "state": "visible", "timeout_ms": 4000},
+        )
+    except Exception:  # noqa: BLE001 — cannot prove it, so do not skip
+        return False
+    return bool(result.get("success", True)) if isinstance(result, dict) else False
+
+
 def replay_step(
     execute: Any,
     step: dict,
@@ -196,6 +260,7 @@ def replay_step(
     recorded: set[str],
     approvals: set[str] | None = None,
     known_downloads: set[str] | None = None,
+    following: Any = None,
 ) -> dict:
     """Run one step and report what happened, without ever raising.
 
@@ -250,6 +315,14 @@ def replay_step(
                 f"{step.get('optional_reason') or 'optional step'}: its control is not "
                 "on the page, which means this was already satisfied before the "
                 "replay arrived."
+            )
+            return result
+        if _unactionable(detail) and arrived_past(step, following, execute):
+            result["status"] = SKIPPED
+            result["detail"] = (
+                "its control is on the page but not visible, and the control this "
+                "operation needs NEXT already is — so the page has moved past this "
+                "step and performing it is neither possible nor needed."
             )
             return result
         result["status"] = BLOCKED

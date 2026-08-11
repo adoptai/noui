@@ -155,7 +155,12 @@ def test_a_step_with_no_selector_cannot_be_polled_for(monkeypatch):
 
 def test_no_wait_when_the_predecessor_did_not_arrive(monkeypatch):
     # A blocked operation must not also pay the settle.
+    #
+    # Held apart from the live-page stabiliser, which is a different mechanism
+    # with its own test: that one polls after a step that RAN, and a blocked
+    # operation never runs one.
     waited: list[float] = []
+    monkeypatch.setattr(session_mod, "_wait_until_the_page_stops_moving", lambda execute: None)
     monkeypatch.setattr(session_mod.time, "sleep", lambda s: waited.append(s))
     page = _Page(OVERVIEW, after_first="https://x.test/elsewhere")
     monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
@@ -361,3 +366,46 @@ def test_a_step_is_given_time_to_be_processed_before_the_next(monkeypatch):
     slept.clear()
     session_mod._let_the_step_land({"command": "click_element"})
     assert slept == [], "nothing measured, nothing waited"
+
+
+def test_a_step_with_no_recorded_settle_waits_for_the_page_to_stop_moving(monkeypatch):
+    """ICICI's portal reports nothing, so the wait has to be observed.
+
+    Every click on the statement portal records `navigated: false, to_url: null,
+    settled_ms: null` -- the hop is cross-origin and completes after the click
+    returns. So no step there carries a settle, the replay fired the next one
+    into a page mid-load, and the portal treats that as a double click and
+    expires the session. Two readings that agree is the cheapest honest proof
+    that the click has been processed.
+    """
+    urls = iter(["https://p.test/a", "https://p.test/b", "https://p.test/b"])
+    seen: list[str] = []
+
+    def execute(command, params=None):
+        assert command == "get_page_info"
+        url = next(urls)
+        seen.append(url)
+        return {"data": {"url": url}}
+
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
+    session_mod._wait_until_the_page_stops_moving(execute)
+
+    # Stopped as soon as two readings agreed, and not before.
+    assert seen == ["https://p.test/a", "https://p.test/b", "https://p.test/b"]
+
+
+def test_the_stabiliser_gives_up_rather_than_hanging(monkeypatch):
+    """A page that never settles must not hold the whole replay.
+
+    The step itself waits for its own control and reports what it finds, which
+    is a better error than a timeout with no context.
+    """
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def always_moving(command, params=None):
+        calls["n"] += 1
+        return {"data": {"url": f"https://p.test/{calls['n']}"}}
+
+    session_mod._wait_until_the_page_stops_moving(always_moving)
+    assert calls["n"] > 1  # it did try

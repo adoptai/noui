@@ -115,7 +115,7 @@ _INTER_STEP_CAP_S = 15.0
 """Longest we pause after a step before the next one, whatever was recorded."""
 
 
-def _let_the_step_land(step: dict) -> None:
+def _let_the_step_land(step: dict, execute: Any = None) -> None:
     """Wait after acting, the way the human did, before the next step fires.
 
     A portal processes a click server-side, and firing the next one into that
@@ -130,12 +130,78 @@ def _let_the_step_land(step: dict) -> None:
     answer to "how long did this take to be processed", because the human did
     not act again until it was.
 
-    Capped, because some of a recorded gap is a human reading; and skipped
-    entirely when nothing was measured, so a fast page costs nothing.
+    Capped, because some of a recorded gap is a human reading.
+
+    When the recording measured NOTHING, watch the live page instead. ICICI's
+    statement portal reports an empty outcome for every click on it --
+    `navigated: false, to_url: null, settled_ms: null` -- because the hop is
+    cross-origin and completes after the click returns, so there is no recorded
+    gap to honour for ANY step there, `set_checked` included. Selecting the
+    Annual radio navigates; the replay could not know that and fired the next
+    step into a page mid-load, which this portal treats as a double click and
+    answers by expiring the session.
     """
     settle = (step.get("expect") or {}).get("settle_ms")
     if isinstance(settle, int) and settle > 0:
         time.sleep(min(settle / 1000.0, _INTER_STEP_CAP_S))
+        return
+    if execute is not None:
+        _wait_until_the_page_stops_moving(execute)
+
+
+_STABILISE_POLL_S = 1.0
+"""Gap between two readings of where the browser is."""
+
+_STABILISE_BUDGET_S = 10.0
+"""Longest we watch for a page to stop moving before proceeding anyway.
+
+Proceeding is right on expiry: the step itself waits for its own control and
+reports what it finds, which is a better error than a timeout here."""
+
+
+def _starts_from_for(op: dict, values: Any) -> Any:
+    """Where THIS variant of an operation begins.
+
+    A folded operation has one `starts_from` inherited from the first variant,
+    but the variants need not share a page: ICICI produces the monthly statement
+    on /corp/AuthenticationController, and choosing Annual navigates to
+    /corp/Finacle. The annual variant therefore carried the monthly page as its
+    precondition, and its guard refused it while standing on exactly the page it
+    was supposed to run on.
+    """
+    spec = op.get("starts_from_by")
+    if isinstance(spec, dict):
+        chosen = str((values or {}).get(spec.get("param"), "") or "")
+        url = (spec.get("by") or {}).get(chosen)
+        if url:
+            return url
+    return op.get("starts_from")
+
+
+def _wait_until_the_page_stops_moving(execute: Any) -> None:
+    """Return once two consecutive readings agree on where the browser is.
+
+    The cheapest honest definition of "the click has been processed" when the
+    recording says nothing: the URL has stopped changing. A portal that answers
+    a click with a server round trip and a new page shows a different URL on the
+    second reading, so this waits exactly as long as that takes and no longer.
+
+    Never raises. A page we cannot read is one the next step will report on.
+    """
+    deadline = time.monotonic() + _STABILISE_BUDGET_S
+    previous: str | None = None
+    while time.monotonic() < deadline:
+        try:
+            info = execute("get_page_info", {})
+            here = str((info.get("data") or info).get("url") or "")
+        except SessionNotReadyError:
+            raise
+        except Exception:  # noqa: BLE001 — unreadable now, the step will say so
+            return
+        if previous is not None and here == previous:
+            return
+        previous = here
+        time.sleep(_STABILISE_POLL_S)
 
 
 _ARRIVAL_BUDGET_S = 20.0
@@ -580,7 +646,7 @@ def run_replay(
             # Only the first operation may reset: a fresh session lands on the
             # entry page, which is the one position the recording observed. The
             # rest continue from their predecessor, so a reset would undo it.
-            starts_from = op.get("starts_from")
+            starts_from = _starts_from_for(op, parameter_values)
             # "Begins the journey" is a property of the operation, not its
             # position in the list. An operation with no starts_from is the one
             # a fresh session lands on; one WITH it continues from that page.
@@ -693,14 +759,15 @@ def run_replay(
                 )
                 _await_first_control(execute, steps, budget)
             try:
-                for step in steps:
+                for i, step in enumerate(steps):
                     result = replay_step(
                         execute, step, recorded=recorded, approvals=approvals,
                         known_downloads=known_downloads,
+                        following=steps[i + 1 :],
                     )
                     step_results.append(result)
                     if result.get("status") == OK:
-                        _let_the_step_land(step)
+                        _let_the_step_land(step, execute)
             except SessionNotReadyError as exc:
                 results.append(step_results)
                 report = build_report(ops[: len(results)], results)
@@ -737,14 +804,15 @@ def run_replay(
                 results.append([failed])
                 continue
         try:
-            for step in steps:
+            for i, step in enumerate(steps):
                 result = replay_step(
                     execute, step, recorded=recorded, approvals=approvals,
                     known_downloads=known_downloads,
+                    following=steps[i + 1 :],
                 )
                 step_results.append(result)
                 if result.get("status") == OK:
-                    _let_the_step_land(step)
+                    _let_the_step_land(step, execute)
         except SessionNotReadyError as exc:
             results.append(step_results)
             report = build_report(ops[: len(results)], results)
