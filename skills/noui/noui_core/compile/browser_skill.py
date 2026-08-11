@@ -762,11 +762,49 @@ def _steps_for_page(p: dict) -> list[dict]:
     the skill's own read landed on /session-expire).
     """
     steps: list[dict] = []
+    carried: dict = {}
     for click in p.get("nav") or []:
         step = _step_for_click(click)
         if step is None:
             continue
-        expect = _expect_for_click(click)
+        expect = _expect_for_click(click) or {}
+        if step.get("command") == "hover":
+            # A hover cannot navigate or download -- it opens the thing that
+            # does. The recorder stamps a hover and the click it reveals at the
+            # same millisecond, so the arrival outcome was attributed to the
+            # hover, and the compiled step asserted "you are now on /credit-card"
+            # immediately after opening a menu. The replay failed there every
+            # time, on an assertion no hover could ever satisfy.
+            #
+            # Carry those parts to the step that does cause them rather than
+            # discarding: the assertion is the only thing that stops a linear
+            # script walking on after a hop silently failed.
+            for key in ("url", "download"):
+                if key in expect:
+                    carried[key] = expect.pop(key)
+        elif carried:
+            expect = {**carried, **expect}
+            carried = {}
+            # The click cannot share the hover's target.
+            #
+            # Both events resolved to the same single candidate --
+            # #scroll-container > div > div:nth-of-type(5), the CARDS nav block --
+            # because the recorder's candidate builder climbed to the same
+            # actionable ancestor for the submenu link as for the icon box that
+            # opens it. The compiled click then clicked the thing that had just
+            # been hovered and nothing navigated.
+            #
+            # They cannot both be right: a hover opens, and the click lands on
+            # what it revealed. The click's own recorded selector describes the
+            # element that was actually hit, so prefer it when the candidates
+            # collide. Only then -- an ordinary click keeps its chosen locator,
+            # which is ranked for a reason.
+            prev = steps[-1] if steps else None
+            if prev is not None and prev.get("command") == "hover":
+                same = (prev.get("params") or {}).get("selector")
+                own = str(click.get("selector") or "").strip()
+                if same and own and (step.get("params") or {}).get("selector") == same:
+                    step["params"]["selector"] = own
         if expect:
             step["expect"] = expect
         steps.append(step)

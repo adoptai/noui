@@ -23,6 +23,7 @@ Using a real profile session costs one extra sign-in and buys three things:
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -110,6 +111,25 @@ def _home_control(controls: dict, entry_url: str) -> dict | None:
     return None
 
 
+def _workflow_urls(ops: list[dict], entry_url: str) -> set[str]:
+    """Pages the RECORDING visited, from the plan's own arrival expectations.
+
+    A word list cannot tell a sign-in page from an app page: ICICI's statement
+    portal is served by a controller literally named AuthenticationController,
+    so "auth" in the path flagged a signed-in session as signed out and refused
+    to replay against it. What the recording actually visited is not a guess.
+    """
+    # Every URL the plan mentions, not only arrival expectations: the deeper
+    # hops of an SPA are often not recorded as navigations at all, so ICICI's
+    # statement portal appeared in no expect.url and the page the replay had
+    # just legitimately reached was still read as a sign-in screen. The
+    # operation descriptions name it ("Read the rendered contents of ..."), and
+    # anything the compiler wrote into the plan came from the recording.
+    urls = {entry_url} if entry_url else set()
+    urls.update(re.findall(r"https?://[^\s\"'\\]+", json.dumps(ops or [])))
+    return {u.split("?")[0].split(";")[0].rstrip("/") for u in urls if u}
+
+
 def _cannot_reset(entry_url: str, here: str, why: str) -> dict:
     return {
         "command": "return_to_entry",
@@ -124,7 +144,9 @@ def _cannot_reset(entry_url: str, here: str, why: str) -> dict:
     }
 
 
-def _return_to_entry(execute: Any, entry_url: str) -> dict | None:
+def _return_to_entry(
+    execute: Any, entry_url: str, known_urls: set[str] | None = None
+) -> dict | None:
     """Put the browser back at the start of the journey before replaying it.
 
     A replay does not get a fresh browser -- the session is deliberately kept
@@ -160,7 +182,11 @@ def _return_to_entry(execute: Any, entry_url: str) -> dict | None:
     # where the real answer is "sign in". SessionNotReadyError is what run_replay
     # turns into login_required, which is what puts a sign-in card in front of
     # them.
-    if here and _is_login_flow_url(here):
+    known = known_urls or set()
+    on_known_page = any(
+        here.split("?")[0].split(";")[0].rstrip("/").startswith(k) for k in known
+    )
+    if here and not on_known_page and _is_login_flow_url(here):
         raise SessionNotReadyError(
             f"the browser is on the sign-in flow ({here}), so there is no signed-in "
             "session to replay against"
@@ -247,24 +273,35 @@ def run_replay(
     recorded = recorded_controls(ops)
     execute = _executor(profile_slug, token, timeout_ms=timeout_ms)
 
+    known = _workflow_urls(ops, entry_url or "")
     results: list[list[dict]] = []
-    if entry_url:
-        try:
-            failed = _return_to_entry(execute, entry_url)
-        except SessionNotReadyError as exc:
-            report = build_report([], [])
-            report["status"] = "login_required"
-            report["detail"] = str(exc)
-            return report
-        if failed is not None:
-            results.append([failed])
-            report = build_report(ops[:1], results)
-            report["detail"] = failed["error"]
-            return report
-
     for op in ops:
         steps = substitute_parameters(op, parameter_values)
         step_results: list[dict] = []
+        # Before EVERY operation, not once per replay.
+        #
+        # Each operation carries the whole chain from the entry page -- they are
+        # one recorded journey cut into pieces, and every piece starts by walking
+        # the nav again. So an operation leaves the browser wherever it ended,
+        # and the next one opens by hovering a menu that only exists on the
+        # landing page. Observed: two ICICI operations passed, the second ended
+        # on the statement page, and the third timed out hovering a nav that was
+        # no longer on screen.
+        #
+        # Cheap when it is already there: _return_to_entry reads the URL first
+        # and does nothing when it matches.
+        if entry_url:
+            try:
+                failed = _return_to_entry(execute, entry_url, known)
+            except SessionNotReadyError as exc:
+                results.append(step_results)
+                report = build_report(ops[: len(results)], results)
+                report["status"] = "login_required"
+                report["detail"] = str(exc)
+                return report
+            if failed is not None:
+                results.append([failed])
+                continue
         try:
             for step in steps:
                 step_results.append(
