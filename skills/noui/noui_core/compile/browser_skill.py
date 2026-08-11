@@ -1332,9 +1332,27 @@ def render_browser_operations_json(
         # over is a separate change, and until it happens nothing here moves.
         # Note `starts_from: null` means the landing page, where a fresh session
         # already is.
-        if p.get("starts_from") is not None or p.get("segment") is not None:
-            op["starts_from"] = p.get("starts_from")
-            op["segment_steps"] = _steps_for_page({**p, "nav": p.get("segment")})
+        # EVERY page operation carries a segment, even an empty one.
+        #
+        # The landing page has no steps of its own -- a fresh session is already
+        # there -- so this used to leave `segment_steps` absent entirely. That
+        # made it the one unsegmented operation in an otherwise segmented skill,
+        # and `run_replay` refuses a MIXTURE (it decides how the whole replay
+        # executes, so a mixture would silently run everything the legacy way).
+        # Every combined import therefore compiled to a skill that could not be
+        # replayed, could not be approved, and could not be installed -- and
+        # recompiling reproduced it. Seen on a harness run that spent two hours
+        # pruning and amending to get around it.
+        #
+        # An empty segment is the honest answer: this operation IS segmented,
+        # and its own work is nothing. The refusal still catches what it was
+        # written for, a genuinely unsegmented operation among segmented ones.
+        op["starts_from"] = p.get("starts_from")
+        op["segment_steps"] = (
+            _steps_for_page({**p, "nav": p.get("segment")})
+            if p.get("segment") is not None
+            else []
+        )
         # How long the page AFTER this operation took to become usable, measured
         # from the human's own gap. Stamped on the operation that CAUSES the
         # arrival, because that is the click the gap was measured from.
