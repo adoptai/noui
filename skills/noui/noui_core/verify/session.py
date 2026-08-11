@@ -201,9 +201,21 @@ def _left_the_app(here: str, entry_url: str, known: set[str]) -> bool:
     return _origin(here) != _origin(entry_url)
 
 
+def _page_identity(url: str) -> str:
+    """A URL reduced to the page it names.
+
+    Drops the query string and any path parameter. ICICI's statement portal
+    carries its session as `;jsessionid=...`, so the page the browser is on and
+    the page the recording named are the same page in different clothes -- and a
+    comparison that stripped only `?` decided they were different, blocking the
+    one operation that was being tested.
+    """
+    return url.split("?")[0].split(";")[0].rstrip("/")
+
+
 def _same_page(a: str, b: str) -> bool:
-    """Same page, ignoring a trailing slash."""
-    return a.rstrip("/") == b.rstrip("/")
+    """Same page, ignoring a trailing slash, a query string, or a jsessionid."""
+    return _page_identity(a) == _page_identity(b)
 
 
 def _entry_path(entry_url: str) -> str:
@@ -590,7 +602,7 @@ def run_replay(
                         info = execute("get_page_info", {})
                         here = str((info.get("data") or info).get("url") or "")
                         if not here or _same_page(
-                            here.split("?")[0], starts_from.split("?")[0]
+                            here, starts_from
                         ):
                             break
                         if time.monotonic() >= deadline:
@@ -608,7 +620,7 @@ def run_replay(
                     return report
                 except Exception:  # noqa: BLE001 — unreadable url: let the steps report
                     here = ""
-                if here and not _same_page(here.split("?")[0], starts_from.split("?")[0]):
+                if here and not _same_page(here, starts_from):
                     results.append([{
                         "command": "starts_from",
                         "params": {"url": starts_from},

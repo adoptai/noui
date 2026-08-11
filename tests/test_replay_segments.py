@@ -316,3 +316,23 @@ def test_a_single_operation_run_still_uses_segments(monkeypatch):
     monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
     run_replay([OPS[1]], profile_slug="p", token="t", entry_url=OVERVIEW)
     assert reset_called == [], "one continuing operation must not be reset"
+
+
+def test_a_jsessionid_does_not_make_it_a_different_page():
+    """ICICI's portal carries its session as ;jsessionid=… in the path.
+
+    The guard stripped only `?`, so the page the browser was on and the page the
+    recording named compared as different — blocking the one operation being
+    tested, on the page it had correctly reached.
+    """
+    portal = "https://infinity.icici.bank.in/corp/AuthenticationController"
+    assert session_mod._same_page(portal + ";jsessionid=0000HU:abc", portal)
+    assert session_mod._same_page(portal + ";jsessionid=x?bwayparam=y", portal)
+    assert session_mod._same_page(portal + "/", portal)
+
+
+def test_different_pages_are_still_different():
+    a = "https://retailnetbanking.icici.bank.in/overview"
+    b = "https://retailnetbanking.icici.bank.in/credit-card"
+    assert not session_mod._same_page(a, b)
+    assert not session_mod._same_page(a + ";jsessionid=1", b + ";jsessionid=1")
