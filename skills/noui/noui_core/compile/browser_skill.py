@@ -1741,7 +1741,26 @@ def _steps_for_terminal(op: dict) -> list[dict]:
     # those clicks produced rather than on whatever loaded first.
     steps.extend(op.get("lead") or [])
     steps.extend(fill_steps(op.get("parameters") or []))
-    steps.append(op["terminal"])
+    # The terminal asserts WHICH PAGE it fires on.
+    #
+    # ICICI's annual and monthly statement pages are identically designed:
+    # #PDF_Download and #DOWNLOAD_ESTATEMENT_PDF exist on both and behave the
+    # same. So the monthly steps run happily on either and return whatever that
+    # page is showing -- timeframe=annual returned a MONTHLY statement with
+    # every check green, because every check we had looked at selectors.
+    #
+    # The pages differ in one thing the recording captured: their URL. The
+    # annual flow is reached by a radio click that navigates to /corp/Finacle;
+    # monthly downloads happen on /corp/AuthenticationController. Asserting the
+    # page the terminal was RECORDED on turns a silent wrong document into a
+    # failed postcondition, which expectation_unmet already enforces.
+    terminal = dict(op["terminal"])
+    page_url = str(op.get("work_url") or op.get("url") or "").strip()
+    if page_url:
+        expect = dict(terminal.get("expect") or {})
+        expect.setdefault("url", page_url)
+        terminal["expect"] = expect
+    steps.append(terminal)
     steps = _collapse_repeats(steps)
     if op.get("kind") == "download":
         # The artifact IS the result, so the operation ends by naming it rather

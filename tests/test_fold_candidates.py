@@ -260,3 +260,37 @@ def test_the_segment_is_folded_too_not_just_the_full_steps():
     assert seg("monthly") == ["#HDisplay23", "#DL"]
     assert seg("annual") == ["#Annual", "#GO", "#DL"]
     assert "#Annual" not in seg("monthly"), "branches must not leak into each other"
+
+
+def test_the_terminal_asserts_the_page_it_was_recorded_on():
+    """ICICI's annual and monthly statement pages are identically designed.
+
+    #PDF_Download and #DOWNLOAD_ESTATEMENT_PDF exist on both, so the monthly
+    steps ran on the annual page and returned a MONTHLY statement with every
+    check green — selector checks cannot tell the pages apart. Their URLs can.
+    """
+    from noui_core.compile import browser_skill as bs
+
+    op = {
+        "url": "https://infinity.icici.bank.in/corp/Finacle",
+        "work_url": "https://infinity.icici.bank.in/corp/Finacle",
+        "nav": [], "lead": [], "parameters": [],
+        "terminal": {"command": "click_element", "params": {"selector": "#DL"}},
+    }
+    steps = bs._steps_for_terminal(op)
+    dl = [s for s in steps if (s.get("params") or {}).get("selector") == "#DL"][0]
+    assert dl["expect"]["url"] == "https://infinity.icici.bank.in/corp/Finacle"
+
+
+def test_a_recorded_expectation_is_not_overwritten():
+    from noui_core.compile import browser_skill as bs
+
+    op = {
+        "url": "https://x/page", "nav": [], "lead": [], "parameters": [],
+        "terminal": {"command": "click_element", "params": {"selector": "#DL"},
+                     "expect": {"url": "https://x/observed", "download": True}},
+    }
+    dl = [s for s in bs._steps_for_terminal(op)
+          if (s.get("params") or {}).get("selector") == "#DL"][0]
+    assert dl["expect"]["url"] == "https://x/observed", "what was observed wins"
+    assert dl["expect"]["download"] is True
