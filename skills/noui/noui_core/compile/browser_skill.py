@@ -1348,10 +1348,27 @@ def render_browser_operations_json(
         # and its own work is nothing. The refusal still catches what it was
         # written for, a genuinely unsegmented operation among segmented ones.
         op["starts_from"] = p.get("starts_from")
+        segment = p.get("segment")
+        if (
+            segment is None
+            and p.get("starts_from") is None
+            and entry_url
+            and _page_key(p["url"]) != _page_key(entry_url)
+        ):
+            # The FIRST operation continues from a fresh session, which lands on
+            # the entry page -- so getting from there to its own page is ITS
+            # work, not a journey shared with anything before it.
+            #
+            # Without this, an operation whose nav chain has no parent was given
+            # `starts_from: null` ("you are already here") while asserting a page
+            # the session does not land on. Observed on a harness run:
+            # read_credit_card asserted /credit-card with no navigation step of
+            # its own, the session was on /overview, and the operation blocked
+            # with "expected to be on /credit-card ... but the page is
+            # /overview". Every operation after it then failed its own guard.
+            segment = p.get("nav") or []
         op["segment_steps"] = (
-            _steps_for_page({**p, "nav": p.get("segment")})
-            if p.get("segment") is not None
-            else []
+            _steps_for_page({**p, "nav": segment}) if segment is not None else []
         )
         # How long the page AFTER this operation took to become usable, measured
         # from the human's own gap. Stamped on the operation that CAUSES the
