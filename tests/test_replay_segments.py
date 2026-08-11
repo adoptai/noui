@@ -303,3 +303,16 @@ def test_the_journey_opener_still_resets_wherever_it_sits(monkeypatch):
     monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
     run_replay(OPS, profile_slug="p", token="t", entry_url=OVERVIEW)
     assert reset_called == [OVERVIEW]
+
+
+def test_a_single_operation_run_still_uses_segments(monkeypatch):
+    # `len(ops) > 1` silently undid segments the moment --only narrowed a run.
+    reset_called: list = []
+    monkeypatch.setattr(
+        session_mod, "_return_to_entry",
+        lambda *a, **k: reset_called.append(a[1]) or None,
+    )
+    page = _Page(CC)
+    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+    run_replay([OPS[1]], profile_slug="p", token="t", entry_url=OVERVIEW)
+    assert reset_called == [], "one continuing operation must not be reset"

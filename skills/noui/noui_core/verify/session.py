@@ -518,7 +518,13 @@ def run_replay(
     #
     # A skill compiled before segments existed has none, and runs exactly as it
     # did.
-    segmented = all(op.get("segment_steps") is not None for op in ops) and len(ops) > 1
+    # No count condition. `len(ops) > 1` was here to leave single-operation
+    # skills on the old path, and it silently undid segments the moment --only
+    # narrowed a run to one: download_statement fell back to the legacy branch,
+    # which resets before every operation, and was sent to /overview from the
+    # portal it had just reached. Carrying segments is the property that
+    # matters, not how many operations happen to be running.
+    segmented = bool(ops) and all(op.get("segment_steps") is not None for op in ops)
 
     for index, op in enumerate(ops):
         source = op if not segmented else {**op, "steps": op.get("segment_steps") or []}
