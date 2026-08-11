@@ -607,7 +607,18 @@ def run_replay(
                 # the form was still building. Probed by hand a minute later,
                 # that control was there. The reset already learned this; an
                 # arrival needs the same courtesy.
-                _await_first_control(execute, steps, _ARRIVAL_BUDGET_S)
+                # The budget is the human's own gap after the click that caused
+                # this arrival, buffered and capped at compile time. It sits on
+                # the operation that CAUSED the arrival, which is the one the
+                # gap was measured from. Falls back to the constant for skills
+                # compiled before that was recorded.
+                measured = (ops[index - 1] or {}).get("causes_arrival_budget_ms")
+                budget = (
+                    float(measured) / 1000.0
+                    if isinstance(measured, int) and measured > 0
+                    else _ARRIVAL_BUDGET_S
+                )
+                _await_first_control(execute, steps, budget)
             try:
                 for step in steps:
                     step_results.append(

@@ -161,3 +161,35 @@ def test_no_wait_when_the_predecessor_did_not_arrive(monkeypatch):
     monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
     run_replay(OPS, profile_slug="p", token="t", entry_url=OVERVIEW)
     assert waited == []
+
+
+def test_the_arrival_budget_comes_from_the_recording(monkeypatch):
+    """The human's own gap, buffered — not a constant pretending to be one.
+
+    On ICICI the gap after the hop to the statement portal was 17.2s; a 3s
+    constant gave up long before the form appeared, and a flat 20s was under the
+    29s the human took elsewhere.
+    """
+    seen: list[float] = []
+    monkeypatch.setattr(
+        session_mod, "_await_first_control",
+        lambda ex, steps, budget: seen.append(budget),
+    )
+    page = _Page(OVERVIEW, after_first=CC)
+    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+
+    ops = [dict(OPS[0], causes_arrival_budget_ms=25819), OPS[1]]
+    run_replay(ops, profile_slug="p", token="t", entry_url=OVERVIEW)
+    assert seen == [25.819]
+
+
+def test_a_skill_without_a_recorded_budget_uses_the_constant(monkeypatch):
+    seen: list[float] = []
+    monkeypatch.setattr(
+        session_mod, "_await_first_control",
+        lambda ex, steps, budget: seen.append(budget),
+    )
+    page = _Page(OVERVIEW, after_first=CC)
+    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+    run_replay(OPS, profile_slug="p", token="t", entry_url=OVERVIEW)
+    assert seen == [session_mod._ARRIVAL_BUDGET_S]

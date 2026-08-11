@@ -857,6 +857,53 @@ def _inherit_hover_settle(steps: list[dict]) -> None:
         after["expect"] = {**expect, "settle_ms": settle}
 
 
+#: How much longer than the human we allow. Their gap is an upper bound already
+#: -- they could not click before the control existed -- but it was measured on
+#: one network on one day, so a little room costs nothing.
+_ARRIVAL_BUFFER = 1.5
+
+#: Nobody's page takes this long. Beyond it the recorded gap is someone reading
+#: their email, not a page loading, and a replay must not inherit that.
+_ARRIVAL_CAP_MS = 45_000
+
+
+def arrival_budget_ms(click_events: list[dict], arrive_seq: int | None) -> int | None:
+    """How long the human waited after the click that caused this arrival.
+
+    Measured, not guessed: the gap between the click at ``arrive_seq`` and their
+    next interaction. They could not have clicked the next control before it
+    existed, so this is an upper bound on the page becoming usable -- and on
+    ICICI's statement portal it was 17.2s, where a 3s constant gave up long
+    before the form appeared.
+
+    An upper bound is exactly what a deadline wants: the replay proceeds the
+    moment the control appears and only uses this to decide when to stop
+    waiting. Buffered a little because one recording is one sample, and capped
+    because some of that gap is a human reading.
+    """
+    if arrive_seq is None:
+        return None
+    ordered = sorted(
+        (c for c in click_events or [] if event_seq(c) is not None),
+        key=lambda c: event_seq(c),
+    )
+    cause = next((c for c in ordered if event_seq(c) == arrive_seq), None)
+    if cause is None:
+        return None
+    start = _parse_ts(cause.get("timestamp") or "")
+    if start is None:
+        return None
+    for c in ordered:
+        if event_seq(c) <= arrive_seq:
+            continue
+        at = _parse_ts(c.get("timestamp") or "")
+        if at is None:
+            continue
+        gap_ms = int((at - start).total_seconds() * 1000 * _ARRIVAL_BUFFER)
+        return max(0, min(gap_ms, _ARRIVAL_CAP_MS)) or None
+    return None
+
+
 def _steps_for_page(p: dict) -> list[dict]:
     """Recipe to read a page WITHOUT a reload.
 
@@ -1023,6 +1070,7 @@ def entry_url_for(url_events: list[dict], pages: list[dict]) -> str:
 
 def render_browser_operations_json(
     pages: list[dict],
+    click_events: list[dict] | None = None,
     *,
     profile_slug: str,
     terminal_ops: list[dict] | None = None,
@@ -1056,6 +1104,13 @@ def render_browser_operations_json(
         if p.get("starts_from") is not None or p.get("segment") is not None:
             op["starts_from"] = p.get("starts_from")
             op["segment_steps"] = _steps_for_page({**p, "nav": p.get("segment")})
+        # How long the page AFTER this operation took to become usable, measured
+        # from the human's own gap. Stamped on the operation that CAUSES the
+        # arrival, because that is the click the gap was measured from.
+        last = (p.get("nav") or [None])[-1]
+        budget = arrival_budget_ms(click_events or [], (last or {}).get("seq"))
+        if budget:
+            op["causes_arrival_budget_ms"] = budget
         operations.append(op)
     # Goals that finish without landing on a new page — a download, a form
     # submission. The page-centric model above cannot express them at all.
@@ -1339,6 +1394,7 @@ def generate_browser_skill(
         pages,
         profile_slug=profile_slug,
         terminal_ops=terminal_ops,
+        click_events=click_events,
         entry_url=entry_url_for(url_events, pages),
         entry_by_origin=entry_urls_by_origin(url_events),
     )
