@@ -414,3 +414,56 @@ def test_only_the_last_terminal_bounds_it():
         {"command": "click_element", "params": {"selector": "#keep"}},
     ]
     assert [(s.get("params") or {}).get("selector") for s in _after_last_terminal(steps)] == ["#keep"]
+
+
+def test_a_terminal_the_steps_cannot_show_still_bounds_the_branch():
+    """The real ICICI boundary is invisible in the steps.
+
+    The monthly download was reported against the `submit` that the download
+    click triggered, and a submit is not a replayable step — so no step in the
+    annual journey carries `expect.download`, and comparing the steps finds
+    nothing. Recorded order is the only witness: `_seq` says when each step
+    happened, the monthly operation says when it finished, and everything at or
+    before that moment was its work.
+    """
+    from noui_core.compile.browser_skill import _after_last_terminal
+
+    steps = [
+        {"command": "click_element", "params": {"selector": "#PDF_Download"}, "_seq": 20},
+        {"command": "set_checked", "params": {"role": "radio", "name": "Annual"}, "_seq": 23},
+        {"command": "click_element", "params": {"selector": "#DUMMY1"}, "_seq": 24},
+    ]
+    kept = [(s.get("params") or {}).get("selector") or (s.get("params") or {}).get("name")
+            for s in _after_last_terminal(steps, boundary_seq=22)]
+    assert kept == ["Annual", "#DUMMY1"]
+
+
+def test_a_terminal_that_has_not_happened_yet_bounds_nothing():
+    """Applied backwards this rule deletes the earlier branch entirely.
+
+    The monthly branch must not be trimmed by the annual download that comes
+    after it: every one of its steps precedes that moment, so the whole branch
+    would vanish and the operation would report success having done nothing.
+    """
+    from noui_core.compile.browser_skill import _preceding_terminal
+
+    assert _preceding_terminal(22, 40) is None      # monthly bounded by annual: no
+    assert _preceding_terminal(40, 22) == 22        # annual bounded by monthly: yes
+    assert _preceding_terminal(22, 22) is None      # one operation is not its own boundary
+    assert _preceding_terminal(None, 22) is None
+    assert _preceding_terminal(40, None) is None
+
+
+def test_provenance_never_makes_two_identical_actions_differ():
+    """`_seq` records where a step came from, not what it does.
+
+    Monthly and annual both end by clicking Download, from different clicks. If
+    the recorded moment counted as part of the step, that shared ending would
+    stop being recognised as shared and be duplicated into both branches.
+    """
+    from noui_core.compile.browser_skill import _common_prefix_len, _common_suffix_len
+
+    a = [{"command": "click_element", "params": {"selector": "#D"}, "_seq": 21}]
+    b = [{"command": "click_element", "params": {"selector": "#D"}, "_seq": 39}]
+    assert _common_prefix_len(a, b) == 1
+    assert _common_suffix_len(a, b, 0) == 1

@@ -612,6 +612,19 @@ def _is_login_control(click: dict) -> bool:
     return False
 
 
+def _stamp_source(step: dict | None, click: dict) -> dict | None:
+    """Remember which recorded interaction a step was compiled from.
+
+    Only folding reads this, and only to place a boundary between two variants
+    recorded one after the other. It is provenance, never behaviour -- see
+    `_behaviour`, which keeps it from making two identical actions look
+    different.
+    """
+    if step is not None and click.get("seq") is not None:
+        step["_seq"] = click["seq"]
+    return step
+
+
 def _step_for_click(click: dict) -> dict | None:
     """One compiled step for one recorded click.
 
@@ -988,7 +1001,7 @@ def _steps_for_page(p: dict) -> list[dict]:
     steps: list[dict] = []
     carried: dict = {}
     for click in p.get("nav") or []:
-        step = _step_for_click(click)
+        step = _stamp_source(_step_for_click(click), click)
         if step is None:
             continue
         expect = _expect_for_click(click) or {}
@@ -1198,6 +1211,10 @@ def render_browser_operations_json(
                 # recorded order is a separate change.
                 "starts_from": _terminal_starts_from(op),
                 "segment_steps": _terminal_segment(op),
+                # Carried onto the emitted operation because folding happens in
+                # a later run, reading operations.json back from disk -- the
+                # recording is long gone by then.
+                "_terminal_seq": op.get("_terminal_seq"),
             }
         )
     doc = {"schema_version": "1", "style": "browser", "operations": operations}
@@ -1734,6 +1751,12 @@ def derive_terminal_operations(
                 "name": name,
                 "kind": kind,
                 "url": url,
+                # WHEN it finished. Two variants recorded one after the other
+                # share a journey, and the boundary between them is the moment
+                # the first one completed -- which for ICICI is a `submit` event
+                # that never becomes a step, so no comparison of the steps
+                # themselves can find it. Recorded order can.
+                "_terminal_seq": term_seq,
                 # Where its work happens -- what starts_from must name.
                 "work_url": work_url,
                 # Reach the page exactly the way the read operation for it does.
@@ -1782,7 +1805,7 @@ def _steps_for_terminal(op: dict) -> list[dict]:
     """Recipe for a terminal operation: reach the page, then do the thing."""
     steps: list[dict] = []
     for click in op.get("nav") or []:
-        step = _step_for_click(click)
+        step = _stamp_source(_step_for_click(click), click)
         if step is None:
             continue
         expect = _expect_for_click(click)
@@ -1834,11 +1857,23 @@ def _terminal_description(op: dict) -> str:
     return f"Submit the form on {op['url']} and read the result"
 
 
+def _behaviour(step: dict) -> dict:
+    """A step stripped of provenance -- what it DOES, not where it came from.
+
+    Underscore-prefixed keys record which interaction a step was compiled from.
+    Two operations that perform the same action perform the same action whether
+    or not it was recorded at the same moment: monthly and annual both end by
+    clicking Download, from different clicks, and comparing the raw dicts would
+    stop that being recognised as shared and duplicate it into both branches.
+    """
+    return {k: v for k, v in step.items() if not k.startswith("_")}
+
+
 def _common_prefix_len(a: list[dict], b: list[dict]) -> int:
     """How many leading steps two operations perform identically."""
     n = 0
     for x, y in zip(a, b):
-        if x != y:
+        if _behaviour(x) != _behaviour(y):
             break
         n += 1
     return n
@@ -1848,7 +1883,7 @@ def _common_suffix_len(a: list[dict], b: list[dict], skip: int) -> int:
     """How many trailing steps match, without eating into the shared prefix."""
     n = 0
     limit = min(len(a), len(b)) - skip
-    while n < limit and a[len(a) - 1 - n] == b[len(b) - 1 - n]:
+    while n < limit and _behaviour(a[len(a) - 1 - n]) == _behaviour(b[len(b) - 1 - n]):
         n += 1
     return n
 
@@ -1922,7 +1957,7 @@ def _journey_part(op: dict) -> list[dict]:
     return steps[: max(0, len(steps) - len(segment))]
 
 
-def _after_last_terminal(steps: list[dict]) -> list[dict]:
+def _after_last_terminal(steps: list[dict], boundary_seq: int | None = None) -> list[dict]:
     """Drop everything up to and including a completed terminal action.
 
     A finished action is a boundary. The human downloaded the MONTHLY statement,
@@ -1934,12 +1969,38 @@ def _after_last_terminal(steps: list[dict]) -> list[dict]:
 
     What precedes a completed terminal belongs to the variant it completed, not
     to the one that follows.
+
+    Two markers, because a terminal is not always visible in the steps. A step
+    that carries the download itself says so. ICICI's did not: the download was
+    reported against the `submit` the click triggered, and submits are not
+    replayable steps, so nothing in this list can show where the monthly
+    statement finished. `boundary_seq` is that moment in recorded order, and any
+    step at or before it was that variant's work.
     """
     last = -1
     for i, step in enumerate(steps):
-        if (step.get("expect") or {}).get("download") or step.get("command") == "list_downloads":
+        seq = step.get("_seq")
+        carries_download = bool((step.get("expect") or {}).get("download"))
+        confirms_download = step.get("command") == "list_downloads"
+        within_earlier_variant = (
+            boundary_seq is not None and seq is not None and seq <= boundary_seq
+        )
+        if carries_download or confirms_download or within_earlier_variant:
             last = i
     return steps[last + 1 :] if last >= 0 else steps
+
+
+def _preceding_terminal(mine: int | None, theirs: int | None) -> int | None:
+    """The other variant's terminal, if it completed BEFORE this one's.
+
+    Only a terminal already in the past can bound this branch. Applied the other
+    way round it would read the whole journey as belonging to a variant that had
+    not happened yet and drop every step the earlier branch needs -- which is
+    the same "everything passed, nothing ran" failure this rule exists to stop.
+    """
+    if mine is None or theirs is None or theirs >= mine:
+        return None
+    return theirs
 
 
 def _branch_work(a: dict, b: dict) -> tuple[list[dict], list[dict]]:
@@ -1951,9 +2012,12 @@ def _branch_work(a: dict, b: dict) -> tuple[list[dict], list[dict]]:
     """
     a_journey, b_journey = _journey_part(a), _journey_part(b)
     shared = _common_prefix_len(a_journey, b_journey)
+    a_term, b_term = a.get("_terminal_seq"), b.get("_terminal_seq")
     return (
-        _after_last_terminal(a_journey[shared:]) + (a.get("segment_steps") or []),
-        _after_last_terminal(b_journey[shared:]) + (b.get("segment_steps") or []),
+        _after_last_terminal(a_journey[shared:], _preceding_terminal(a_term, b_term))
+        + (a.get("segment_steps") or []),
+        _after_last_terminal(b_journey[shared:], _preceding_terminal(b_term, a_term))
+        + (b.get("segment_steps") or []),
     )
 
 
@@ -1998,12 +2062,30 @@ def apply_fold(
     if a is None or b is None or len(values) != 2:
         return operations
 
+    # The shared way to the fork, then each branch's own work -- the same
+    # decomposition the segment uses below, so the two cannot disagree. Merging
+    # the two full step lists directly instead left `steps` holding the monthly
+    # download at the head of the annual branch while `segment_steps` had
+    # correctly dropped it: one artifact describing the journey two ways, and
+    # the wrong one is the fallback for anything not running segments.
+    a_journey, b_journey = _journey_part(a), _journey_part(b)
+    shared = a_journey[: _common_prefix_len(a_journey, b_journey)]
+    work = _branch_work(a, b)
+    # Only a segmented operation can be split this way -- the journey is
+    # recovered by subtracting the segment, so without one there is nothing to
+    # subtract and the decomposition yields an empty skill. Those fold exactly
+    # as they always did.
+    segmented = a.get("segment_steps") is not None and b.get("segment_steps") is not None
+    merged_steps = (
+        shared + _merge_branches(*work, param, values)
+        if segmented
+        else _merge_branches(a.get("steps") or [], b.get("steps") or [], param, values)
+    )
+
     folded = {
         **a,
         "name": name,
-        "steps": _merge_branches(
-            a.get("steps") or [], b.get("steps") or [], param, values
-        ),
+        "steps": merged_steps,
         # The segment gets the same treatment, PLUS the part of each journey
         # that only its own branch takes.
         #
@@ -2019,9 +2101,7 @@ def apply_fold(
         # journey part is recoverable by length. Whatever the two journeys share
         # is the way to the fork; whatever they do not is the branch choosing
         # itself, and belongs with the branch.
-        "segment_steps": _merge_branches(
-            *_branch_work(a, b), param, values
-        ),
+        "segment_steps": _merge_branches(*work, param, values),
         "parameters": [
             *(a.get("parameters") or []),
             {

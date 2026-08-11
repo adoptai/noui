@@ -318,3 +318,55 @@ def test_a_caller_supplied_value_wins_over_the_recorded_default():
     }
     filled = substitute_parameters(op, {"from_date": "2025-04-01"})
     assert filled[0]["params"]["text"] == "2025-04-01"
+
+
+def test_a_download_operation_does_not_pass_on_an_earlier_ones_file():
+    """The annual statement "succeeded" on the monthly PDF.
+
+    `list_downloads` reports every download the browser has taken for the life
+    of the session. Once ANY operation downloads anything, every later download
+    check sees a file and passes -- so a replay where the annual branch silently
+    did nothing reported all goals reached, which is precisely the failure the
+    replay exists to catch.
+    """
+    from noui_core.verify.replay import build_report
+
+    monthly = {"name": "monthly", "kind": "download", "steps": []}
+    annual = {"name": "annual", "kind": "download", "steps": []}
+    listed = [{"id": "dl-1", "state": "completed", "suggested_filename": "Statement.pdf"}]
+    results = [
+        [{"status": "ok", "command": "list_downloads", "data": {"downloads": listed}}],
+        # The annual operation ran and produced nothing new: the same one file.
+        [{"status": "ok", "command": "list_downloads", "data": {"downloads": listed}}],
+    ]
+    report = build_report([monthly, annual], results)
+    by_name = {o["name"]: o for o in report["operations"]}
+    assert by_name["monthly"]["goal_reached"] is True
+    assert by_name["annual"]["goal_reached"] is False
+    assert report["all_goals_reached"] is False
+
+
+def test_a_second_download_operation_passes_on_its_own_file():
+    from noui_core.verify.replay import build_report
+
+    first = [{"id": "dl-1", "state": "completed"}]
+    both = [*first, {"id": "dl-2", "state": "completed"}]
+    report = build_report(
+        [{"name": "monthly", "kind": "download"}, {"name": "annual", "kind": "download"}],
+        [
+            [{"status": "ok", "command": "list_downloads", "data": {"downloads": first}}],
+            [{"status": "ok", "command": "list_downloads", "data": {"downloads": both}}],
+        ],
+    )
+    assert report["all_goals_reached"] is True
+
+
+def test_a_download_still_in_flight_or_failed_is_not_evidence():
+    """A record exists from the moment the browser starts fetching."""
+    from noui_core.verify.replay import goal_reached
+
+    op = {"name": "d", "kind": "download"}
+    for state in ("in_progress", "failed"):
+        steps = [{"status": "ok", "command": "list_downloads",
+                  "data": {"downloads": [{"id": "dl-1", "state": state}]}}]
+        assert goal_reached(op, steps) is False, state

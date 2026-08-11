@@ -195,6 +195,7 @@ def replay_step(
     *,
     recorded: set[str],
     approvals: set[str] | None = None,
+    known_downloads: set[str] | None = None,
 ) -> dict:
     """Run one step and report what happened, without ever raising.
 
@@ -266,14 +267,39 @@ def replay_step(
     # how a run clicked its way onto /discover and still called itself passing.
     # The compiler already states what the recording observed after each click;
     # this is the enforcer that was missing.
-    unmet = expectation_unmet(step.get("expect"), execute)
+    unmet = expectation_unmet(step.get("expect"), execute, known_downloads=known_downloads)
     if unmet:
         result["status"] = BLOCKED
         result["detail"] = unmet
     return result
 
 
-def expectation_unmet(expect: Any, execute: Any) -> str:
+def _is_new_download(record: Any, known: Any) -> bool:
+    """A file that arrived HERE, and actually finished arriving.
+
+    `list_downloads` reports every download the browser context has taken, for
+    the life of the session -- so once any operation downloads anything, every
+    later download check passes on that same file. The annual statement replay
+    "succeeded" on the monthly PDF fetched two operations earlier.
+
+    A record also counts as a download while it is still in flight and after it
+    has failed. Neither is evidence that the step did what it was recorded
+    doing.
+    """
+    if not isinstance(record, dict):
+        return False
+    # Only an explicit verdict counts against it. A record with no state at all
+    # is not evidence of failure, and refusing those would fail every download
+    # against a worker that does not report one.
+    if record.get("state") in ("in_progress", "failed"):
+        return False
+    rid = record.get("id")
+    # Untrackable, so it cannot be shown to be old. Real records always carry an
+    # id; treating its absence as "already seen" would reject every download.
+    return rid is None or str(rid) not in known
+
+
+def expectation_unmet(expect: Any, execute: Any, *, known_downloads: set[str] | None = None) -> str:
     """Why the recorded postcondition does not hold, or "" if it does.
 
     Deliberately forgiving about HOW a page is reached and strict about WHERE it
@@ -312,28 +338,55 @@ def expectation_unmet(expect: Any, execute: Any) -> str:
             files = ((listed.get("data") or listed) or {}).get("downloads") or []
         except Exception:  # noqa: BLE001
             files = []
-        if not files:
+        known = known_downloads if known_downloads is not None else set()
+        fresh = [f for f in files if _is_new_download(f, known)]
+        # Everything on disk is accounted for from here on, whether or not it
+        # satisfied THIS step.
+        if known_downloads is not None:
+            known_downloads.update(str(f.get("id")) for f in files if f.get("id") is not None)
+        if not fresh:
+            if files:
+                return (
+                    "this step downloaded a file when it was recorded; no NEW completed "
+                    f"file arrived (the {len(files)} already here came from earlier steps)"
+                )
             return "this step downloaded a file when it was recorded; no file arrived"
 
     return ""
 
 
-def goal_reached(operation: dict, steps: list[dict]) -> bool:
+def downloads_listed(steps: list[dict]) -> list[dict]:
+    """Every download record this operation's own `list_downloads` reported."""
+    for s in steps:
+        if s.get("command") == "list_downloads":
+            listed = (s.get("data") or {}).get("downloads")
+            return [r for r in (listed or []) if isinstance(r, dict)]
+    return []
+
+
+def goal_reached(
+    operation: dict, steps: list[dict], *, already_downloaded: Any = frozenset()
+) -> bool:
     """Did this operation actually achieve what it exists for?
 
     Not "did every step pass" — an operation whose steps all ran but which never
     produced its file has not reached its goal, and that distinction is the whole
     reason `kind` is recorded. For a download the evidence is a file; for
     everything else it is that no step was left blocked.
+
+    The file has to be THIS operation's. `list_downloads` reports the whole
+    session's downloads, so the annual statement operation was reporting success
+    on the monthly PDF a previous operation had fetched — the exact failure the
+    replay exists to catch, passing the replay. ``already_downloaded`` carries
+    what the operations before it had already produced.
     """
     if any(s.get("status") in (BLOCKED, NEEDS_APPROVAL) for s in steps):
         return False
     if (operation.get("kind") or "") == "download":
-        for s in steps:
-            if s.get("command") == "list_downloads":
-                data = s.get("data") or {}
-                return bool((data or {}).get("downloads"))
-        return False
+        listed = downloads_listed(steps)
+        if not listed:
+            return False
+        return any(_is_new_download(r, already_downloaded) for r in listed)
     return True
 
 
@@ -377,8 +430,15 @@ def build_report(operations: list[dict], results: list[list[dict]]) -> dict:
     needs to decide on is whether each GOAL was reached.
     """
     ops_out = []
+    # What the operations BEFORE this one already produced. Downloads are
+    # reported cumulatively for the whole session, so without this an operation
+    # inherits its predecessor's file as proof of its own success.
+    already: set[str] = set()
     for op, steps in zip(operations, results, strict=False):
-        reached = goal_reached(op, steps)
+        reached = goal_reached(op, steps, already_downloaded=already)
+        already.update(
+            str(r["id"]) for r in downloads_listed(steps) if r.get("id") is not None
+        )
         ops_out.append(
             {
                 "name": op.get("name"),

@@ -543,6 +543,11 @@ def run_replay(
     recorded = recorded_controls(ops)
     execute = _executor(profile_slug, token, timeout_ms=timeout_ms)
 
+    # Files already accounted for, for the whole run. The browser reports its
+    # downloads cumulatively, so without a running record every download check
+    # after the first one passes on a file some earlier step fetched.
+    known_downloads: set[str] = set()
+
     known = _workflow_urls(ops, entry_url or "")
     reset_notes: list = []
     results: list[list[dict]] = []
@@ -690,7 +695,8 @@ def run_replay(
             try:
                 for step in steps:
                     result = replay_step(
-                        execute, step, recorded=recorded, approvals=approvals
+                        execute, step, recorded=recorded, approvals=approvals,
+                        known_downloads=known_downloads,
                     )
                     step_results.append(result)
                     if result.get("status") == OK:
@@ -732,7 +738,10 @@ def run_replay(
                 continue
         try:
             for step in steps:
-                result = replay_step(execute, step, recorded=recorded, approvals=approvals)
+                result = replay_step(
+                    execute, step, recorded=recorded, approvals=approvals,
+                    known_downloads=known_downloads,
+                )
                 step_results.append(result)
                 if result.get("status") == OK:
                     _let_the_step_land(step)

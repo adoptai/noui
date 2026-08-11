@@ -126,3 +126,39 @@ def test_a_genuinely_different_page_still_fails():
         {"url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=y"}, execute
     )
     assert "expected to be on" in unmet
+
+
+def test_a_download_step_does_not_pass_on_a_file_from_an_earlier_step():
+    """Per step, the same staleness as per operation.
+
+    The annual branch's download click fires into a busy form and produces
+    nothing; the monthly PDF from four steps earlier is still listed, so the
+    step's own `expect.download` was satisfied by it.
+    """
+    step = {"command": "click_element", "params": {"selector": "#dl"},
+            "expect": {"download": True}}
+    known = {"dl-1"}
+    res = replay_step(
+        _exec(downloads=[{"id": "dl-1", "state": "completed"}]),
+        step,
+        recorded={_control_identity(step)},
+        known_downloads=known,
+    )
+    assert res["status"] == BLOCKED
+    assert "no NEW completed file" in res["detail"]
+
+
+def test_a_download_step_passes_on_a_file_that_arrived_here():
+    step = {"command": "click_element", "params": {"selector": "#dl"},
+            "expect": {"download": True}}
+    known = {"dl-1"}
+    res = replay_step(
+        _exec(downloads=[{"id": "dl-1", "state": "completed"},
+                         {"id": "dl-2", "state": "completed"}]),
+        step,
+        recorded={_control_identity(step)},
+        known_downloads=known,
+    )
+    assert res["status"] == OK
+    # Both are accounted for now, so the NEXT download step cannot reuse either.
+    assert known == {"dl-1", "dl-2"}
