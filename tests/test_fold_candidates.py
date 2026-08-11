@@ -75,3 +75,63 @@ def test_the_suffix_never_eats_into_the_prefix():
     assert f["prefix"] + f["suffix"] <= min(len(a["steps"]), len(b["steps"]))
     assert f["branches"][0] == []
     assert [s["params"]["selector"] for s in f["branches"][1]] == ["#extra"]
+
+
+# --- applying a fold the member has named --------------------------------------
+#
+# The names come from a person. "corp_finacle" is the page the annual statement
+# happened to be served from; a caller choosing between monthly and annual can
+# make nothing of it.
+
+from noui_core.compile.browser_skill import apply_fold  # noqa: E402
+from noui_core.verify.replay import substitute_parameters  # noqa: E402
+
+
+def _folded():
+    ops = [_op("monthly", [_s("#HDisplay23")]), _op("annual", [_s("#Annual")])]
+    fold = fold_candidates(ops)[0]
+    return apply_fold(
+        ops, fold, name="download_statement", param="timeframe",
+        values=["monthly", "annual"],
+    )
+
+
+def test_the_pair_becomes_one_named_operation():
+    out = _folded()
+    assert [o["name"] for o in out] == ["download_statement"]
+    assert out[0]["parameters"][-1] == {
+        "name": "timeframe",
+        "default": "monthly",
+        "allowed": ["monthly", "annual"],
+        "description": "Which variant to run: monthly, annual.",
+    }
+
+
+def test_each_variant_replays_its_own_steps():
+    op = _folded()[0]
+    def targets(values):
+        return [
+            (s.get("params") or {}).get("selector")
+            for s in substitute_parameters(op, values)
+        ]
+    # The shared journey runs for both; only the middle differs.
+    assert targets({"timeframe": "monthly"}) == ["#nav", "#cards", "#past", "#stmt", "#HDisplay23", None]
+    assert targets({"timeframe": "annual"}) == ["#nav", "#cards", "#past", "#stmt", "#Annual", None]
+
+
+def test_the_default_variant_is_the_first_named():
+    op = _folded()[0]
+    sels = [(s.get("params") or {}).get("selector") for s in substitute_parameters(op)]
+    assert "#HDisplay23" in sels and "#Annual" not in sels
+
+
+def test_only_the_divergent_steps_carry_a_condition():
+    op = _folded()[0]
+    conditioned = [s for s in op["steps"] if s.get("when")]
+    assert len(conditioned) == 2, "the shared prefix and ending must run for every variant"
+
+
+def test_a_fold_naming_missing_operations_changes_nothing():
+    ops = [_op("monthly", [_s("#a")]), _op("annual", [_s("#b")])]
+    bad = {"operations": ["monthly", "gone"], "prefix": 4, "suffix": 1, "branches": [[], []]}
+    assert apply_fold(ops, bad, name="x", param="p", values=["a", "b"]) == ops

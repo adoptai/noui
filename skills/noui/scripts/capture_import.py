@@ -149,6 +149,7 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     # this is the recommendation surfaced to a user authoring a skill in the
     # harness, so browser mode is never picked silently.
     _report_kind(result, skill, declared=bool(getattr(args, "browser_driven", False)))
+    _report_folds(skill)
     if args.auth_type == "api-key":
         secrets = (skill.get("secrets_required") if skill else None) or (
             mcp.get("secrets_required") if mcp else None
@@ -327,6 +328,34 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
         file=sys.stderr,
     )
     return rc
+
+
+def _report_folds(skill: dict) -> None:
+    """Surface operations that are one workflow with a choice in the middle.
+
+    Reported, never applied: naming the choice is a judgement from a person. A
+    parameter called "corp_finacle" -- the page an annual statement happened to
+    be served from -- is worse than the two operations it replaced, because the
+    model reads these names to decide what to call.
+    """
+    try:
+        from noui_core.compile.browser_skill import fold_candidates
+    except Exception:  # noqa: BLE001 — a missing fold report never fails an import
+        return
+    for f in fold_candidates(skill.get("operations") or []):
+        a, b = f["operations"]
+        print(
+            f"\n{a} and {b} are one workflow with a choice in the middle: "
+            f"{f['prefix']} identical steps to reach the same page, then they "
+            f"diverge, then the same ending.\n"
+            f"  As two operations each replays the whole journey, so every call "
+            f"has to start from the landing page. As ONE operation with a "
+            f"parameter, the caller just picks the variant.\n"
+            f"  ASK THE MEMBER what the choice is called and what to call each "
+            f"side (e.g. timeframe=monthly|annual). The recorded names say where "
+            f"the pages were served from, not what they mean.",
+            file=sys.stderr,
+        )
 
 
 def main() -> int:

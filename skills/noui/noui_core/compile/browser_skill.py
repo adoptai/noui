@@ -1527,7 +1527,11 @@ def fold_candidates(operations: list[dict]) -> list[dict]:
          "branches": [[steps...], [steps...]]}
     """
     out: list[dict] = []
-    ops = [o for o in operations or [] if (o.get("steps") or [])]
+    # `operations` is a count in some result shapes, not a list of steps -- and
+    # a report that raises would fail an import that otherwise succeeded.
+    ops = [
+        o for o in operations or [] if isinstance(o, dict) and isinstance(o.get("steps"), list)
+    ]
     for i, a in enumerate(ops):
         for b in ops[i + 1 :]:
             if (a.get("kind") or "read") != (b.get("kind") or "read"):
@@ -1552,4 +1556,57 @@ def fold_candidates(operations: list[dict]) -> list[dict]:
                     "branches": [mid_a, mid_b],
                 }
             )
+    return out
+
+
+def apply_fold(
+    operations: list[dict], fold: dict, *, name: str, param: str, values: list[str]
+) -> list[dict]:
+    """Replace a foldable pair with one operation the member has named.
+
+    The names come from a person, not from the recording: "corp_finacle" is the
+    page the annual statement happened to be served from, and a caller choosing
+    between a monthly and an annual statement can make nothing of it. The
+    compiler finds the fold; the member says what it is.
+
+    The shared prefix and ending run for every variant; each divergent middle is
+    tagged with ``when`` so only its own steps run. Nothing is invented -- every
+    step is the one that was recorded, in the order it was recorded.
+    """
+    a_name, b_name = fold["operations"]
+    by_name = {o.get("name"): o for o in operations}
+    a, b = by_name.get(a_name), by_name.get(b_name)
+    if a is None or b is None or len(values) != 2:
+        return operations
+
+    steps_a = a.get("steps") or []
+    pre, suf = fold["prefix"], fold["suffix"]
+    merged = list(steps_a[:pre])
+    for branch, value in zip(fold["branches"], values):
+        for step in branch:
+            merged.append({**step, "when": {param: value}})
+    merged.extend(steps_a[len(steps_a) - suf :] if suf else [])
+
+    folded = {
+        **a,
+        "name": name,
+        "steps": merged,
+        "parameters": [
+            *(a.get("parameters") or []),
+            {
+                "name": param,
+                "default": values[0],
+                "allowed": list(values),
+                "description": f"Which variant to run: {', '.join(values)}.",
+            },
+        ],
+    }
+    out: list[dict] = []
+    for op in operations:
+        if op.get("name") == a_name:
+            out.append(folded)
+        elif op.get("name") == b_name:
+            continue
+        else:
+            out.append(op)
     return out
