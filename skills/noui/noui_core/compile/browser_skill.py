@@ -1608,11 +1608,25 @@ def derive_terminal_operations(
         # a search term. Bounded to the same page and to interactions preceding
         # the terminal one, so a later screen's fields never leak in.
         term_seq = event_seq(ev)
+        # The page the WORK happened on, which is not always the operation's
+        # url. A download click navigates: download_corp_finacle was keyed to
+        # /corp/Finacle, where the navigation landed, while its terminal click
+        # and every step that decides WHAT is downloaded -- the Annual radio,
+        # the GO button, the PDF icon -- happened on the statement page before
+        # it. Filtering by the landing page dropped all of them into `nav`,
+        # where the segment builder strips them.
+        #
+        # The consequence was not a failing step. Without the Annual radio the
+        # form stays on Monthly, so `timeframe=annual` picked a different month
+        # and returned a MONTHLY statement, with every check passing.
+        #
+        # Naming still uses the operation's url, so no name changes here.
+        work_url = str(ev.get("url") or url)
         page_inputs = [
             c
             for c in click_events or []
             if (c.get("event_type") or "") in ("input", "change")
-            and _page_key(c.get("url") or "") == _page_key(url)
+            and _page_key(c.get("url") or "") == _page_key(work_url)
             and (term_seq is None or (event_seq(c) or 0) < term_seq)
         ]
         parameters = derive_parameters(page_inputs)
@@ -1634,7 +1648,7 @@ def derive_terminal_operations(
             # A hover that opened a menu is part of the gesture, not noise.
             if (c.get("event_type") or "click") not in ("click", "hover"):
                 continue
-            if _page_key(c.get("url") or "") != _page_key(url):
+            if _page_key(c.get("url") or "") != _page_key(work_url):
                 continue
             c_seq = event_seq(c)
             if term_seq is None or c_seq is None or c_seq >= term_seq:
@@ -1665,6 +1679,8 @@ def derive_terminal_operations(
                 "name": name,
                 "kind": kind,
                 "url": url,
+                # Where its work happens -- what starts_from must name.
+                "work_url": work_url,
                 # Reach the page exactly the way the read operation for it does.
                 "nav": list(page.get("nav") or []),
                 "parameters": parameters,
@@ -1703,7 +1719,7 @@ def _terminal_starts_from(op: dict) -> str | None:
     # back to the last hop that WAS stamped. download_statement came out
     # starting from /credit-card while it runs on the statement portal, and its
     # starts_from guard refused it every time.
-    url = str(op.get("url") or "").strip()
+    url = str(op.get("work_url") or op.get("url") or "").strip()
     return url or None
 
 
