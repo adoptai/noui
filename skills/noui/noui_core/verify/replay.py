@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from typing import Any
 
 
@@ -189,6 +190,9 @@ def _satisfied_already(step: dict, detail: str) -> bool:
     return any(marker in low for marker in _ABSENT)
 
 
+_RETRY_PAUSE_S = 2.5
+"""How long to let a transiently-missing control appear before trying again."""
+
 _INVISIBLE = "on the page but not visible"
 
 
@@ -244,9 +248,16 @@ def arrived_past(step: dict, following: Any, execute: Any) -> bool:
     if not selector:
         return False
     try:
+        # As patient as the step that follows.
+        #
+        # A 4s probe judged the page while the portal was still re-rendering:
+        # ICICI's GO button was reported BLOCKED, and the very next step -- the
+        # one whose control the probe had just failed to find -- succeeded
+        # seconds later. Evidence gathered less patiently than the thing it is
+        # evidence about is worse than none.
         result = execute(
             "wait_for_selector",
-            {"selector": selector, "state": "visible", "timeout_ms": 4000},
+            {"selector": selector, "state": "visible", "timeout_ms": 12000},
         )
     except Exception:  # noqa: BLE001 — cannot prove it, so do not skip
         return False
@@ -317,6 +328,38 @@ def replay_step(
                 "replay arrived."
             )
             return result
+        # One retry, because a control can be transiently unreachable.
+        #
+        # The first step of the ICICI replay opens a hover menu, and its item is
+        # not rendered the instant the pointer lands. That made the run a coin
+        # flip: it failed at step 0 about half the time and passed on an
+        # immediate retry with nothing changed. Waiting for the page to stop
+        # navigating did NOT fix it -- the page was not navigating; the menu was
+        # simply not up yet -- so the retry is the fix rather than a symptom of
+        # a missing one.
+        #
+        # Before deciding the page has moved past this step, since a control
+        # that appears on the second attempt has not been moved past at all.
+        if _unactionable(detail):
+            time.sleep(_RETRY_PAUSE_S)
+            try:
+                retry = execute(step.get("command"), step.get("params") or {})
+            except SessionNotReadyError:
+                raise
+            except Exception:  # noqa: BLE001 — keep the FIRST failure's detail
+                retry = None
+            if isinstance(retry, dict) and retry.get("success") is not False:
+                result["status"] = OK
+                result["data"] = retry.get("data")
+                result["detail"] = "succeeded on a second attempt"
+                unmet = expectation_unmet(
+                    step.get("expect"), execute, known_downloads=known_downloads
+                )
+                if unmet:
+                    result["status"] = BLOCKED
+                    result["detail"] = unmet
+                return result
+
         if _unactionable(detail) and arrived_past(step, following, execute):
             result["status"] = SKIPPED
             result["detail"] = (
@@ -453,14 +496,27 @@ def goal_reached(
     replay exists to catch, passing the replay. ``already_downloaded`` carries
     what the operations before it had already produced.
     """
-    if any(s.get("status") in (BLOCKED, NEEDS_APPROVAL) for s in steps):
+    # An unanswered approval is a hard stop whatever else happened: the human
+    # has not agreed to the thing being asked about.
+    if any(s.get("status") == NEEDS_APPROVAL for s in steps):
         return False
+
     if (operation.get("kind") or "") == "download":
+        # The file is the evidence, and it is stronger than the step list.
+        #
+        # The annual replay produced the right statement -- "Statement Period
+        # 01/04/2025 TO 31/03/2026" -- through `#PDF_Download`, while a later
+        # click on a control the page had already moved past was recorded as
+        # blocked. Reporting that run as goal-not-reached describes the plan, not
+        # the outcome, and the outcome is what this field is for. The blocked
+        # steps stay in the report, and `installable` still waits for a human.
         listed = downloads_listed(steps)
         if not listed:
             return False
         return any(_is_new_download(r, already_downloaded) for r in listed)
-    return True
+
+    # Everything else has only its steps to go on.
+    return not any(s.get("status") == BLOCKED for s in steps)
 
 
 def operations_fingerprint(operations: list[dict]) -> str:

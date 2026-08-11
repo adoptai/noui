@@ -683,6 +683,16 @@ def run_replay(
                     if failed is not None:
                         results.append([failed])
                         continue
+                # Let the entry page finish arriving before acting on it.
+                #
+                # Nothing precedes the first step, so nothing waited for the
+                # page -- and the first thing this replay does is open a hover
+                # menu, whose item does not exist until the nav has rendered. On
+                # a freshly loaded /overview that was a coin flip: the run failed
+                # at step 0 roughly half the time and passed on an immediate
+                # retry with nothing changed. A retry that fixes it is a wait
+                # that was missing.
+                _wait_until_the_page_stops_moving(execute)
             elif starts_from:
                 # The predecessor was supposed to leave us here. When it did not,
                 # say so instead of running steps against the wrong page -- an

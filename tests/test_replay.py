@@ -370,3 +370,56 @@ def test_a_download_still_in_flight_or_failed_is_not_evidence():
         steps = [{"status": "ok", "command": "list_downloads",
                   "data": {"downloads": [{"id": "dl-1", "state": state}]}}]
         assert goal_reached(op, steps) is False, state
+
+
+def test_a_download_operation_is_judged_by_its_file_not_its_step_list():
+    """The annual replay produced the right statement and reported failure.
+
+    The file arrived through #PDF_Download; a later click on a control the page
+    had already moved past was recorded as blocked, and any blocked step made
+    goal_reached false. That describes the plan, not the outcome — and the
+    outcome is what this field is for. The blocked steps stay in the report.
+    """
+    from noui_core.verify.replay import goal_reached
+
+    op = {"name": "download_statement", "kind": "download"}
+    steps = [
+        {"status": "ok", "command": "click_element"},
+        {"status": "blocked", "command": "click_element"},
+        {"status": "ok", "command": "list_downloads",
+         "data": {"downloads": [{"id": "dl-7", "state": "completed", "size_bytes": 85216}]}},
+    ]
+    assert goal_reached(op, steps) is True
+
+
+def test_a_blocked_download_with_no_file_is_still_a_failure():
+    from noui_core.verify.replay import goal_reached
+
+    op = {"name": "download_statement", "kind": "download"}
+    steps = [
+        {"status": "blocked", "command": "click_element"},
+        {"status": "ok", "command": "list_downloads", "data": {"downloads": []}},
+    ]
+    assert goal_reached(op, steps) is False
+
+
+def test_an_unanswered_approval_still_stops_a_download():
+    """A human has not agreed to the thing being asked about."""
+    from noui_core.verify.replay import goal_reached
+
+    op = {"name": "download_statement", "kind": "download"}
+    steps = [
+        {"status": "needs_approval", "command": "click_element"},
+        {"status": "ok", "command": "list_downloads",
+         "data": {"downloads": [{"id": "dl-9", "state": "completed"}]}},
+    ]
+    assert goal_reached(op, steps) is False
+
+
+def test_a_read_operation_is_still_judged_by_its_steps():
+    """Only a download has evidence of its own; everything else has the steps."""
+    from noui_core.verify.replay import goal_reached
+
+    op = {"name": "read_page", "kind": "read"}
+    assert goal_reached(op, [{"status": "blocked", "command": "click_element"}]) is False
+    assert goal_reached(op, [{"status": "ok", "command": "get_page_summary"}]) is True

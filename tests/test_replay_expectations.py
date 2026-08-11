@@ -284,3 +284,67 @@ def test_evidence_comes_from_the_next_step_that_names_a_control():
 
     assert res["status"] == SKIPPED
     assert probed == ["#PDF_Download"]
+
+
+def test_a_control_that_appears_on_the_second_attempt_is_not_a_failure():
+    """The hover menu: its item is not rendered the instant the pointer lands.
+
+    That made the ICICI replay a coin flip — it failed at step 0 about half the
+    time and passed on an immediate retry with nothing changed. Waiting for the
+    page to stop navigating did NOT fix it: the page was not navigating, the
+    menu simply was not up yet.
+    """
+    attempts = {"n": 0}
+
+    def execute(command, params=None):
+        if command == "wait_for_selector":
+            return {"success": True}
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            return {"success": False, "error": "this control is on the page but not visible"}
+        return {"success": True, "data": {"clicked": True}}
+
+    step = {"command": "click_element", "params": {"selector": "a.sub-menu-list-item-link"}}
+    res = replay_step(execute, step, recorded={_control_identity(step)})
+
+    assert res["status"] == OK
+    assert res["detail"] == "succeeded on a second attempt"
+    assert attempts["n"] == 2
+
+
+def test_the_retry_happens_before_deciding_the_page_moved_past_it():
+    """A control that appears on the second attempt was never moved past."""
+    attempts = {"n": 0}
+    probed = []
+
+    def execute(command, params=None):
+        if command == "wait_for_selector":
+            probed.append((params or {}).get("selector"))
+            return {"success": True}
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            return {"success": False, "error": "this control is on the page but not visible"}
+        return {"success": True, "data": {}}
+
+    step = {"command": "click_element", "params": {"selector": "#slow"}}
+    res = replay_step(
+        execute, step, recorded={_control_identity(step)},
+        following=[{"command": "click_element", "params": {"selector": "#later"}}],
+    )
+
+    assert res["status"] == OK
+    assert probed == []          # never had to ask whether we had moved past it
+
+
+def test_a_control_that_stays_unreachable_still_blocks():
+    def execute(command, params=None):
+        if command == "wait_for_selector":
+            return {"success": False, "error": "Timeout"}
+        return {"success": False, "error": "this control is on the page but not visible"}
+
+    step = {"command": "click_element", "params": {"selector": "#gone"}}
+    res = replay_step(
+        execute, step, recorded={_control_identity(step)},
+        following=[{"command": "click_element", "params": {"selector": "#later"}}],
+    )
+    assert res["status"] == BLOCKED
