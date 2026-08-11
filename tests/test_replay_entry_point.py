@@ -361,3 +361,42 @@ def test_history_that_never_reaches_the_entry_is_bounded():
     b = _History(deep)
     session_mod._return_to_entry(b, ENTRY)
     assert b.commands.count("go_back") <= session_mod._MAX_BACK_STEPS
+
+
+# --- history does not stop at the landing page ---------------------------------
+#
+# Measured on ICICI: from /overview one back press lands on /login-page, another
+# on about:blank. A signed-in session walked to its own sign-in page looks
+# exactly like being logged out — and pressing on abandons the app entirely.
+
+LOGIN_PG = "https://retailnetbanking.icici.bank.in/login-page"
+
+
+def test_the_walk_stops_before_the_sign_in_page():
+    b = _History([ "about:blank", LOGIN_PG, ENTRY, DRIFTED])
+    # Deliberately ask for a page that is NOT in the stack, so the walk would
+    # keep pressing if nothing stopped it.
+    missing = "https://retailnetbanking.icici.bank.in/nowhere"
+    session_mod._return_to_entry(b, missing, {missing})
+    assert b.at != "about:blank", "walked out of the app"
+    assert b.at in (LOGIN_PG, ENTRY, DRIFTED)
+    assert b.commands.count("go_back") <= 2
+
+
+def test_leaving_the_app_is_detected():
+    known = {ENTRY}
+    assert session_mod._left_the_app("about:blank", ENTRY, known) is True
+    assert session_mod._left_the_app(LOGIN_PG, ENTRY, known) is True
+    assert session_mod._left_the_app("https://example.test/x", ENTRY, known) is True
+
+
+def test_a_recorded_page_on_another_origin_is_not_leaving():
+    # The statement portal IS part of the journey, on a different host. Treating
+    # a cross-origin recorded page as "left the app" would stop the walk at the
+    # very page it needs to walk back from.
+    portal = "https://infinity.icici.bank.in/corp/AuthenticationController"
+    assert session_mod._left_the_app(portal + ";jsessionid=abc", ENTRY, {portal}) is False
+
+
+def test_an_ordinary_deeper_page_is_not_leaving():
+    assert session_mod._left_the_app(DRIFTED, ENTRY, {ENTRY}) is False

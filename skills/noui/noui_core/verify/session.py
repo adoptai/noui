@@ -80,6 +80,35 @@ page in eight steps is lost, and pressing back forever would eventually leave
 the app entirely."""
 
 
+def _origin(url: str) -> str:
+    m = re.match(r"^[a-z]+://[^/]+", url or "", re.I)
+    return (m.group(0) if m else "").lower()
+
+
+def _left_the_app(here: str, entry_url: str, known: set[str]) -> bool:
+    """Has walking back taken us somewhere the journey never was?
+
+    History does not stop at the landing page. On ICICI the stack below
+    /overview is [about:blank, /login-page, /overview, ...], so one press too
+    many lands on the SIGN-IN PAGE of a session that is still perfectly valid --
+    which looks exactly like being logged out, and was very likely read as that.
+    Pressing on from there reaches about:blank and abandons the app entirely.
+    """
+    if not here or here == "about:blank":
+        return True
+    # Known pages FIRST. The statement portal is part of the journey, on another
+    # host, and served by a controller named AuthenticationController -- so the
+    # login-word test below calls it a sign-in page and would stop the walk at
+    # the very page it needs to walk back from. Same precedence trap as the
+    # sign-in detector.
+    bare = here.split("?")[0].split(";")[0].rstrip("/")
+    if any(bare.startswith(k) for k in known):
+        return False
+    if _is_login_flow_url(here):
+        return True
+    return _origin(here) != _origin(entry_url)
+
+
 def _same_page(a: str, b: str) -> bool:
     """Same page, ignoring a trailing slash."""
     return a.rstrip("/") == b.rstrip("/")
@@ -214,6 +243,11 @@ def _return_to_entry(
         here = str(data.get("url") or here)
         if _same_page(here, entry_url):
             return None
+        if _left_the_app(here, entry_url, known):
+            # Overshot. Stop pressing -- every further press goes further from
+            # the app -- and let navigate or the home link try from here. The
+            # session itself is usually still valid; only the page is wrong.
+            break
         if not data.get("moved"):
             break  # history exhausted; walking further only wastes calls
 
