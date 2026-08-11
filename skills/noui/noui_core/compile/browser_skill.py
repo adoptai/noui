@@ -313,6 +313,12 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
                 # the same class of gap that had already cost candidates and
                 # is_opener at the other builder.
                 "event_type": c.get("event_type") or "click",
+                # seq, because the arrival budget is measured from WHEN this
+                # click happened. Fourth field this projection has been caught
+                # dropping, after candidates, is_opener and event_type -- each
+                # time the loss showed up somewhere far away, as a compiled
+                # skill quietly missing something it had recorded.
+                "seq": c.get("seq"),
                 "is_opener": c.get("is_opener"),
                 "candidates": c.get("candidates"),
                 "selector": c["selector"],

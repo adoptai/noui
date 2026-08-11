@@ -193,3 +193,27 @@ def test_a_skill_without_a_recorded_budget_uses_the_constant(monkeypatch):
     monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
     run_replay(OPS, profile_slug="p", token="t", entry_url=OVERVIEW)
     assert seen == [session_mod._ARRIVAL_BUDGET_S]
+
+
+def test_the_nav_projection_carries_seq_for_the_budget():
+    """Measured through the REAL path, not a hand-built fixture.
+
+    The unit test for the budget fed causes_arrival_budget_ms in directly and
+    passed while the compile path produced None for every operation --
+    _nav_clicks_for's projection was dropping `seq`, the fourth field it has
+    been caught losing after candidates, is_opener and event_type.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    from noui_core.compile import browser_skill as bs
+
+    bundle = _Path(__file__).resolve().parents[1] / "skills/noui/workbench/bundles"
+    found = sorted(bundle.glob("icici-cc-hover-*.json"))
+    if not found:
+        return  # bundle not present in this checkout
+    b = _json.loads(found[0].read_text())
+    nav_ev = [e for e in b["url_events"] if "credit-card" in (e.get("to_url") or "")][0]
+    nav = bs._nav_clicks_for(nav_ev["from_url"], nav_ev, b["click_events"])
+    assert all(n.get("seq") is not None for n in nav), "seq must survive the projection"
+    assert bs.arrival_budget_ms(b["click_events"], nav[-1]["seq"]) > 0
