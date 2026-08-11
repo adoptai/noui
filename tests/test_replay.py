@@ -459,3 +459,39 @@ def test_a_file_left_by_an_earlier_run_is_not_this_ones_evidence(monkeypatch):
     report = run_replay([DOWNLOAD_OP], profile_slug="icici", token="tok")
 
     assert report["all_goals_reached"] is False
+
+
+def test_an_operation_that_ran_nothing_reached_no_goal():
+    """The most misleading answer this field can give.
+
+    A replay that executed zero steps reported goal_reached true and
+    all_goals_reached true, because "no step was blocked" is trivially satisfied
+    by an empty list — a report nobody would question.
+    """
+    from noui_core.verify.replay import goal_reached
+
+    assert goal_reached({"name": "r", "kind": "read"}, []) is False
+    assert goal_reached({"name": "d", "kind": "download"}, []) is False
+
+
+def test_a_mixture_of_segmented_and_unsegmented_operations_is_refused(monkeypatch):
+    """Segments decide how the WHOLE replay executes.
+
+    One operation without a segment silently downgraded every operation to the
+    legacy reset-before-each path. Seen live: a stray `read_overview` turned a
+    five-operation run into one that executed nothing and reported every goal
+    reached, with nothing in the report saying the model had changed.
+    """
+    from noui_core.verify import session as session_mod
+
+    monkeypatch.setattr(session_mod, "_executor", lambda *a, **k: (lambda c, p=None: {"data": {}}))
+    report = session_mod.run_replay(
+        [
+            {"name": "a", "tool": "call_web_browser", "steps": [], "segment_steps": []},
+            {"name": "b", "tool": "call_web_browser", "steps": []},   # no segment
+        ],
+        profile_slug="p", token="t", entry_url="https://x.test/home",
+    )
+
+    assert report["status"] == "not_replayable"
+    assert "b" in report["detail"]

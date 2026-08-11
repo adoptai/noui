@@ -496,6 +496,15 @@ def goal_reached(
     replay exists to catch, passing the replay. ``already_downloaded`` carries
     what the operations before it had already produced.
     """
+    # An operation that ran NOTHING reached no goal.
+    #
+    # Seen live: a replay that executed zero steps reported goal_reached true
+    # and all_goals_reached true, because "no step was blocked" is trivially
+    # satisfied by an empty list. That is the most misleading answer this field
+    # can give -- a report nobody would question.
+    if not steps:
+        return False
+
     # An unanswered approval is a hard stop whatever else happened: the human
     # has not agreed to the thing being asked about.
     if any(s.get("status") == NEEDS_APPROVAL for s in steps):

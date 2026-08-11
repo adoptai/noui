@@ -678,7 +678,29 @@ def run_replay(
     # which resets before every operation, and was sent to /overview from the
     # portal it had just reached. Carrying segments is the property that
     # matters, not how many operations happen to be running.
-    segmented = bool(ops) and all(op.get("segment_steps") is not None for op in ops)
+    # Segments are all-or-nothing, and a MIXTURE is a compile fault -- say so
+    # rather than quietly running a different model.
+    #
+    # `all(...)` meant one operation without a segment silently downgraded the
+    # entire replay to the legacy path, which resets before every operation.
+    # Seen live: a stray `read_overview` with no segment turned a five-operation
+    # segmented run into one operation that executed nothing and reported every
+    # goal reached. Nothing in the report said the model had changed.
+    with_segments = [op for op in ops if op.get("segment_steps") is not None]
+    if ops and 0 < len(with_segments) < len(ops):
+        missing = [op.get("name") for op in ops if op.get("segment_steps") is None]
+        report = build_report([], [])
+        report["status"] = "not_replayable"
+        report["detail"] = (
+            "These operations carry no segment while the others do: "
+            f"{', '.join(str(m) for m in missing)}. Segments decide how the whole "
+            "replay executes, so a mixture would silently run every operation the "
+            "old way -- resetting to the entry page before each one. Recompile the "
+            "skill; do not replay this."
+        )
+        return report
+
+    segmented = bool(ops) and len(with_segments) == len(ops)
 
     for index, op in enumerate(ops):
         source = op if not segmented else {**op, "steps": op.get("segment_steps") or []}
