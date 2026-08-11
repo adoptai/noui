@@ -42,7 +42,10 @@ def test_the_pair_becomes_one_step():
     }
     # The click's expectation describes where the gesture lands; the hover's
     # described opening a menu and is not the postcondition.
-    assert out[0]["expect"] == {"url": "https://x/credit-card"}
+    # Plus the hover's own measurement of how long its menu takes to appear —
+    # the click never measured that, and without it the step fell back to the
+    # runtime's 3s floor.
+    assert out[0]["expect"] == {"url": "https://x/credit-card", "settle_ms": 4322}
 
 
 def test_a_hover_before_something_else_is_left_alone():
@@ -127,3 +130,34 @@ def test_scoping_a_recorded_control_inside_another_keeps_its_provenance():
     assert _is_observed_scoped_inside_observed("#nav a.invented", seen) is False
     assert _is_observed_scoped_inside_observed("#other a.item", seen) is False
     assert _is_observed_scoped_inside_observed("a.item", seen) is False
+
+
+def test_the_merged_step_keeps_the_hovers_measurement_of_the_menu():
+    """How long the menu takes was measured on the HOVER, not on the click.
+
+    Folding threw it away with the rest of the hover's expectation, so the
+    merged step carried no settle and fell back to the runtime's 3s floor —
+    while ICICI's nav measured 2161ms and renders its submenu right around
+    there. That is the coin flip.
+    """
+    from noui_core.compile.browser_skill import _fold_hover_into_click
+
+    out = _fold_hover_into_click([
+        {"command": "hover", "params": {"selector": "#nav"},
+         "expect": {"settle_ms": 4322}},
+        {"command": "click_element", "params": {"selector": "#cards"},
+         "expect": {"url": "https://x.test/credit-card"}},
+    ])
+    assert out[0]["expect"] == {"url": "https://x.test/credit-card", "settle_ms": 4322}
+
+
+def test_the_clicks_own_measurement_wins_when_it_has_one():
+    """What the click observed is about where it landed — the better answer."""
+    from noui_core.compile.browser_skill import _fold_hover_into_click
+
+    out = _fold_hover_into_click([
+        {"command": "hover", "params": {"selector": "#nav"}, "expect": {"settle_ms": 4322}},
+        {"command": "click_element", "params": {"selector": "#cards"},
+         "expect": {"settle_ms": 900}},
+    ])
+    assert out[0]["expect"]["settle_ms"] == 900

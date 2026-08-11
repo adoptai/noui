@@ -940,7 +940,25 @@ def _fold_hover_into_click(steps: list[dict]) -> list[dict]:
                                         "hover_first": step["params"]["selector"]}}
             _scope_under_the_hover(merged, step["params"]["selector"])
             # The hover's own expectation described opening the menu; the click's
-            # describes where the gesture lands. Keep the click's.
+            # describes where the gesture lands. Keep the click's -- but NOT its
+            # timing.
+            #
+            # How long the menu takes to appear was measured on the HOVER, and
+            # folding the pair threw that away with the rest of its expectation:
+            # `_inherit_hover_settle` runs after this and has no hover step left
+            # to read, so it is a no-op for exactly the pairs it was written for.
+            # The merged step then carried no settle at all and fell back to the
+            # runtime's 3s floor, while ICICI's nav measured 2161ms to settle and
+            # renders its submenu right around there -- which is why this step was
+            # a coin flip that passed on an immediate retry.
+            #
+            # Only when the click has no measurement of its own: what the click
+            # observed is about where it landed, and is the better answer when
+            # it exists.
+            hover_settle = (step.get("expect") or {}).get("settle_ms")
+            if hover_settle and not (merged.get("expect") or {}).get("settle_ms"):
+                merged["expect"] = {**(merged.get("expect") or {}),
+                                    "settle_ms": hover_settle}
             out.append(merged)
             i += 2
             continue
@@ -1193,6 +1211,56 @@ def entry_url_for(url_events: list[dict], pages: list[dict]) -> str:
     return str((pages or [{}])[0].get("url") or "")
 
 
+def _truncate_reads_at_terminals(operations: list[dict]) -> None:
+    """A read must stop where the next goal begins.
+
+    Page operations collect every click the human made on that page, and the
+    human did TWO things on ICICI's statement page: downloaded the monthly
+    statement, then switched the form to Annual and downloaded that. So
+    `read_corp_finacle` spanned both -- and its steps included `set_checked
+    Annual` and the GO that submits it.
+
+    Replayed, that read performed the annual selection whatever timeframe was
+    asked for, navigating to /corp/Finacle before the MONTHLY download could
+    run. Monthly then either failed its guard or landed on the annual page and
+    fetched the wrong document, while every step reported ok.
+
+    The terminal is the boundary: anything a read does after another operation's
+    goal completed belongs to what comes next, not to the read. The annual
+    branch already carries those steps itself, so nothing is lost -- and annual,
+    which works, is untouched.
+    """
+    terminals = sorted(
+        t for t in (op.get("_terminal_seq") for op in operations) if isinstance(t, int)
+    )
+    if not terminals:
+        return
+    for op in operations:
+        if op.get("_terminal_seq") is not None:
+            continue
+        segment = op.get("segment_steps")
+        if not segment:
+            continue
+        seqs = [s["_seq"] for s in segment if isinstance(s.get("_seq"), int)]
+        if not seqs:
+            continue
+        inside = [t for t in terminals if min(seqs) < t < max(seqs)]
+        if not inside:
+            continue
+        cut = inside[0]
+        kept = [
+            s for s in segment
+            if not (isinstance(s.get("_seq"), int) and s["_seq"] > cut)
+        ]
+        dropped = len(segment) - len(kept)
+        if not dropped:
+            continue
+        op["segment_steps"] = kept
+        # steps is the journey followed by the segment, so the same tail goes.
+        if op.get("steps"):
+            op["steps"] = op["steps"][: len(op["steps"]) - dropped]
+
+
 def _recorded_position(op: dict) -> float:
     """When, in the recording, this operation happens.
 
@@ -1301,6 +1369,7 @@ def render_browser_operations_json(
     # Position comes from the recording: the earliest interaction an operation
     # touches, or the moment it completed. Operations with neither keep their
     # place, since a stable sort leaves equal keys alone.
+    _truncate_reads_at_terminals(operations)
     operations.sort(key=_recorded_position)
     doc = {"schema_version": "1", "style": "browser", "operations": operations}
     if entry_by_origin:

@@ -502,3 +502,34 @@ def test_a_worker_that_reports_no_readiness_behaves_as_before(monkeypatch):
 
     monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
     session_mod._wait_until_the_page_stops_moving(execute)   # returns, does not hang
+
+
+def test_a_read_stops_where_the_next_goal_begins():
+    """The monthly bug: a read performed the ANNUAL selection for every run.
+
+    The human did two things on ICICI's statement page — downloaded monthly,
+    then switched to Annual and downloaded that — so the page read spanned both
+    and its steps included `set_checked Annual` plus the GO that submits it.
+    Replayed, it navigated to the annual page before the monthly download could
+    run, and monthly fetched the wrong document with every step reporting ok.
+    """
+    from noui_core.compile.browser_skill import _truncate_reads_at_terminals
+
+    read = {"name": "read_page",
+            "steps": [{"_seq": 9}, {"_seq": 17}, {"_seq": 22}, {"_seq": 23}],
+            "segment_steps": [{"_seq": 17}, {"_seq": 22}, {"_seq": 23}]}
+    monthly = {"name": "download_monthly", "_terminal_seq": 21}
+    annual = {"name": "download_annual", "_terminal_seq": 32}
+
+    _truncate_reads_at_terminals([read, monthly, annual])
+
+    assert [s["_seq"] for s in read["segment_steps"]] == [17]
+    assert [s["_seq"] for s in read["steps"]] == [9, 17]   # journey kept, tail cut
+
+
+def test_a_read_that_does_not_span_a_terminal_is_untouched():
+    from noui_core.compile.browser_skill import _truncate_reads_at_terminals
+
+    read = {"name": "r", "steps": [{"_seq": 5}], "segment_steps": [{"_seq": 5}]}
+    _truncate_reads_at_terminals([read, {"name": "d", "_terminal_seq": 40}])
+    assert [s["_seq"] for s in read["segment_steps"]] == [5]
