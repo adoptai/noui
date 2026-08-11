@@ -31,6 +31,7 @@ from typing import Any
 from noui_core import tabby_client
 from noui_core.capture.split import _is_login_flow_url
 from noui_core.verify.replay import (
+    OK,
     SessionNotReadyError,
     build_report,
     plan_operations,
@@ -108,6 +109,33 @@ worked perfectly.
 Only after an actual move: a reset that found the browser already at the entry
 changed nothing, so there is nothing to wait for.
 """
+
+
+_INTER_STEP_CAP_S = 15.0
+"""Longest we pause after a step before the next one, whatever was recorded."""
+
+
+def _let_the_step_land(step: dict) -> None:
+    """Wait after acting, the way the human did, before the next step fires.
+
+    A portal processes a click server-side, and firing the next one into that
+    window is not a no-op: ICICI answered "You clicked on a link or a button
+    when your previous click was still under process. The system is considering
+    your first request." -- and kept the FIRST request. The replay had set the
+    Annual radio, pressed GO, and immediately clicked on; the bank discarded the
+    second action and stayed on Monthly.
+
+    The gap is the recorder's own settle for that step, which until now only
+    decided how long a control could take to become visible. It is equally the
+    answer to "how long did this take to be processed", because the human did
+    not act again until it was.
+
+    Capped, because some of a recorded gap is a human reading; and skipped
+    entirely when nothing was measured, so a fast page costs nothing.
+    """
+    settle = (step.get("expect") or {}).get("settle_ms")
+    if isinstance(settle, int) and settle > 0:
+        time.sleep(min(settle / 1000.0, _INTER_STEP_CAP_S))
 
 
 _ARRIVAL_BUDGET_S = 20.0
@@ -661,9 +689,12 @@ def run_replay(
                 _await_first_control(execute, steps, budget)
             try:
                 for step in steps:
-                    step_results.append(
-                        replay_step(execute, step, recorded=recorded, approvals=approvals)
+                    result = replay_step(
+                        execute, step, recorded=recorded, approvals=approvals
                     )
+                    step_results.append(result)
+                    if result.get("status") == OK:
+                        _let_the_step_land(step)
             except SessionNotReadyError as exc:
                 results.append(step_results)
                 report = build_report(ops[: len(results)], results)
@@ -701,9 +732,10 @@ def run_replay(
                 continue
         try:
             for step in steps:
-                step_results.append(
-                    replay_step(execute, step, recorded=recorded, approvals=approvals)
-                )
+                result = replay_step(execute, step, recorded=recorded, approvals=approvals)
+                step_results.append(result)
+                if result.get("status") == OK:
+                    _let_the_step_land(step)
         except SessionNotReadyError as exc:
             results.append(step_results)
             report = build_report(ops[: len(results)], results)

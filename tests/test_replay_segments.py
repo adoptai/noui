@@ -336,3 +336,28 @@ def test_different_pages_are_still_different():
     b = "https://retailnetbanking.icici.bank.in/credit-card"
     assert not session_mod._same_page(a, b)
     assert not session_mod._same_page(a + ";jsessionid=1", b + ";jsessionid=1")
+
+
+def test_a_step_is_given_time_to_be_processed_before_the_next(monkeypatch):
+    """ICICI answered: "You clicked on a link or a button when your previous
+    click was still under process. The system is considering your first
+    request." — and kept the FIRST request.
+
+    The replay had set the Annual radio, pressed GO, and clicked on immediately;
+    the bank discarded the second action and stayed on Monthly. The recorder's
+    settle for a step is equally the answer to how long it took to be processed,
+    because the human did not act again until it was.
+    """
+    slept: list[float] = []
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: slept.append(s))
+
+    session_mod._let_the_step_land({"expect": {"settle_ms": 4000}})
+    assert slept == [4.0]
+
+    slept.clear()
+    session_mod._let_the_step_land({"expect": {"settle_ms": 90_000}})
+    assert slept == [session_mod._INTER_STEP_CAP_S], "a human reading is not a page working"
+
+    slept.clear()
+    session_mod._let_the_step_land({"command": "click_element"})
+    assert slept == [], "nothing measured, nothing waited"
