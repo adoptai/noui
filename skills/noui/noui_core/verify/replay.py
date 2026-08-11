@@ -277,9 +277,10 @@ def expectation_unmet(expect: Any, execute: Any) -> str:
     """Why the recorded postcondition does not hold, or "" if it does.
 
     Deliberately forgiving about HOW a page is reached and strict about WHERE it
-    ends up: a URL matches if the recorded one is a prefix of it (ignoring the
-    query, where session tokens churn between the recording and the replay), so
-    a portal that appends its own parameters still passes.
+    ends up: a URL matches if the recorded one is a prefix of it, ignoring the
+    query AND any path parameter -- both are where session tokens churn between
+    the recording and the replay -- so a portal that appends its own still
+    passes.
     """
     if not isinstance(expect, dict) or not expect:
         return ""
@@ -292,7 +293,14 @@ def expectation_unmet(expect: Any, execute: Any) -> str:
         except Exception:  # noqa: BLE001 — an unreadable url is not a failed expectation
             here = ""
         if here:
-            bare = lambda u: u.split("?")[0].split("#")[0].rstrip("/")  # noqa: E731
+            # Path parameters go too, not just the query. ICICI carries its
+            # portal session as `;jsessionid=...` in the PATH, so a recorded URL
+            # and a live one name the same page with different tokens -- and
+            # neither is a prefix of the other. Left in, the download's own
+            # page assertion would fail every replay for the wrong reason.
+            bare = lambda u: (  # noqa: E731
+                u.split("?")[0].split("#")[0].split(";")[0].rstrip("/")
+            )
             if not bare(here).startswith(bare(want_url)) and not bare(want_url).startswith(
                 bare(here)
             ):

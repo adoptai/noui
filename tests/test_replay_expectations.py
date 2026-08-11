@@ -96,3 +96,33 @@ def test_an_unreadable_url_is_not_treated_as_a_failed_expectation():
         return {"success": True, "data": {}}
 
     assert expectation_unmet({"url": "https://bank.test/x"}, broken) == ""
+
+
+def test_a_jsessionid_does_not_fail_the_page_expectation():
+    """ICICI carries its portal session as ;jsessionid=... in the PATH.
+
+    The recorded URL and the live one name the same page with different tokens,
+    and neither is a prefix of the other — so the download's own page assertion
+    would have failed every replay for the wrong reason.
+    """
+    from noui_core.verify.replay import expectation_unmet
+
+    portal = "https://infinity.icici.bank.in/corp/Finacle"
+    live = portal + ";jsessionid=0000LIVE:CR21n41xcb?bwayparam=abc"
+
+    def execute(cmd, params):
+        return {"data": {"url": live}}
+
+    assert expectation_unmet({"url": portal + ";jsessionid=0000RECORDED"}, execute) == ""
+
+
+def test_a_genuinely_different_page_still_fails():
+    from noui_core.verify.replay import expectation_unmet
+
+    def execute(cmd, params):
+        return {"data": {"url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=x"}}
+
+    unmet = expectation_unmet(
+        {"url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=y"}, execute
+    )
+    assert "expected to be on" in unmet
