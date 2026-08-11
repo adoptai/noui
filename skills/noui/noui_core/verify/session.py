@@ -179,8 +179,26 @@ def _cannot_reset(entry_url: str, here: str, why: str) -> dict:
     }
 
 
+def _entry_for_origin(here: str, entry_url: str, by_origin: dict | None) -> str:
+    """The entry page on the host we are ALREADY on.
+
+    Resetting across hosts means inventing a route the recording never took: the
+    journey went forward only, so nothing was ever observed going back from the
+    statement portal to the net-banking landing page. Whatever host the browser
+    is on, the reset aims at the first page the recording reached there.
+    """
+    if not by_origin:
+        return entry_url
+    m = re.match(r"^[a-z]+://[^/]+", here or "", re.I)
+    origin = (m.group(0) if m else "").lower()
+    return str(by_origin.get(origin) or entry_url)
+
+
 def _return_to_entry(
-    execute: Any, entry_url: str, known_urls: set[str] | None = None
+    execute: Any,
+    entry_url: str,
+    known_urls: set[str] | None = None,
+    entry_by_origin: dict | None = None,
 ) -> dict | None:
     """Put the browser back at the start of the journey before replaying it.
 
@@ -207,6 +225,8 @@ def _return_to_entry(
         raise
     except Exception:  # noqa: BLE001 — an unreadable url just means "reset anyway"
         here = ""
+
+    entry_url = _entry_for_origin(here, entry_url, entry_by_origin)
 
     if here and _same_page(here, entry_url):
         return None  # already at the start; moving would only cost a load
@@ -310,6 +330,7 @@ def run_replay(
     parameter_values: dict[str, str] | None = None,
     timeout_ms: int = 30000,
     entry_url: str | None = None,
+    entry_by_origin: dict | None = None,
 ) -> dict:
     """Replay a draft and report what happened.
 
@@ -351,7 +372,7 @@ def run_replay(
         # and does nothing when it matches.
         if entry_url:
             try:
-                failed = _return_to_entry(execute, entry_url, known)
+                failed = _return_to_entry(execute, entry_url, known, entry_by_origin)
             except SessionNotReadyError as exc:
                 results.append(step_results)
                 report = build_report(ops[: len(results)], results)

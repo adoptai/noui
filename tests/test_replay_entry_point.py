@@ -400,3 +400,45 @@ def test_a_recorded_page_on_another_origin_is_not_leaving():
 
 def test_an_ordinary_deeper_page_is_not_leaving():
     assert session_mod._left_the_app(DRIFTED, ENTRY, {ENTRY}) is False
+
+
+# --- a reset never changes hosts -----------------------------------------------
+#
+# The recording went forward only — /overview -> /credit-card -> the statement
+# portal — and never walked back, so no route home across hosts was ever
+# observed. Whatever host the browser is on, the reset aims at the first page
+# the recording reached THERE.
+
+PORTAL = "https://infinity.icici.bank.in/corp/AuthenticationController"
+BY_ORIGIN = {
+    "https://retailnetbanking.icici.bank.in": ENTRY,
+    "https://infinity.icici.bank.in": PORTAL,
+}
+
+
+def test_on_the_portal_the_reset_aims_at_the_portal_entry():
+    here = PORTAL + ";jsessionid=abc"
+    assert session_mod._entry_for_origin(here, ENTRY, BY_ORIGIN) == PORTAL
+
+
+def test_on_the_netbanking_host_it_aims_at_overview():
+    assert session_mod._entry_for_origin(DRIFTED, ENTRY, BY_ORIGIN) == ENTRY
+
+
+def test_an_unrecorded_host_falls_back_rather_than_guessing():
+    assert session_mod._entry_for_origin("https://elsewhere.test/x", ENTRY, BY_ORIGIN) == ENTRY
+
+
+def test_without_a_map_behaviour_is_unchanged():
+    assert session_mod._entry_for_origin(PORTAL, ENTRY, None) == ENTRY
+
+
+def test_the_compiler_emits_one_entry_per_host():
+    from noui_core.compile import browser_skill
+
+    got = browser_skill.entry_urls_by_origin(URL_EVENTS + [
+        {"seq": 13, "from_url": CC, "to_url": PORTAL},
+        {"seq": 19, "from_url": PORTAL, "to_url": PORTAL + ";jsessionid=x"},
+    ])
+    assert got["https://retailnetbanking.icici.bank.in"] == ENTRY   # not /login-page
+    assert got["https://infinity.icici.bank.in"] == PORTAL          # the FIRST one

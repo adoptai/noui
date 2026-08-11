@@ -846,6 +846,29 @@ def ambiguous_steps(pages: list[dict]) -> list[dict]:
     return out
 
 
+def entry_urls_by_origin(url_events: list[dict]) -> dict:
+    """The first page the journey reached on EACH host it visited.
+
+    A reset must not change hosts. The recording went forward only --
+    /overview -> /credit-card -> the statement portal -- and never walked back,
+    so no route home across origins was ever observed and any we invent is a
+    guess. Staying on the host you are already on keeps a reset to something the
+    recording actually saw: the first page it reached there.
+
+    Sign-in pages are excluded; they are not where a journey resumes.
+    """
+    out: dict = {}
+    for ev in url_events or []:
+        to = str((ev or {}).get("to_url") or "")
+        if not to or to == "about:blank" or _is_login_flow_url(to):
+            continue
+        m = re.match(r"^[a-z]+://[^/]+", to, re.I)
+        if not m:
+            continue
+        out.setdefault(m.group(0).lower(), to)
+    return out
+
+
 def entry_url_for(url_events: list[dict], pages: list[dict]) -> str:
     """Where the journey starts: the page the FIRST step acts on.
 
@@ -889,6 +912,7 @@ def render_browser_operations_json(
     profile_slug: str,
     terminal_ops: list[dict] | None = None,
     entry_url: str = "",
+    entry_by_origin: dict | None = None,
 ) -> str:
     """operations.json for a browser skill — a click+read recipe per page.
 
@@ -921,6 +945,9 @@ def render_browser_operations_json(
             }
         )
     doc = {"schema_version": "1", "style": "browser", "operations": operations}
+    if entry_by_origin:
+        # One per host. A reset must not change hosts -- see entry_urls_by_origin.
+        doc["entry_urls"] = entry_by_origin
     if entry_url:
         # Where the journey starts. These operations are one recorded journey cut
         # into pieces -- op N+1 begins on the page op N left behind -- so replaying
@@ -1180,6 +1207,7 @@ def generate_browser_skill(
         profile_slug=profile_slug,
         terminal_ops=terminal_ops,
         entry_url=entry_url_for(url_events, pages),
+        entry_by_origin=entry_urls_by_origin(url_events),
     )
     (out_path / "operations.json").write_text(operations_json, encoding="utf-8")
 

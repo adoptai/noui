@@ -232,6 +232,9 @@ def main() -> int:
         # Every invocation restarts the journey rather than resuming it, so an
         # amended step is judged from the same place the original one was.
         entry_url=(doc.get("entry_url") if isinstance(doc, dict) else None),
+        # One entry per host: a reset never changes hosts, because no route
+        # between them was ever recorded.
+        entry_by_origin=(doc.get("entry_urls") if isinstance(doc, dict) else None),
     )
 
     # Amendments are persisted AFTER the replay, stamped with what it proved
