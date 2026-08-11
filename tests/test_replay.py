@@ -274,6 +274,11 @@ def test_a_dead_session_mid_run_keeps_what_already_ran(monkeypatch):
     calls = {"n": 0}
 
     def flaky(_profile, command, _params, **_kw):
+        # The run opens with one read of its own -- the download baseline, so a
+        # file left by an earlier replay cannot be mistaken for this one's -- and
+        # that read is not a step. The session dies after the first real step.
+        if command == "list_downloads" and calls["n"] == 0:
+            return {"success": True, "data": {"downloads": []}}
         calls["n"] += 1
         if calls["n"] > 1:
             raise RuntimeError("HTTP 409 from POST /execute/browser: session gone")
@@ -288,13 +293,20 @@ def test_a_dead_session_mid_run_keeps_what_already_ran(monkeypatch):
 
 
 def test_a_replay_that_reaches_the_goal_is_still_not_installable(monkeypatch):
-    _patch_exec(
-        monkeypatch,
-        lambda _p, c, _params, **_k: {
-            "success": True,
-            "data": {"downloads": [{"id": "dl-1"}]} if c == "list_downloads" else {},
-        },
-    )
+    # The file arrives DURING the run: nothing on disk when the replay starts,
+    # one statement by the time the operation lists them. A run that starts with
+    # the file already there has downloaded nothing, which is a different case
+    # (see test_a_file_left_by_an_earlier_run_is_not_this_ones_evidence).
+    seen = {"listed": 0}
+
+    def fake(_p, c, _params, **_k):
+        if c != "list_downloads":
+            return {"success": True, "data": {}}
+        seen["listed"] += 1
+        first = seen["listed"] == 1
+        return {"success": True, "data": {"downloads": [] if first else [{"id": "dl-1"}]}}
+
+    _patch_exec(monkeypatch, fake)
     report = run_replay([DOWNLOAD_OP], profile_slug="icici", token="tok")
 
     assert report["all_goals_reached"] is True
@@ -423,3 +435,27 @@ def test_a_read_operation_is_still_judged_by_its_steps():
     op = {"name": "read_page", "kind": "read"}
     assert goal_reached(op, [{"status": "blocked", "command": "click_element"}]) is False
     assert goal_reached(op, [{"status": "ok", "command": "get_page_summary"}]) is True
+
+
+def test_a_file_left_by_an_earlier_run_is_not_this_ones_evidence(monkeypatch):
+    """A replay that downloads nothing must not pass on yesterday's statement.
+
+    The session accumulates downloads for its whole life. Seeded only from
+    earlier operations in the same run, the baseline missed everything a
+    PREVIOUS run had fetched — and a run whose download step blocked reported
+    the goal reached, on the strength of a file it never produced. Observed
+    live: two consecutive annual replays both reported success while the
+    download count stayed at 9.
+    """
+    _patch_exec(
+        monkeypatch,
+        lambda _p, c, _params, **_k: {
+            "success": True,
+            "data": {"downloads": [{"id": "dl-old", "state": "completed"}]}
+            if c == "list_downloads"
+            else {},
+        },
+    )
+    report = run_replay([DOWNLOAD_OP], profile_slug="icici", token="tok")
+
+    assert report["all_goals_reached"] is False

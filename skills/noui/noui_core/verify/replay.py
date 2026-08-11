@@ -548,7 +548,12 @@ def operations_fingerprint(operations: list[dict]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
 
 
-def build_report(operations: list[dict], results: list[list[dict]]) -> dict:
+def build_report(
+    operations: list[dict],
+    results: list[list[dict]],
+    *,
+    already_downloaded: Any = None,
+) -> dict:
     """The whole replay, in the shape the confirmation card renders.
 
     ``results`` is one list of step-results PER operation, positionally matched
@@ -559,10 +564,15 @@ def build_report(operations: list[dict], results: list[list[dict]]) -> dict:
     needs to decide on is whether each GOAL was reached.
     """
     ops_out = []
-    # What the operations BEFORE this one already produced. Downloads are
-    # reported cumulatively for the whole session, so without this an operation
-    # inherits its predecessor's file as proof of its own success.
-    already: set[str] = set()
+    # What was already on disk before this operation ran -- both what earlier
+    # operations produced AND what was there before the replay started.
+    #
+    # Seeded only from earlier operations, a file left by a PREVIOUS replay
+    # counted as this one's evidence: a run that downloaded nothing reported the
+    # goal reached, on the strength of a statement fetched minutes earlier. The
+    # session accumulates downloads for its whole life, so the baseline has to
+    # be taken when the run starts.
+    already: set[str] = set(already_downloaded or ())
     for op, steps in zip(operations, results, strict=False):
         reached = goal_reached(op, steps, already_downloaded=already)
         already.update(

@@ -145,9 +145,24 @@ def _let_the_step_land(step: dict, execute: Any = None) -> None:
     if isinstance(settle, int) and settle > 0:
         time.sleep(min(settle / 1000.0, _INTER_STEP_CAP_S))
         return
+    # A beat first, THEN watch the page.
+    #
+    # Watching the URL alone is too weak a signal for a form postback: ICICI's
+    # statement portal re-renders in place, so two readings agree immediately and
+    # the wait collapses to nothing. Observed on screen -- the replay chose
+    # FY2025-26, the portal was still processing the previous click, and the page
+    # came back showing FY2024-25 with "Currently, we are unable to process your
+    # request". The step reported ok; the wrong year was selected.
+    #
+    # The human's own gaps on this portal were 17-29s. Three seconds is a floor,
+    # not an imitation of that, and it only applies where the recording measured
+    # nothing at all.
     if execute is not None:
         _wait_until_the_page_stops_moving(execute)
 
+
+_UNMEASURED_SETTLE_S = 3.0
+"""Minimum pause after a step the recording measured no settle for."""
 
 _STABILISE_POLL_S = 1.0
 """Gap between two readings of where the browser is."""
@@ -188,17 +203,27 @@ def _wait_until_the_page_stops_moving(execute: Any) -> None:
 
     Never raises. A page we cannot read is one the next step will report on.
     """
+    # A beat first. A postback that has not started yet looks identical to one
+    # that has finished, and both read as "stable" on the first sample.
+    time.sleep(_UNMEASURED_SETTLE_S)
+
     deadline = time.monotonic() + _STABILISE_BUDGET_S
     previous: str | None = None
     while time.monotonic() < deadline:
         try:
             info = execute("get_page_info", {})
-            here = str((info.get("data") or info).get("url") or "")
+            data = info.get("data") or info
+            here = str(data.get("url") or "")
+            ready = str(data.get("ready_state") or "")
         except SessionNotReadyError:
             raise
         except Exception:  # noqa: BLE001 — unreadable now, the step will say so
             return
-        if previous is not None and here == previous:
+        # A page still loading is not somewhere to click, whatever its URL says.
+        # Workers that do not report readiness leave this empty, and then the URL
+        # is all there is -- which is how this behaved before.
+        settled = ready in ("", "complete", "unknown")
+        if settled and previous is not None and here == previous:
             return
         previous = here
         time.sleep(_STABILISE_POLL_S)
@@ -612,7 +637,25 @@ def run_replay(
     # Files already accounted for, for the whole run. The browser reports its
     # downloads cumulatively, so without a running record every download check
     # after the first one passes on a file some earlier step fetched.
+    #
+    # Seeded from what is on disk BEFORE anything runs. A session accumulates
+    # downloads for its whole life, not just this replay, so a statement fetched
+    # by a previous run sat there looking like evidence -- and a run that
+    # downloaded nothing reported its goal reached on the strength of it.
     known_downloads: set[str] = set()
+    try:
+        listed = execute("list_downloads", {}) or {}
+        for record in ((listed.get("data") or listed) or {}).get("downloads") or []:
+            if isinstance(record, dict) and record.get("id") is not None:
+                known_downloads.add(str(record["id"]))
+    except Exception:  # noqa: BLE001 — best-effort, including "no session yet"
+        # Deliberately swallows SessionNotReadyError too. Taking a baseline must
+        # never decide whether the run happens: an amendment recorded against a
+        # skill with no live session was being lost because this probe raised
+        # before anything ran. The first real step raises it again, where the
+        # sign-in path already handles it.
+        pass
+    baseline_downloads = set(known_downloads)
 
     known = _workflow_urls(ops, entry_url or "")
     reset_notes: list = []
@@ -723,7 +766,7 @@ def run_replay(
                         # another page must not cost more than the wait itself.
                         time.sleep(_STARTS_FROM_POLL_S)
                 except SessionNotReadyError as exc:
-                    report = build_report(ops[: len(results)], results)
+                    report = build_report(ops[: len(results)], results, already_downloaded=baseline_downloads)
                     report["status"] = "login_required"
                     report["detail"] = str(exc)
                     return report
@@ -780,7 +823,7 @@ def run_replay(
                         _let_the_step_land(step, execute)
             except SessionNotReadyError as exc:
                 results.append(step_results)
-                report = build_report(ops[: len(results)], results)
+                report = build_report(ops[: len(results)], results, already_downloaded=baseline_downloads)
                 report["status"] = "login_required"
                 report["detail"] = str(exc)
                 return report
@@ -806,7 +849,7 @@ def run_replay(
                 )
             except SessionNotReadyError as exc:
                 results.append(step_results)
-                report = build_report(ops[: len(results)], results)
+                report = build_report(ops[: len(results)], results, already_downloaded=baseline_downloads)
                 report["status"] = "login_required"
                 report["detail"] = str(exc)
                 return report
@@ -825,13 +868,13 @@ def run_replay(
                     _let_the_step_land(step, execute)
         except SessionNotReadyError as exc:
             results.append(step_results)
-            report = build_report(ops[: len(results)], results)
+            report = build_report(ops[: len(results)], results, already_downloaded=baseline_downloads)
             report["status"] = "login_required"
             report["detail"] = str(exc)
             return report
         results.append(step_results)
 
-    report = build_report(ops, results)
+    report = build_report(ops, results, already_downloaded=baseline_downloads)
     if reset_notes:
         # Surfaced, not buried: a member reviewing this should see which resets
         # were taken from the live page rather than from the recording.

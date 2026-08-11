@@ -1149,6 +1149,34 @@ def entry_url_for(url_events: list[dict], pages: list[dict]) -> str:
     return str((pages or [{}])[0].get("url") or "")
 
 
+def _recorded_position(op: dict) -> float:
+    """When, in the recording, this operation happens.
+
+    The earliest interaction any of its steps came from, or the moment its
+    terminal completed -- whichever is earlier, since a terminal operation's
+    lead-in steps carry no position of their own while its terminal does.
+
+    Infinity for an operation the recording cannot place, so a stable sort keeps
+    it where it was rather than moving it somewhere arbitrary.
+    """
+    # Its OWN work, not the journey that reaches it. `steps` carries the whole
+    # chain from the landing page, which every operation shares -- so the
+    # earliest step there is the same first click for all of them and orders
+    # nothing.
+    own = op.get("segment_steps")
+    if own is None:
+        own = op.get("steps") or []
+    seqs = [
+        step["_seq"]
+        for step in own
+        if isinstance(step, dict) and isinstance(step.get("_seq"), int)
+    ]
+    terminal = op.get("_terminal_seq")
+    if isinstance(terminal, int):
+        seqs.append(terminal)
+    return float(min(seqs)) if seqs else float("inf")
+
+
 def render_browser_operations_json(
     pages: list[dict],
     click_events: list[dict] | None = None,
@@ -1217,6 +1245,19 @@ def render_browser_operations_json(
                 "_terminal_seq": op.get("_terminal_seq"),
             }
         )
+    # In the order the human did them.
+    #
+    # These operations are ONE journey cut into pieces, and each continues from
+    # the page its predecessor left behind -- so the list order IS the replay
+    # order. Emitting every page operation and then every terminal one puts them
+    # out of sequence: ICICI's portal sign-in (recorded at 18) landed AFTER the
+    # statement-page read (20-24), which had already navigated past the page the
+    # sign-in runs on, so it could only ever fail its own starts_from guard.
+    #
+    # Position comes from the recording: the earliest interaction an operation
+    # touches, or the moment it completed. Operations with neither keep their
+    # place, since a stable sort leaves equal keys alone.
+    operations.sort(key=_recorded_position)
     doc = {"schema_version": "1", "style": "browser", "operations": operations}
     if entry_by_origin:
         # One per host. A reset must not change hosts -- see entry_urls_by_origin.

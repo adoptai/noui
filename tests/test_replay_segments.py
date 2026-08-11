@@ -409,3 +409,96 @@ def test_the_stabiliser_gives_up_rather_than_hanging(monkeypatch):
 
     session_mod._wait_until_the_page_stops_moving(always_moving)
     assert calls["n"] > 1  # it did try
+
+
+def test_operations_are_emitted_in_the_order_they_were_recorded():
+    """These operations are one journey cut into pieces, so list order IS replay order.
+
+    ICICI's portal sign-in was recorded at 18 and the statement-page read at
+    20-24, but every page operation was emitted before every terminal one — so
+    the sign-in landed after a read that had already navigated past the page the
+    sign-in runs on, and could only ever fail its own starts_from guard.
+    """
+    from noui_core.compile.browser_skill import _recorded_position
+
+    # segment_steps is the operation's OWN work; `steps` prefixes the shared
+    # journey, whose first click is identical for every operation.
+    journey = [{"_seq": 9}]
+    read_cards = {"name": "read_credit_card", "steps": journey,
+                  "segment_steps": [{"_seq": 9}]}
+    read_portal = {"name": "read_corp_auth", "steps": journey + [{"_seq": 11}],
+                   "segment_steps": [{"_seq": 11}, {"_seq": 12}]}
+    read_finacle = {"name": "read_corp_finacle", "steps": journey + [{"_seq": 20}],
+                    "segment_steps": [{"_seq": 20}, {"_seq": 23}]}
+    submit = {"name": "submit_portal_login", "_terminal_seq": 18,
+              "steps": journey, "segment_steps": [{}]}
+    download = {"name": "download_statement", "_terminal_seq": 22,
+                "steps": journey, "segment_steps": [{"_seq": 23}]}
+
+    ops = [read_cards, read_portal, read_finacle, submit, download]
+    ops.sort(key=_recorded_position)
+
+    assert [o["name"] for o in ops] == [
+        "read_credit_card",
+        "read_corp_auth",
+        "submit_portal_login",     # 18 — before the read that navigates past it
+        "read_corp_finacle",       # 20
+        "download_statement",      # 22
+    ]
+
+
+def test_an_operation_the_recording_cannot_place_keeps_its_position():
+    """A stable sort leaves it alone rather than moving it somewhere arbitrary."""
+    from noui_core.compile.browser_skill import _recorded_position
+
+    placed = {"name": "placed", "segment_steps": [{"_seq": 5}]}
+    unplaced = {"name": "unplaced", "segment_steps": [{}]}
+    ops = [placed, unplaced]
+    ops.sort(key=_recorded_position)
+    assert [o["name"] for o in ops] == ["placed", "unplaced"]
+    assert _recorded_position(unplaced) == float("inf")
+
+
+def test_a_terminals_position_is_the_earliest_of_what_it_touches():
+    """Its lead-in steps carry no position; its terminal does."""
+    from noui_core.compile.browser_skill import _recorded_position
+
+    assert _recorded_position(
+        {"_terminal_seq": 22, "segment_steps": [{"_seq": 23}, {"_seq": 24}]}) == 22
+    assert _recorded_position(
+        {"_terminal_seq": 40, "segment_steps": [{"_seq": 23}]}) == 23
+
+
+def test_a_page_that_has_not_finished_loading_is_not_somewhere_to_click(monkeypatch):
+    """Clicking a page mid-load is not a faster click, it is a lost one.
+
+    Watching the URL alone is too weak for a form postback: ICICI's statement
+    portal re-renders in place, so two readings agree immediately and the wait
+    collapsed to nothing. Seen on screen — the replay chose FY2025-26, the portal
+    was still processing the previous click, and the page came back showing
+    FY2024-25 with "we are unable to process your request". The step reported ok.
+    """
+    states = iter([("u", "loading"), ("u", "loading"), ("u", "complete")])
+    seen = []
+
+    def execute(command, params=None):
+        url, ready = next(states)
+        seen.append(ready)
+        return {"data": {"url": url, "ready_state": ready}}
+
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
+    session_mod._wait_until_the_page_stops_moving(execute)
+
+    # It kept looking while the page said "loading", and stopped once complete.
+    assert seen == ["loading", "loading", "complete"]
+
+
+def test_a_worker_that_reports_no_readiness_behaves_as_before(monkeypatch):
+    """Older workers return {url, title} only; the URL is then all there is."""
+    urls = iter(["a", "b", "b"])
+
+    def execute(command, params=None):
+        return {"data": {"url": next(urls)}}
+
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
+    session_mod._wait_until_the_page_stops_moving(execute)   # returns, does not hang
