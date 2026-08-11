@@ -1858,6 +1858,30 @@ def fold_candidates(operations: list[dict]) -> list[dict]:
     return out
 
 
+def _journey_part(op: dict) -> list[dict]:
+    """The steps that reach this operation, before its own work begins."""
+    steps = op.get("steps") or []
+    segment = op.get("segment_steps")
+    if segment is None:
+        return []
+    return steps[: max(0, len(steps) - len(segment))]
+
+
+def _branch_work(a: dict, b: dict) -> tuple[list[dict], list[dict]]:
+    """Each operation's own work, including the journey only IT takes.
+
+    The shared head of the two journeys is the way to the fork and stays out of
+    both branches -- the operation before them already walks it. The tail that
+    differs is the branch selecting itself.
+    """
+    a_journey, b_journey = _journey_part(a), _journey_part(b)
+    shared = _common_prefix_len(a_journey, b_journey)
+    return (
+        a_journey[shared:] + (a.get("segment_steps") or []),
+        b_journey[shared:] + (b.get("segment_steps") or []),
+    )
+
+
 def _merge_branches(a_steps: list[dict], b_steps: list[dict], param: str,
                     values: list[str]) -> list[dict]:
     """One list: shared prefix, each divergent middle tagged, shared ending.
@@ -1905,11 +1929,23 @@ def apply_fold(
         "steps": _merge_branches(
             a.get("steps") or [], b.get("steps") or [], param, values
         ),
-        # The segment gets the same treatment. It is what a segmented replay
-        # runs, and leaving it as operation A's copy meant every timeframe ran
-        # the monthly branch.
+        # The segment gets the same treatment, PLUS the part of each journey
+        # that only its own branch takes.
+        #
+        # A step can both navigate and belong to one branch. ICICI's annual
+        # statement is selected by clicking a radio and pressing GO -- and that
+        # submit navigates to /corp/Finacle, so both steps were classified as
+        # journey and stripped from the segment. Nothing else performed them:
+        # the monthly branch diverges before, and no operation sits between. So
+        # timeframe=annual ran the monthly steps on the monthly page and
+        # returned a MONTHLY statement.
+        #
+        # Each operation's steps are its journey followed by its segment, so the
+        # journey part is recoverable by length. Whatever the two journeys share
+        # is the way to the fork; whatever they do not is the branch choosing
+        # itself, and belongs with the branch.
         "segment_steps": _merge_branches(
-            a.get("segment_steps") or [], b.get("segment_steps") or [], param, values
+            *_branch_work(a, b), param, values
         ),
         "parameters": [
             *(a.get("parameters") or []),

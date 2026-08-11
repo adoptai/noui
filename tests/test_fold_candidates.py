@@ -294,3 +294,43 @@ def test_a_recorded_expectation_is_not_overwritten():
           if (s.get("params") or {}).get("selector") == "#DL"][0]
     assert dl["expect"]["url"] == "https://x/observed", "what was observed wins"
     assert dl["expect"]["download"] is True
+
+
+def test_a_branch_keeps_the_journey_only_it_takes():
+    """A step can both navigate and belong to one branch.
+
+    ICICI's annual statement is selected by a radio and a GO press — and that
+    submit navigates, so both were classified as journey and stripped from the
+    segment. Nothing else performed them: the monthly branch diverges before,
+    and no operation sits between. So timeframe=annual ran the MONTHLY steps on
+    the monthly page and returned a monthly statement, with every check green.
+    """
+    from noui_core.compile.browser_skill import apply_fold, fold_candidates
+    from noui_core.verify.replay import substitute_parameters
+
+    to_fork = [_s("#nav"), _s("#past"), _s("#stmt")]
+    monthly = {**_op("monthly", [_s("#DL")]),
+               "steps": to_fork + [_s("#DL")] + TAIL,
+               "segment_steps": [_s("#DL")] + TAIL, "starts_from": "https://x/fork"}
+    annual = {**_op("annual", [_s("#DL")]),
+              # its journey continues past the fork: radio, then GO (navigates)
+              "steps": to_fork + [_s("#Annual"), _s("#GO")] + [_s("#year"), _s("#DL")] + TAIL,
+              "segment_steps": [_s("#year"), _s("#DL")] + TAIL,
+              "starts_from": "https://x/after-go"}
+
+    fold = fold_candidates([monthly, annual])[0]
+    out = apply_fold([monthly, annual], fold, name="download_statement",
+                     param="timeframe", values=["monthly", "annual"])[0]
+
+    def seg(tf):
+        return [
+            (s.get("params") or {}).get("selector")
+            for s in substitute_parameters({**out, "steps": out["segment_steps"]},
+                                           {"timeframe": tf})
+        ]
+
+    assert "#Annual" in seg("annual"), "the branch must select itself"
+    assert "#GO" in seg("annual")
+    assert "#Annual" not in seg("monthly")
+    # The way to the fork stays out of both — the operation before walks it.
+    assert "#past" not in seg("annual") and "#past" not in seg("monthly")
