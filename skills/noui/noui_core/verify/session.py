@@ -329,30 +329,23 @@ def _return_to_entry(
         except Exception:  # noqa: BLE001 — recorded once is not guaranteed now
             pass
 
-    # History FIRST: same tab, same cookies, and for an in-app SPA hop a
-    # client-side pop rather than a load. A recorded journey can cross origins
-    # -- ICICI's statement portal is a different host from the net-banking SPA
-    # -- and from there nothing links back to the landing page and navigate is
-    # refused, so every operation after the first had no way home.
-    for _ in range(_MAX_BACK_STEPS):
-        try:
-            res = execute("go_back", {})
-        except SessionNotReadyError:
-            raise
-        except Exception:  # noqa: BLE001 — no history, or the app refuses it
-            break
-        data = (res.get("data") or res) or {}
-        here = str(data.get("url") or here)
-        if _same_page(here, entry_url):
-            time.sleep(_settle_after_reset(operations or []))
-            return None
-        if _left_the_app(here, entry_url, known):
-            # Overshot. Stop pressing -- every further press goes further from
-            # the app -- and let navigate or the home link try from here. The
-            # session itself is usually still valid; only the page is wrong.
-            break
-        if not data.get("moved"):
-            break  # history exhausted; walking further only wastes calls
+    # NO history walk here, deliberately.
+    #
+    # go_back looked cheap and harmless and is neither. The SPA's back stack on
+    # ICICI is [about:blank, /login-page, /overview, ...], so a press from a
+    # shallow point lands the LIVE session on the sign-in page -- which is
+    # exactly "your session has expired" from the member's side. Watched
+    # happening: the session died the moment a replay started, every time, and
+    # never while it sat idle. The overshoot guard stops the walk continuing;
+    # it cannot undo the press that already landed.
+    #
+    # It also never once got home during a real replay. The only time it worked
+    # was an isolated trace where the previous history entry happened to be the
+    # entry page. A mechanism that cannot be relied on to help and can destroy
+    # the session being tested does not belong in front of the ones that can.
+    #
+    # (The worker still exposes go_back; it is a legitimate primitive for a
+    # caller that knows where it is. Nothing here guesses with it.)
 
     # navigate NEXT, because on an app that allows it this is one call and
     # lands exactly where we mean. It is not always allowed: a portal that

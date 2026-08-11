@@ -55,7 +55,7 @@ def test_drifted_browser_is_returned_to_the_entry_point():
     b = _Browser(DRIFTED)
     assert session_mod._return_to_entry(b, ENTRY) is None
     # History is tried first — same tab, same cookies — then navigate.
-    assert b.commands == ["get_page_info", "go_back", "navigate"]
+    assert b.commands == ["get_page_info", "navigate"]
     assert b.at == ENTRY
 
 
@@ -84,7 +84,7 @@ def test_unreadable_url_navigates_rather_than_guessing():
     b = _Blind(DRIFTED)
     assert session_mod._return_to_entry(b, ENTRY) is None
     # History is tried first — same tab, same cookies — then navigate.
-    assert b.commands == ["get_page_info", "go_back", "navigate"]
+    assert b.commands == ["get_page_info", "navigate"]
 
 
 def test_failed_reset_is_reported_as_the_reset_not_as_step_zero():
@@ -333,37 +333,8 @@ class _History(_Browser):
         return super().__call__(command, params)
 
 
-def test_history_walks_back_to_the_entry_page():
-    portal = "https://infinity.icici.bank.in/corp/AuthenticationController"
-    b = _History([ENTRY, portal])
-    # known_urls is what run_replay supplies: the portal is a page the recording
-    # visited, so "auth" in its path must not read as a sign-in screen.
-    assert session_mod._return_to_entry(b, ENTRY, {portal}) is None
-    assert b.at == ENTRY
-    assert "navigate" not in b.commands, "history got there; nothing else should be tried"
 
 
-def test_history_is_tried_before_navigate():
-    b = _History([ENTRY, DRIFTED])
-    session_mod._return_to_entry(b, ENTRY)
-    assert b.commands.index("go_back") < len(b.commands)
-    assert b.commands[1] == "go_back"
-
-
-def test_exhausted_history_stops_instead_of_pressing_back_forever():
-    # moved=False means there is nowhere further back. Walking on would only
-    # waste calls, and eventually leave the app entirely.
-    portal = "https://infinity.icici.bank.in/corp/AuthenticationController"
-    b = _History([portal])
-    session_mod._return_to_entry(b, ENTRY, {portal})
-    assert b.commands.count("go_back") == 1
-
-
-def test_history_that_never_reaches_the_entry_is_bounded():
-    deep = [f"https://infinity.icici.bank.in/corp/p{n}" for n in range(30)]
-    b = _History(deep)
-    session_mod._return_to_entry(b, ENTRY)
-    assert b.commands.count("go_back") <= session_mod._MAX_BACK_STEPS
 
 
 # --- history does not stop at the landing page ---------------------------------
@@ -374,16 +345,6 @@ def test_history_that_never_reaches_the_entry_is_bounded():
 
 LOGIN_PG = "https://retailnetbanking.icici.bank.in/login-page"
 
-
-def test_the_walk_stops_before_the_sign_in_page():
-    b = _History([ "about:blank", LOGIN_PG, ENTRY, DRIFTED])
-    # Deliberately ask for a page that is NOT in the stack, so the walk would
-    # keep pressing if nothing stopped it.
-    missing = "https://retailnetbanking.icici.bank.in/nowhere"
-    session_mod._return_to_entry(b, missing, {missing})
-    assert b.at != "about:blank", "walked out of the app"
-    assert b.at in (LOGIN_PG, ENTRY, DRIFTED)
-    assert b.commands.count("go_back") <= 2
 
 
 def test_leaving_the_app_is_detected():
@@ -581,3 +542,24 @@ def test_already_at_the_entry_does_not_wait():
         assert b.commands == ["get_page_info"]
     finally:
         session_mod._RESET_SETTLE_MS = 0
+
+
+def test_the_reset_never_presses_back():
+    """go_back is not a way home; it is a way onto the sign-in page.
+
+    The SPA's back stack on ICICI is [about:blank, /login-page, /overview, ...],
+    so a press from a shallow point lands the LIVE session on the sign-in page —
+    "your session has expired" from the member's side. Watched happening: the
+    session died the moment a replay started, every time, and never while it sat
+    idle.
+    """
+    b = _NoNavigate(DRIFTED, HOME_LINK)
+    session_mod._return_to_entry(b, ENTRY, {ENTRY}, None, [], [])
+    assert "go_back" not in b.commands
+
+
+def test_a_drifted_page_still_gets_reset_without_history():
+    b = _Browser(DRIFTED)
+    assert session_mod._return_to_entry(b, ENTRY) is None
+    assert b.commands == ["get_page_info", "navigate"]
+    assert b.at == ENTRY
