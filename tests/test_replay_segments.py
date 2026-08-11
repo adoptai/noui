@@ -99,28 +99,58 @@ def test_a_skill_without_segments_runs_as_it_always_did(monkeypatch):
     assert page.calls.count("click_by_text") == 2
 
 
-def test_an_arrival_is_given_time_to_paint(monkeypatch):
-    """The URL matches before the DOM is up.
+def test_an_arrival_waits_for_its_first_control(monkeypatch):
+    """Poll for the thing we are about to click, not a fixed time.
 
-    ICICI's statement portal is reached by a cross-origin hop that completes
-    after the click returns. The next operation asked for #PDF_Download while
-    the form was still building; probed by hand a minute later it was there.
+    A fixed sleep was wrong twice: 3s was too short for ICICI's statement portal
+    (the control was there when probed by hand a minute later) and dead weight on
+    every fast page. The recording says the human's own gap after that hop was
+    17-29s — an upper bound, since some of it was reading.
     """
-    waited: list[float] = []
-    monkeypatch.setattr(session_mod.time, "sleep", lambda s: waited.append(s))
-    page = _Page(OVERVIEW, after_first=CC)
-    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
+    asked: list[str] = []
 
-    nav = {"command": "click_by_text", "params": {"text": "Cards"},
-           "expect": {"settle_ms": 4000}}
-    dl = {"command": "click_element", "params": {"selector": "#DL"}}
-    ops = [
-        _op("read_cc", None, [nav], [nav]),
-        _op("download", CC, [dl], [nav, dl]),
-    ]
-    run_replay(ops, profile_slug="p", token="t", entry_url=OVERVIEW)
-    # The second operation arrived at its starts_from and waited before acting.
-    assert 4.0 in waited
+    class _Waits(_Page):
+        def __call__(self, command, params):
+            if command == "wait_for_selector":
+                asked.append(params["selector"])
+                return {"data": {}}
+            return super().__call__(command, params)
+
+    page = _Waits(OVERVIEW, after_first=CC)
+    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+    run_replay(OPS, profile_slug="p", token="t", entry_url=OVERVIEW)
+    # It waited for the download's own target before clicking it.
+    assert asked == ["#DL"]
+
+
+def test_a_slow_control_is_polled_until_the_budget_runs_out(monkeypatch):
+    slept: list[float] = []
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: slept.append(s))
+    ticks = iter([0.0, 1.0, 2.0, 99.0])
+    monkeypatch.setattr(session_mod.time, "monotonic", lambda: next(ticks, 99.0))
+
+    def never_there(command, params):
+        if command == "wait_for_selector":
+            raise RuntimeError("nothing matches")
+        return {"data": {"url": CC}}
+
+    session_mod._await_first_control(
+        never_there, [{"params": {"selector": "#DL"}}], 5.0
+    )
+    # Polled, then gave up rather than hanging — the step itself reports next.
+    assert slept and all(s == 1.0 for s in slept)
+
+
+def test_a_step_with_no_selector_cannot_be_polled_for(monkeypatch):
+    slept: list[float] = []
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: slept.append(s))
+
+    def boom(command, params):
+        raise AssertionError("must not probe without a selector")
+
+    session_mod._await_first_control(boom, [{"params": {"text": "Annual"}}], 5.0)
+    assert slept, "falls back to a short settle"
 
 
 def test_no_wait_when_the_predecessor_did_not_arrive(monkeypatch):

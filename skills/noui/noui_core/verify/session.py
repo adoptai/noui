@@ -110,6 +110,50 @@ changed nothing, so there is nothing to wait for.
 """
 
 
+_ARRIVAL_BUDGET_S = 20.0
+"""Longest we will wait for an arriving page to produce its first control.
+
+From the recording: the human's own gap between the click that caused a hop and
+their next interaction was 17-29s on ICICI. That is an UPPER BOUND on when the
+page became usable -- they could not have clicked before the control existed,
+but they also spent some of it reading. So it is a ceiling, not a target: we
+proceed the instant the control appears and only give up when this elapses.
+"""
+
+
+def _await_first_control(execute: Any, steps: list[dict], budget_s: float) -> None:
+    """Wait for the arriving operation's first target, not for a fixed time.
+
+    A fixed sleep was wrong twice: 3s was too short for ICICI's statement portal
+    (the control was there when probed by hand a minute later) and long enough
+    to be dead weight on every fast page. Polling for the thing we are about to
+    click is both faster and more tolerant.
+
+    Only when that first step names a selector. There is no wait-by-text, and
+    guessing one would wait for the wrong element.
+    """
+    first = steps[0] if steps else None
+    selector = ((first or {}).get("params") or {}).get("selector")
+    if not selector:
+        time.sleep(min(_RESET_SETTLE_MS / 1000.0, budget_s))
+        return
+
+    deadline = time.monotonic() + budget_s
+    while True:
+        try:
+            execute(
+                "wait_for_selector",
+                {"selector": selector, "state": "visible", "timeout_ms": 1500},
+            )
+            return
+        except SessionNotReadyError:
+            raise
+        except Exception:  # noqa: BLE001 — not there yet is the normal case
+            if time.monotonic() >= deadline:
+                return  # let the step itself report what it finds
+            time.sleep(1.0)
+
+
 def _settle_after_reset(operations: list[dict]) -> float:
     """Seconds to wait, preferring what the recording measured.
 
@@ -563,9 +607,7 @@ def run_replay(
                 # the form was still building. Probed by hand a minute later,
                 # that control was there. The reset already learned this; an
                 # arrival needs the same courtesy.
-                prev = ops[index - 1]
-                prev_steps = (prev.get("segment_steps") if segmented else prev.get("steps")) or []
-                time.sleep(_settle_after_reset([{"steps": list(reversed(prev_steps))}]))
+                _await_first_control(execute, steps, _ARRIVAL_BUDGET_S)
             try:
                 for step in steps:
                     step_results.append(
