@@ -533,8 +533,23 @@ def run_replay(
             if index == 0:
                 if entry_url:
                     try:
+                        # The JOURNEY's entry, not this host's.
+                        #
+                        # Per-origin is right for an operation that starts
+                        # mid-journey -- never invent a cross-host route the
+                        # recording did not take. It is wrong for the first one:
+                        # a replay that ended on the statement portal leaves the
+                        # browser there, "home" then resolves to the portal's own
+                        # entry, the reset does nothing, and operation 0 runs its
+                        # net-banking steps against the wrong host. That is what
+                        # made runs alternate pass/fail with no change between:
+                        # a passing run ends on the portal, so the next one
+                        # starts there and cannot get back.
+                        #
+                        # Operation 0 is where the journey begins, and a fresh
+                        # session lands there. Aim at it.
                         failed = _return_to_entry(
-                            execute, entry_url, known, entry_by_origin, ops, reset_notes
+                            execute, entry_url, known, None, ops, reset_notes
                         )
                     except SessionNotReadyError as exc:
                         report = build_report([], [])

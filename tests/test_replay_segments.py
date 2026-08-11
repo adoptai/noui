@@ -243,3 +243,31 @@ def test_a_long_pause_is_capped():
         {"seq": 2, "timestamp": "2026-08-10T18:05:00.000Z"},
     ]
     assert bs.arrival_budget_ms(events, 1) == bs._ARRIVAL_CAP_MS
+
+
+def test_operation_zero_resets_to_the_journey_entry_not_the_host_entry(monkeypatch):
+    """A replay that ended on the statement portal must still be repeatable.
+
+    Per-origin is right for an operation that starts mid-journey. For the first
+    one it meant "home" resolved to the portal's own entry, the reset did
+    nothing, and the net-banking steps ran against the wrong host — which is why
+    runs alternated pass/fail with no change between them.
+    """
+    PORTAL = "https://infinity.icici.bank.in/corp/AuthenticationController"
+    aimed: list[str] = []
+
+    def fake_reset(execute, entry, known=None, by_origin=None, ops=None, notes=None):
+        aimed.append(entry)
+        assert by_origin is None, "operation 0 must not be redirected per host"
+        return None
+
+    monkeypatch.setattr(session_mod, "_return_to_entry", fake_reset)
+    page = _Page(PORTAL, after_first=CC)
+    monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
+
+    run_replay(
+        OPS, profile_slug="p", token="t", entry_url=OVERVIEW,
+        entry_by_origin={"https://infinity.icici.bank.in": PORTAL,
+                         "https://retailnetbanking.icici.bank.in": OVERVIEW},
+    )
+    assert aimed == [OVERVIEW]
