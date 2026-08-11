@@ -675,6 +675,30 @@ def _step_for_click(click: dict) -> dict | None:
                           "match_count": cand.get("match_count"),
                           "confidence": UNKNOWN, "is_css": True}
                 break
+    # No unique selector? Address it the way the recorder identified it: role
+    # plus accessible name, which the worker now resolves for set_checked. That
+    # is the ONLY unique handle on a control whose id and name it shares with
+    # its sibling -- ICICI's Monthly / Annual pair.
+    if role in ("radio", "checkbox") and target is None:
+        for cand in click.get("candidates") or []:
+            if not isinstance(cand, dict) or str(cand.get("kind")) != "role_name":
+                continue
+            value = str(cand.get("value") or "")
+            if "|" not in value or cand.get("match_count") not in (1, -1):
+                continue
+            role_part, name_part = value.split("|", 1)
+            if role_part.strip().lower() not in ("radio", "checkbox"):
+                continue
+            step = {
+                "command": "set_checked",
+                "params": {"role": role_part.strip(), "name": name_part.strip(),
+                           "checked": True},
+            }
+            expect = _expect_for_click(click)
+            if expect:
+                step["expect"] = expect
+            return step
+
     if role in ("radio", "checkbox") and target:
         step = {
             "command": "set_checked",

@@ -334,3 +334,38 @@ def test_a_branch_keeps_the_journey_only_it_takes():
     assert "#Annual" not in seg("monthly")
     # The way to the fork stays out of both — the operation before walks it.
     assert "#past" not in seg("annual") and "#past" not in seg("monthly")
+
+
+def test_a_radio_with_no_unique_selector_is_set_by_role_and_name():
+    """ICICI's Monthly and Annual radios share an id AND a name.
+
+    No selector picks one of them, so the step fell back to clicking the label
+    text: it reported success while the form stayed on Monthly, and the replay
+    downloaded a monthly statement while asking for the annual one. The only
+    unique handle the recorder captured was `role_name: radio|Annual`.
+    """
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click({
+        "element": {"role": "radio"},
+        "candidates": [
+            {"kind": "id", "value": "#PERIOD_TYPE", "match_count": 2},
+            {"kind": "name", "value": 'input[name="PERIOD_TYPE"]', "match_count": 2},
+            {"kind": "role_name", "value": "radio|Annual", "match_count": 1},
+        ],
+    })
+    assert step["command"] == "set_checked"
+    assert step["params"] == {"role": "radio", "name": "Annual", "checked": True}
+
+
+def test_a_unique_selector_is_still_preferred():
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click({
+        "element": {"role": "radio"},
+        "candidates": [
+            {"kind": "id", "value": "#annual", "match_count": 1},
+            {"kind": "role_name", "value": "radio|Annual", "match_count": 1},
+        ],
+    })
+    assert step["params"]["selector"] == "#annual"
