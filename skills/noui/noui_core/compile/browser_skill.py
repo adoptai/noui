@@ -868,6 +868,13 @@ def _inherit_hover_settle(steps: list[dict]) -> None:
 #: one network on one day, so a little room costs nothing.
 _ARRIVAL_BUFFER = 1.5
 
+#: A human clicking straight through says nothing about how fast the page was --
+#: they may have known exactly where to aim, or the control may have been there
+#: already. Measured 4ms between two clicks on ICICI, which as a budget meant the
+#: next arrival waited 6ms and the operation after it failed its starts_from.
+#: Below this the measurement carries no information, so the floor stands in.
+_ARRIVAL_FLOOR_MS = 5_000
+
 #: Nobody's page takes this long. Beyond it the recorded gap is someone reading
 #: their email, not a page loading, and a replay must not inherit that.
 _ARRIVAL_CAP_MS = 45_000
@@ -906,7 +913,7 @@ def arrival_budget_ms(click_events: list[dict], arrive_seq: int | None) -> int |
         if at is None:
             continue
         gap_ms = int((at - start).total_seconds() * 1000 * _ARRIVAL_BUFFER)
-        return max(0, min(gap_ms, _ARRIVAL_CAP_MS)) or None
+        return min(max(gap_ms, _ARRIVAL_FLOOR_MS), _ARRIVAL_CAP_MS)
     return None
 
 

@@ -217,3 +217,29 @@ def test_the_nav_projection_carries_seq_for_the_budget():
     nav = bs._nav_clicks_for(nav_ev["from_url"], nav_ev, b["click_events"])
     assert all(n.get("seq") is not None for n in nav), "seq must survive the projection"
     assert bs.arrival_budget_ms(b["click_events"], nav[-1]["seq"]) > 0
+
+
+def test_an_instant_human_does_not_become_an_instant_budget():
+    """4ms between two clicks became a 6ms budget, and the next operation
+    failed its starts_from with no time to arrive.
+
+    A human clicking straight through says nothing about how fast the page was:
+    they may have known where to aim, or the control was already there.
+    """
+    from noui_core.compile import browser_skill as bs
+
+    events = [
+        {"seq": 1, "timestamp": "2026-08-10T18:00:00.000Z"},
+        {"seq": 2, "timestamp": "2026-08-10T18:00:00.004Z"},
+    ]
+    assert bs.arrival_budget_ms(events, 1) == bs._ARRIVAL_FLOOR_MS
+
+
+def test_a_long_pause_is_capped():
+    from noui_core.compile import browser_skill as bs
+
+    events = [
+        {"seq": 1, "timestamp": "2026-08-10T18:00:00.000Z"},
+        {"seq": 2, "timestamp": "2026-08-10T18:05:00.000Z"},
+    ]
+    assert bs.arrival_budget_ms(events, 1) == bs._ARRIVAL_CAP_MS
