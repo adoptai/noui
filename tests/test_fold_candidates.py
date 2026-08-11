@@ -369,3 +369,48 @@ def test_a_unique_selector_is_still_preferred():
         ],
     })
     assert step["params"]["selector"] == "#annual"
+
+
+def test_a_completed_download_ends_the_previous_variant():
+    """The human downloaded the MONTHLY statement, then switched to Annual and
+    downloaded again.
+
+    The clicks between the fork and the annual terminal therefore include the
+    monthly download that ENDED the previous variant. Handed to the annual
+    branch it fired a monthly download first, left the form busy — the bank
+    answered "the system is considering your first request" — and the annual
+    steps had nothing to act on.
+    """
+    from noui_core.compile.browser_skill import _after_last_terminal
+
+    steps = [
+        {"command": "click_element", "params": {"selector": "#PDF_Download"},
+         "expect": {"download": True}},
+        {"command": "set_checked", "params": {"role": "radio", "name": "Annual"}},
+        {"command": "click_element", "params": {"selector": "#GO"}},
+    ]
+    kept = [(s.get("params") or {}).get("selector") or (s.get("params") or {}).get("name")
+            for s in _after_last_terminal(steps)]
+    assert kept == ["Annual", "#GO"]
+
+
+def test_steps_with_no_terminal_are_left_alone():
+    from noui_core.compile.browser_skill import _after_last_terminal
+
+    steps = [{"command": "click_by_text", "params": {"text": "Past"}},
+             {"command": "click_element", "params": {"selector": "#x"}}]
+    assert _after_last_terminal(steps) == steps
+
+
+def test_only_the_last_terminal_bounds_it():
+    # Two completed downloads before the fork: everything up to the later one
+    # belongs to variants already finished.
+    from noui_core.compile.browser_skill import _after_last_terminal
+
+    steps = [
+        {"command": "click_element", "params": {"selector": "#a"}, "expect": {"download": True}},
+        {"command": "click_element", "params": {"selector": "#b"}},
+        {"command": "list_downloads", "params": {}},
+        {"command": "click_element", "params": {"selector": "#keep"}},
+    ]
+    assert [(s.get("params") or {}).get("selector") for s in _after_last_terminal(steps)] == ["#keep"]

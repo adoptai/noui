@@ -1922,6 +1922,26 @@ def _journey_part(op: dict) -> list[dict]:
     return steps[: max(0, len(steps) - len(segment))]
 
 
+def _after_last_terminal(steps: list[dict]) -> list[dict]:
+    """Drop everything up to and including a completed terminal action.
+
+    A finished action is a boundary. The human downloaded the MONTHLY statement,
+    then switched the period to Annual and downloaded again -- so the clicks
+    between the fork and the annual terminal include the monthly download that
+    ended the previous variant. Handed to the annual branch, it fired a monthly
+    download first, left the form busy ("the system is considering your first
+    request"), and the annual steps had nothing to act on.
+
+    What precedes a completed terminal belongs to the variant it completed, not
+    to the one that follows.
+    """
+    last = -1
+    for i, step in enumerate(steps):
+        if (step.get("expect") or {}).get("download") or step.get("command") == "list_downloads":
+            last = i
+    return steps[last + 1 :] if last >= 0 else steps
+
+
 def _branch_work(a: dict, b: dict) -> tuple[list[dict], list[dict]]:
     """Each operation's own work, including the journey only IT takes.
 
@@ -1932,8 +1952,8 @@ def _branch_work(a: dict, b: dict) -> tuple[list[dict], list[dict]]:
     a_journey, b_journey = _journey_part(a), _journey_part(b)
     shared = _common_prefix_len(a_journey, b_journey)
     return (
-        a_journey[shared:] + (a.get("segment_steps") or []),
-        b_journey[shared:] + (b.get("segment_steps") or []),
+        _after_last_terminal(a_journey[shared:]) + (a.get("segment_steps") or []),
+        _after_last_terminal(b_journey[shared:]) + (b.get("segment_steps") or []),
     )
 
 
