@@ -389,6 +389,13 @@ def substitute_parameters(operation: dict, values: dict[str, str] | None = None)
         params = {
             k: (fill(v) if isinstance(v, str) else v) for k, v in (step.get("params") or {}).items()
         }
+        # Carry the recorded settle to the worker. It decides how long a control
+        # that exists but is not yet visible may take -- a hover-revealed menu
+        # measured at 4.3s was failing against a flat 3s grace. The measurement
+        # is in the recording; the worker cannot see the expect block.
+        settle = (step.get("expect") or {}).get("settle_ms")
+        if isinstance(settle, int) and settle > 0:
+            params.setdefault("settle_ms", settle)
         out.append({**step, "params": params})
     return out
 
