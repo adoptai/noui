@@ -264,6 +264,16 @@ def split_diagnosis(bundle: dict[str, Any]) -> str:
     return detail
 
 
+class SplitError(RuntimeError):
+    """The split ran and produced a result that cannot be compiled.
+
+    Distinct from `split_bundle` returning None, which means "there is no login
+    segment here" -- an ordinary answer the caller handles by compiling the
+    bundle workflow-only. This is the other case: a boundary was found, and
+    applying it destroyed the workflow half.
+    """
+
+
 def split_bundle(bundle: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Split a merged bundle into (login_bundle, workflow_bundle) at the boundary.
 
@@ -282,7 +292,34 @@ def split_bundle(bundle: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]
     boundary = _boundary_event(bundle)
     if boundary is None:
         return None
-    return _slice(bundle, boundary, "login"), _slice(bundle, boundary, "workflow")
+
+    login, workflow = _slice(bundle, boundary, "login"), _slice(bundle, boundary, "workflow")
+
+    # A workflow slice with NOTHING in it is a failed split, not a split.
+    #
+    # Not "no clicks": a workflow half can legitimately be navigations only.
+    # What cannot happen is a half with neither.
+    #
+    # `_keep` sends anything it cannot PLACE to the login side, deliberately, so
+    # a login request never leaks into the workflow. But a boundary carrying a
+    # null position places nothing -- every event goes left, the workflow slice
+    # comes out empty, and the compiler is handed a capture of a journey that
+    # was never sliced off. It compiled to nothing and said nothing, and the
+    # agent reading that concluded the RECORDING was wrong: it asked a member to
+    # sign in and drive the whole journey again, twice, to route around a bug
+    # that had already thrown their capture away.
+    #
+    # The recording is intact in these cases -- only the slicing lost it -- so
+    # refusing here costs a re-run of the import, not a re-run of the human.
+    placed = (workflow.get("click_events") or []) or (workflow.get("url_events") or [])
+    if not placed:
+        raise SplitError(
+            "the login/workflow split produced an empty workflow half: the boundary "
+            f"({boundary!r}) placed every interaction on the login side. The recording "
+            "itself is intact -- this is the split, not the capture. Import it as "
+            "workflow-only, or record the halves explicitly with --mode."
+        )
+    return login, workflow
 
 
 def _keep(value: Any, boundary: Any, side: str) -> bool:

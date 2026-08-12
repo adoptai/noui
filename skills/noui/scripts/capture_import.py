@@ -27,7 +27,7 @@ from noui_core.activate import register
 from noui_core.capture import ledger, recording
 from noui_core.capture.bundle import save_bundle
 from noui_core.capture.classify import COMBINED, LOGIN, WORKFLOW
-from noui_core.capture.split import split_diagnosis, split_bundle
+from noui_core.capture.split import SplitError, split_bundle, split_diagnosis
 from noui_core.compile.login import compile_login_bundle
 from noui_core.compile.workflow import compile_workflow_bundle
 
@@ -212,7 +212,12 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
     feeding the login's own declared headers straight in (no Tabby round-trip).
     Falls back to workflow-only when the capture has no login segment.
     """
-    parts = split_bundle(bundle)
+    try:
+        parts = split_bundle(bundle)
+    except SplitError as exc:
+        print(split_diagnosis(bundle), file=sys.stderr)
+        print(f"Cannot split this capture: {exc}", file=sys.stderr)
+        return 1
     # Always say what the splitter saw. The decision turns on one thing and used
     # to be invisible, so a member who HAD recorded a login was asked to record
     # it again with nothing anywhere explaining why.

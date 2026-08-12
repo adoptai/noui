@@ -28,6 +28,10 @@ def _merged_bundle(with_login: bool = True) -> dict:
                 "field_role": "password" if with_login else None,
                 "tag_name": "input",
             },
+            # Something the human did AFTER signing in. Without it the workflow
+            # half is empty, which the splitter now refuses -- and a combined
+            # capture whose workflow half is empty is not a combined capture.
+            {"timestamp": T[5], "field_role": None, "tag_name": "a"},
         ],
         # with_login=False means a capture recorded against an ALREADY
         # authenticated profile, so its timeline never passes through a sign-in
