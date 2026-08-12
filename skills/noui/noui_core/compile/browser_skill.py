@@ -874,6 +874,32 @@ def _step_for_click(click: dict) -> dict | None:
                 value = str(element.get(key) or "").strip()
                 if value:
                     hover["params"][key] = value
+        # The opener needs alternatives as much as the control it reveals.
+        #
+        # This branch returned before the fallback loop below ever ran, so a
+        # hover step carried exactly one selector. On ICICI that selector is
+        # positional -- `#scroll-container > div > div:nth-of-type(5)` -- and
+        # when the nav reordered between sessions the menu never opened, so the
+        # click that followed could not match however durable ITS locators were.
+        #
+        # CSS-expressible only, since there is no hover-by-text.
+        hover_alts = []
+        for cand in click.get("candidates") or []:
+            if not isinstance(cand, dict) or not cand.get("value"):
+                continue
+            kind = str(cand.get("kind") or "")
+            if not _is_css_kind(kind):
+                continue
+            value = str(cand["value"])
+            if value == locator.get("value"):
+                continue
+            if cand.get("match_count") not in (1, -1, None):
+                continue
+            if _carries_account_number(value):
+                continue
+            hover_alts.append({"selector": value})
+        if hover_alts:
+            hover["params"]["fallbacks"] = hover_alts[:4]
         return hover
 
     # Marked, not dropped: on a cold replay this login IS needed. Optional means
@@ -1075,9 +1101,28 @@ def _fold_hover_into_click(steps: list[dict]) -> list[dict]:
             and nxt.get("command") in ("click_element", "click_by_text")
             and (step.get("params") or {}).get("selector")
         ):
+            # The hover keeps ITS OWN fallbacks, under a separate key.
+            #
+            # hover_first was emitted as a bare selector, and on ICICI that
+            # selector is positional -- `#scroll-container > div > div:nth-of-type(5)`
+            # named the Cards box in the session it was recorded in and something
+            # else in the next. With nothing behind it the menu never opened, so
+            # the click that followed could not match however durable ITS
+            # locators were: the whole gesture is only as addressable as its
+            # opener.
+            #
+            # Separate from `fallbacks` because the two describe different
+            # elements. The runtime used to spread the click's params into the
+            # opener lookup, so a missed hover fell through to a locator for the
+            # control it was supposed to reveal -- one that cannot exist until
+            # the hover succeeds.
+            hover_alts = list((step.get("params") or {}).get("fallbacks") or [])
+            merged_params = {**(nxt.get("params") or {}), "hover_first": step["params"]["selector"]}
+            if hover_alts:
+                merged_params["hover_fallbacks"] = hover_alts
             merged = {
                 **nxt,
-                "params": {**(nxt.get("params") or {}), "hover_first": step["params"]["selector"]},
+                "params": merged_params,
             }
             _scope_under_the_hover(merged, step["params"]["selector"])
             # The hover's own expectation described opening the menu; the click's

@@ -27,6 +27,16 @@ from typing import Any
 #   role_name   — semantic identity; survives DOM restructuring
 #   label       — the form label a human reads
 #   text        — visible copy; survives restructuring, dies on rewording
+#   container_label / row_scoped
+#               — a :has-text() selector naming the element by what its
+#                 container SAYS ("the nav box that says Cards", "the row that
+#                 says 31 Jan 2025"). Words rather than position, so it survives
+#                 reordering, which is the failure an ordinal path cannot
+#                 survive: `#subContainer4 > ul > li:nth-of-type(1) > a` matched
+#                 the Cards submenu in the session it was recorded in and matched
+#                 NOTHING in the next one, while an earlier capture had the same
+#                 shape resolving to Fixed Deposits. Below plain text because it
+#                 depends on a class as well as the words.
 #   css_path    — structural; the first thing a redesign breaks
 _KIND_RANK: dict[str, int] = {
     "testid": 0,
@@ -36,13 +46,20 @@ _KIND_RANK: dict[str, int] = {
     "role_name": 4,
     "label": 5,
     "text": 6,
-    "css_path": 7,
+    "container_label": 7,
+    "row_scoped": 8,
+    "css_path": 9,
 }
 
 # Kinds whose `value` is a CSS selector, so a step can address them with
 # `click_element`. The rest carry human-readable text that the runtime resolves
 # semantically (click_by_text / type_into_label).
-_CSS_KINDS = frozenset({"testid", "id", "name", "aria_label", "css_path"})
+# container_label/row_scoped are Playwright's :has-text() dialect rather than
+# plain CSS, but they ARE selectors -- addressed with click_element, never
+# emitted as text a human could read.
+_CSS_KINDS = frozenset(
+    {"testid", "id", "name", "aria_label", "css_path", "container_label", "row_scoped"}
+)
 
 #: Returned confidence levels, worst to best.
 UNIQUE = "unique"
