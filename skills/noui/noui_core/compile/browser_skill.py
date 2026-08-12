@@ -2039,6 +2039,14 @@ def derive_terminal_operations(
     out: list[dict] = []
     seen: set[str] = set()
 
+    # Every terminal's ordinal, so a toggle can be bound by the PREVIOUS terminal
+    # when it was set on a different page from the one it configures.
+    _terminal_seqs = sorted(
+        sq
+        for sq in (event_seq(c) for c in click_events or [] if _terminal_kind(c) is not None)
+        if sq is not None
+    )
+
     for ev in click_events or []:
         kind = _terminal_kind(ev)
         if kind is None:
@@ -2111,15 +2119,40 @@ def derive_terminal_operations(
         # later screen's clicks never leak in. Inputs are excluded: those become
         # parameters above, and replaying them as clicks would fight the values
         # the caller passes.
+        # A radio or checkbox the human SET is part of this gesture too.
+        #
+        # It arrives as a `change`, not a click, so the event-type guard below
+        # dropped it -- and it is not an input either, so `page_inputs` above did
+        # not claim it as a parameter. It belonged to nothing. ICICI's Annual
+        # radio (seq 21) went missing exactly that way: the compiled download
+        # never selected Annual, the form stayed on Monthly, and a monthly
+        # statement came back with every check passing.
+        #
+        # The page test has to relax for these as well. The human set the period
+        # on the AuthenticationController screen and submitted on the NEXT one,
+        # so the control that decides WHAT is downloaded lives on a different
+        # page from the terminal that downloads it. Bounded by the previous
+        # terminal instead: whatever was set in that window was setting up THIS
+        # submit, whichever screen it was on.
+        prev_term_seq = max((sq for sq in _terminal_seqs if sq < (term_seq or 0)), default=None)
+
+        def _is_toggle(c: dict) -> bool:
+            return (c.get("event_type") or "") == "change" and str(
+                c.get("input_type") or ""
+            ).lower() in ("radio", "checkbox")
+
         lead_steps: list[dict] = []
         for c in click_events or []:
+            toggle = _is_toggle(c)
             # A hover that opened a menu is part of the gesture, not noise.
-            if (c.get("event_type") or "click") not in ("click", "hover"):
+            if not toggle and (c.get("event_type") or "click") not in ("click", "hover"):
                 continue
-            if _page_key(c.get("url") or "") != _page_key(work_url):
+            if not toggle and _page_key(c.get("url") or "") != _page_key(work_url):
                 continue
             c_seq = event_seq(c)
             if term_seq is None or c_seq is None or c_seq >= term_seq:
+                continue
+            if toggle and prev_term_seq is not None and c_seq <= prev_term_seq:
                 continue
             source = {
                 "text": (c.get("text_content") or "").strip(),
