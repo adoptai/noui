@@ -80,7 +80,19 @@ def _render_timeline(summary: dict) -> list[str]:
 def _render_credentials(summary: dict) -> list[str]:
     creds = summary["credential_events"]
     if not creds:
-        return ["", "CREDENTIAL INTERACTIONS", "  none — no login segment in this capture"]
+        lines = ["", "CREDENTIAL INTERACTIONS", "  none — no login segment in this capture"]
+        # "none" is ambiguous on its own: it reads as "no login happened" when it
+        # can equally mean "the login happened and we could not see it".
+        diagnosis = summary.get("missing_login")
+        if diagnosis:
+            lines += [f"  ⚠ {diagnosis['detail']}"]
+            if diagnosis["login_urls"]:
+                lines += [f"    sign-in URL(s) in the timeline: {diagnosis['login_urls'][0]}"]
+            lines += [
+                "    → this capture can still register an App Template: re-import it with",
+                "      --mode login (no re-recording needed).",
+            ]
+        return lines
     lines = ["", "CREDENTIAL INTERACTIONS (roles + redaction only, never values)"]
     for c in creds:
         lines.append(f"  {c['field_role']:<20} {c['count']} event(s), {c['redacted']} redacted")

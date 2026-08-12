@@ -410,6 +410,7 @@ def _analyze_har(har: dict | None) -> dict[str, Any]:
         "auth_domains": [],
         "set_cookie_headers": [],
         "auth_header_names": [],
+        "auth_header_origins": [],
     }
     if not har:
         return result
@@ -418,6 +419,10 @@ def _analyze_har(har: dict | None) -> dict[str, Any]:
     domains_seen: set[str] = set()
     cookie_names: list[str] = []
     auth_header_names: list[str] = []
+    # Origins that actually carry an auth header. These are what Tabby's
+    # request-header sniffer must be pointed at — see the target_urls note in
+    # generate(); they are frequently NOT the origin the human logged in on.
+    auth_header_origins: list[str] = []
 
     for entry in entries:
         response = entry.get("response", {})
@@ -444,6 +449,7 @@ def _analyze_har(har: dict | None) -> dict[str, Any]:
             if hname in ("authorization", "x-auth-token", "x-api-key"):
                 result["has_auth_headers"] = True
                 auth_header_names.append(header.get("name", ""))
+                auth_header_origins.append(_url_origin(url))
 
         # Check for CSRF tokens
         for header in req.get("headers", []):
@@ -451,10 +457,12 @@ def _analyze_har(har: dict | None) -> dict[str, Any]:
             if "csrf" in hname or "xsrf" in hname:
                 result["has_csrf"] = True
                 auth_header_names.append(header.get("name", ""))
+                auth_header_origins.append(_url_origin(url))
 
     result["auth_domains"] = list(domains_seen)
     result["set_cookie_headers"] = list(set(cookie_names))[:20]
     result["auth_header_names"] = list(set(auth_header_names))[:10]
+    result["auth_header_origins"] = [o for o in dict.fromkeys(auth_header_origins) if o][:10]
     return result
 
 
@@ -1171,8 +1179,24 @@ def generate(
     # string, never "https://x.com/api/...". A "/**" suffix is required for any
     # real request path to match. Verified live: capture stayed empty until
     # this suffix was added, even with a correct request_header_allowlist.
-    target_urls = [f"{u}/**" for u in dict.fromkeys([origin, post_login_origin]) if u]
-    target_domains_list = [d for d in dict.fromkeys([domain, post_login_domain]) if d]
+    #
+    # The post-login origin is still not enough on its own. A SPA typically
+    # serves its UI from one origin and its API from another (app.adopt.ai ->
+    # api.adopt.ai; the bearer only ever rides on the API calls), so scoping
+    # capture to the origins the human *navigated* misses the origins the token
+    # is actually sent to. Nothing then populates the declared header, Tabby's
+    # attach_captured_credentials falls back to caller headers only, and every
+    # compiled operation 401s while the session reports HEALTHY. So include
+    # every origin observed carrying an auth header.
+    auth_origins = list(har_analysis["auth_header_origins"])
+    target_urls = [
+        f"{u}/**" for u in dict.fromkeys([origin, post_login_origin, *auth_origins]) if u
+    ]
+    target_domains_list = [
+        d
+        for d in dict.fromkeys([domain, post_login_domain, *(_url_domain(o) for o in auth_origins)])
+        if d
+    ]
 
     # ---- Infer keepalive ----
     keepalive_actions: list[dict] = []
@@ -1361,6 +1385,23 @@ def generate(
         # for JWT-minting SPAs (tabby/CLAUDE.md gotcha #17) — the 3600s
         # worker-side default is far too slow for this class of header.
         export_policy["refresh_interval_seconds"] = 180
+        # THE allowlist that turns request-header capture on. Tabby's
+        # registerRequestHeaderCapture() opens with
+        #     if (allowlist.length === 0) return;
+        # so without this the listener is never even registered and the header
+        # is never captured — no matter how correct target_urls is, and even
+        # though credential_types.headers declares it. Those two are different
+        # halves of the same contract: credential_types is what
+        # /credentials/request SERVES, request_header_allowlist is what the
+        # worker CAPTURES. Declaring only the first yields a profile that looks
+        # correct, reports HEALTHY, and hands out an empty authorization value,
+        # so every compiled operation 401s.
+        #
+        # Cookie is excluded by Tabby's validator (cookies have their own
+        # extraction path); _analyze_har never collects it here anyway.
+        export_policy["request_header_allowlist"] = [
+            h for h in har_analysis["auth_header_names"] if h.lower() != "cookie"
+        ]
 
     # ---- Infer credential_types ----
     credential_types: dict[str, list] = {"cookies": [], "headers": []}
