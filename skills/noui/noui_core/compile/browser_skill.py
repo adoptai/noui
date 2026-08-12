@@ -37,6 +37,77 @@ from noui_core.compile.login_assets import (
 from noui_core.compile.parameters import derive_parameters, fill_steps
 from noui_core.event_order import event_seq, order_events
 
+# 12-19 digits is the ISO/IEC 7812 PAN range and covers bank account numbers too;
+# separators are allowed because portals print cards grouped ("4315 8105 5762 5005").
+_ACCOUNT_NUMBER = re.compile(r"\d(?:[ .\-]?\d){11,18}")
+
+
+def _carries_account_number(value: str) -> bool:
+    """Whether a locator value would put an account/card number in the artifact.
+
+    The recorder masks displayed text at capture (see `maskSensitive` in
+    tabby's dom-recorder), so new bundles arrive clean. This is the compiler's
+    own guard, and it earns its place twice: bundles recorded BEFORE that fix
+    still hold raw numbers -- the icici-cc-v6 capture compiled a `click_by_text`
+    fallback reading "Credit Card Number Select 4315810557625005(INR) - NAVJOT
+    SINGH" -- and re-recording a bank journey to undo a leak is an expensive way
+    to fix a file we can simply refuse to write.
+
+    Matching '[REDACTED]' as well means a masked candidate is dropped rather
+    than compiled into a step that can never match anything.
+    """
+    return "[REDACTED]" in value or bool(_ACCOUNT_NUMBER.search(value))
+
+
+def _scrub_account_numbers(click_events: list[dict] | None) -> list[dict] | None:
+    """Strip account/card numbers from a capture before anything compiles it.
+
+    Applied once, at the browser compiler's only public entry, rather than at
+    each of the four places that read `text_content` -- one of those was missed
+    the first time and that is precisely how the number reached the artifact.
+
+    Text is dropped, not masked: every consumer here already handles a textless
+    event by falling back to the structural candidates (that is how icon-only
+    controls compile), whereas a "[REDACTED]" label would compile into a
+    `click_by_text` that matches nothing and costs a replay timeout to discover.
+
+    Copies rather than mutating -- the caller's bundle is also what gets written
+    to disk as recording_bundle.json, and a scrub is not a reason to rewrite the
+    evidence of what was recorded.
+
+    Only click events are scrubbed. url_events carry URLs, where a number is
+    part of the address the skill must actually request; the login/HAR compiler
+    is not on this path at all.
+    """
+    if not click_events:
+        return click_events
+    out: list[dict] = []
+    for ev in click_events:
+        if not isinstance(ev, dict):
+            out.append(ev)
+            continue
+        clean = dict(ev)
+        for field in ("text_content", "aria_label", "placeholder"):
+            value = clean.get(field)
+            if isinstance(value, str) and _carries_account_number(value):
+                clean[field] = None
+        cands = clean.get("candidates")
+        if isinstance(cands, list):
+            clean["candidates"] = [
+                c
+                for c in cands
+                if not (isinstance(c, dict) and _carries_account_number(str(c.get("value") or "")))
+            ]
+        element = clean.get("element")
+        if isinstance(element, dict):
+            name = element.get("accessible_name")
+            if isinstance(name, str) and _carries_account_number(name):
+                element = dict(element)
+                element["accessible_name"] = None
+                clean["element"] = element
+        out.append(clean)
+    return out
+
 
 def _slug_from_path(url: str) -> str:
     """A stable, readable operation-name stem from a URL's path.
@@ -836,6 +907,8 @@ def _step_for_click(click: dict) -> dict | None:
         kind = str(cand.get("kind") or "")
         if kind == "role_name" and "|" in value:
             value = value.split("|", 1)[1]
+        if _carries_account_number(value):
+            continue
         alts.append({"selector": value} if _is_css_kind(kind) else {"text": value})
     if alts:
         step["params"]["fallbacks"] = alts[:4]
@@ -1646,6 +1719,7 @@ def generate_browser_skill(
 
     Returns the manifest dict.
     """
+    click_events = _scrub_account_numbers(click_events)
     if not profile_slug:
         raise ValueError(
             "generate_browser_skill requires a profile_slug: a browser skill "
