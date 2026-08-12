@@ -848,6 +848,11 @@ def _step_for_click(click: dict) -> dict | None:
         if not (locator and locator.get("is_css")):
             return None
         hover: dict = {"command": "hover", "params": {"selector": locator["value"]}}
+        # Carried so _fold_hover_into_click can tell a reveal from a hover the
+        # pointer merely passed through. Stripped from behaviour comparisons by
+        # _behaviour, like the other underscore-prefixed provenance.
+        if click.get("reveal"):
+            hover["_reveal"] = True
         element = click.get("element") or {}
         if isinstance(element, dict) and element.get("in_iframe"):
             for key in ("frame_url", "frame_name"):
@@ -1023,8 +1028,20 @@ def _fold_hover_into_click(steps: list[dict]) -> list[dict]:
     while i < len(steps):
         step = steps[i]
         nxt = steps[i + 1] if i + 1 < len(steps) else None
+        # `_reveal` is required, not merely preferred. An incidental hover is
+        # ALSO hover-immediately-then-click -- the pointer crosses one nav box on
+        # its way to another -- so adjacency cannot tell the two apart. An ICICI
+        # capture holds both pairs, and folding on position alone produced a step
+        # that hovered Deposits and clicked Cards.
+        #
+        # Bundles recorded before the recorder stamped this carry no `_reveal` at
+        # all, so their hovers stay as separate steps: the pair is not merged and
+        # nothing is invented. That is the safe direction -- an unfolded hover
+        # costs a round trip, a wrongly folded one aims the gesture at the wrong
+        # control.
         if (
             step.get("command") == "hover"
+            and step.get("_reveal")
             and nxt is not None
             and nxt.get("command") == "click_element"
             and (step.get("params") or {}).get("selector")

@@ -24,7 +24,12 @@ ITEM = "a.sub-menu-list-item-link"
 def test_the_pair_becomes_one_step():
     out = _fold_hover_into_click(
         [
-            {"command": "hover", "params": {"selector": NAV}, "expect": {"settle_ms": 4322}},
+            {
+                "command": "hover",
+                "_reveal": True,
+                "params": {"selector": NAV},
+                "expect": {"settle_ms": 4322},
+            },
             {
                 "command": "click_element",
                 "params": {"selector": ITEM},
@@ -55,14 +60,32 @@ def test_the_pair_becomes_one_step():
 
 def test_a_hover_before_something_else_is_left_alone():
     steps = [
-        {"command": "hover", "params": {"selector": NAV}},
+        {"command": "hover", "_reveal": True, "params": {"selector": NAV}},
         {"command": "click_by_text", "params": {"text": "Credit Cards"}},
     ]
     assert [s["command"] for s in _fold_hover_into_click(steps)] == ["hover", "click_by_text"]
 
 
+def test_a_hover_the_pointer_merely_crossed_is_not_folded():
+    """Only a hover the RECORDER marked as a reveal may be folded.
+
+    An incidental hover is also hover-immediately-then-click: the pointer crosses
+    one nav box on its way to another. An ICICI capture held both pairs, and
+    folding on adjacency alone produced a gesture that hovered Deposits and
+    clicked Cards -- so the menu never opened and the whole replay died on step
+    one. Position cannot tell them apart; only `_reveal` can.
+    """
+    steps = [
+        {"command": "hover", "params": {"selector": "#deposits"}},
+        {"command": "click_element", "params": {"selector": "#cards"}},
+    ]
+    folded = _fold_hover_into_click(steps)
+    assert [s["command"] for s in folded] == ["hover", "click_element"]
+    assert "hover_first" not in (folded[1].get("params") or {})
+
+
 def test_a_trailing_hover_survives():
-    steps = [{"command": "hover", "params": {"selector": NAV}}]
+    steps = [{"command": "hover", "_reveal": True, "params": {"selector": NAV}}]
     assert _fold_hover_into_click(steps) == steps
 
 
@@ -73,9 +96,9 @@ def test_an_ordinary_click_is_untouched():
 
 def test_consecutive_pairs_both_fold():
     steps = [
-        {"command": "hover", "params": {"selector": "#a"}},
+        {"command": "hover", "_reveal": True, "params": {"selector": "#a"}},
         {"command": "click_element", "params": {"selector": "#b"}},
-        {"command": "hover", "params": {"selector": "#c"}},
+        {"command": "hover", "_reveal": True, "params": {"selector": "#c"}},
         {"command": "click_element", "params": {"selector": "#d"}},
     ]
     out = _fold_hover_into_click(steps)
@@ -90,7 +113,7 @@ def test_a_selector_that_already_names_one_node_is_left_alone():
 
     out = _fold_hover_into_click(
         [
-            {"command": "hover", "params": {"selector": "#nav"}},
+            {"command": "hover", "_reveal": True, "params": {"selector": "#nav"}},
             {"command": "click_element", "params": {"selector": "#cards"}},
         ]
     )
@@ -104,7 +127,7 @@ def test_a_recorded_path_is_left_alone_too():
     path = "#scroll-container > div > div:nth-of-type(2) > a"
     out = _fold_hover_into_click(
         [
-            {"command": "hover", "params": {"selector": "#nav"}},
+            {"command": "hover", "_reveal": True, "params": {"selector": "#nav"}},
             {"command": "click_element", "params": {"selector": path}},
         ]
     )
@@ -117,7 +140,7 @@ def test_an_existing_fallback_is_kept_behind_the_unscoped_one():
 
     out = _fold_hover_into_click(
         [
-            {"command": "hover", "params": {"selector": "#nav"}},
+            {"command": "hover", "_reveal": True, "params": {"selector": "#nav"}},
             {
                 "command": "click_element",
                 "params": {"selector": "a.item", "fallbacks": [{"text": "Credit Cards"}]},
@@ -157,7 +180,12 @@ def test_the_merged_step_keeps_the_hovers_measurement_of_the_menu():
 
     out = _fold_hover_into_click(
         [
-            {"command": "hover", "params": {"selector": "#nav"}, "expect": {"settle_ms": 4322}},
+            {
+                "command": "hover",
+                "_reveal": True,
+                "params": {"selector": "#nav"},
+                "expect": {"settle_ms": 4322},
+            },
             {
                 "command": "click_element",
                 "params": {"selector": "#cards"},
@@ -174,7 +202,12 @@ def test_the_clicks_own_measurement_wins_when_it_has_one():
 
     out = _fold_hover_into_click(
         [
-            {"command": "hover", "params": {"selector": "#nav"}, "expect": {"settle_ms": 4322}},
+            {
+                "command": "hover",
+                "_reveal": True,
+                "params": {"selector": "#nav"},
+                "expect": {"settle_ms": 4322},
+            },
             {
                 "command": "click_element",
                 "params": {"selector": "#cards"},
