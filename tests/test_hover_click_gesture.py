@@ -59,11 +59,36 @@ def test_the_pair_becomes_one_step():
 
 
 def test_a_hover_before_something_else_is_left_alone():
+    """Something that is not a click at all: there is no gesture to merge into."""
+    steps = [
+        {"command": "hover", "_reveal": True, "params": {"selector": NAV}},
+        {"command": "get_page_summary"},
+    ]
+    assert [s["command"] for s in _fold_hover_into_click(steps)] == ["hover", "get_page_summary"]
+
+
+def test_a_click_by_text_folds_just_like_a_click_element():
+    """The CLICK's command was never the point -- only the hover must be css-addressable.
+
+    Restricting the fold to click_element was accidental. Before evidence was
+    gathered from the clicked element a nav item had no text candidate, so it
+    always compiled to click_element and the restriction never bit; once it
+    gained one and compiled to click_by_text, the pair stopped folding.
+
+    That matters because the two cannot be separate steps. Measured on ICICI:
+    the flyout is display:none, goes to block while the pointer rests on the
+    box, and is back to none within 500ms of it leaving -- so the menu shuts
+    between two round trips. Hovering the box and clicking the revealed item as
+    ONE gesture navigates.
+    """
     steps = [
         {"command": "hover", "_reveal": True, "params": {"selector": NAV}},
         {"command": "click_by_text", "params": {"text": "Credit Cards"}},
     ]
-    assert [s["command"] for s in _fold_hover_into_click(steps)] == ["hover", "click_by_text"]
+    folded = _fold_hover_into_click(steps)
+    assert [s["command"] for s in folded] == ["click_by_text"]
+    assert folded[0]["params"]["hover_first"] == NAV
+    assert folded[0]["params"]["text"] == "Credit Cards"
 
 
 def test_a_hover_the_pointer_merely_crossed_is_not_folded():

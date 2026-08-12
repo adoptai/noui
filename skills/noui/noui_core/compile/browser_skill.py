@@ -317,6 +317,14 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
                 # real click used. Third field this function has been caught
                 # dropping, after candidates and is_opener.
                 "event_type": (c.get("event_type") or "click"),
+                # Whether this hover OPENED the click after it, as the recorder
+                # decided at capture time. Fourth field this function has been
+                # caught dropping. Without it _step_for_click cannot stamp
+                # _reveal, _fold_hover_into_click refuses to merge the pair, and
+                # the gesture replays as two round trips -- which cannot work
+                # here: ICICI's flyout is back to display:none within 500ms of
+                # the pointer leaving the box.
+                "reveal": c.get("reveal"),
                 "is_opener": event_seq(c) in opener_seqs,
                 # The OTHER ways this control was seen. choose_locator collapses
                 # them to one winner above; the runtime needs the rest to fall
@@ -395,6 +403,13 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
                 # skill quietly missing something it had recorded.
                 "seq": c.get("seq"),
                 "url": c.get("url"),
+                # FIFTH field lost here, after candidates, is_opener, event_type
+                # and seq. Without it the hover reaches _step_for_click looking
+                # incidental, no _reveal is stamped, _fold_hover_into_click
+                # declines, and the gesture replays as two round trips -- which
+                # cannot work: ICICI's flyout returns to display:none within
+                # 500ms of the pointer leaving the box.
+                "reveal": c.get("reveal"),
                 "is_opener": c.get("is_opener"),
                 "candidates": c.get("candidates"),
                 "selector": c["selector"],
@@ -1043,7 +1058,21 @@ def _fold_hover_into_click(steps: list[dict]) -> list[dict]:
             step.get("command") == "hover"
             and step.get("_reveal")
             and nxt is not None
-            and nxt.get("command") == "click_element"
+            # click_by_text folds too. The click's command was never the point --
+            # only the HOVER has to be css-addressable, since there is no
+            # hover-by-text. Restricting to click_element was accidental: before
+            # evidence was gathered from the clicked element, a nav item had no
+            # text candidate, so it always compiled to click_element and the
+            # restriction never bit. Once it gained one and compiled to
+            # click_by_text, the pair stopped folding and the menu shut between
+            # the two round trips.
+            #
+            # Measured on ICICI: the flyout is display:none, goes to block while
+            # the pointer rests on the box, and returns to none within 500ms of
+            # it leaving -- so two steps cannot work. Hovering the box and then
+            # clicking the revealed item as ONE gesture navigates to
+            # /credit-card, so one step can.
+            and nxt.get("command") in ("click_element", "click_by_text")
             and (step.get("params") or {}).get("selector")
         ):
             merged = {
