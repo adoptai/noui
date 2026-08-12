@@ -491,9 +491,7 @@ def _return_to_entry(
     # turns into login_required, which is what puts a sign-in card in front of
     # them.
     known = known_urls or set()
-    on_known_page = any(
-        here.split("?")[0].split(";")[0].rstrip("/").startswith(k) for k in known
-    )
+    on_known_page = any(here.split("?")[0].split(";")[0].rstrip("/").startswith(k) for k in known)
     if here and not on_known_page and _is_login_flow_url(here):
         raise SessionNotReadyError(
             f"the browser is on the sign-in flow ({here}), so there is no signed-in "
@@ -568,8 +566,7 @@ def _return_to_entry(
         return _cannot_reset(
             entry_url,
             here,
-            "this app does not allow navigate, and no link back to the start was "
-            "found on the page",
+            "this app does not allow navigate, and no link back to the start was found on the page",
         )
 
     # Nobody watched a human click this. It is the live page's own link back,
@@ -595,9 +592,7 @@ def _return_to_entry(
         return _cannot_reset(entry_url, here, f"clicking the way back failed: {exc}")
 
     if not _same_page(landed, entry_url):
-        return _cannot_reset(
-            entry_url, landed, "clicking the way back did not land on the start"
-        )
+        return _cannot_reset(entry_url, landed, "clicking the way back did not land on the start")
     time.sleep(_settle_after_reset(operations or []))
     return None
 
@@ -737,9 +732,7 @@ def run_replay(
                         #
                         # Operation 0 is where the journey begins, and a fresh
                         # session lands there. Aim at it.
-                        failed = _return_to_entry(
-                            execute, entry_url, known, None, ops, reset_notes
-                        )
+                        failed = _return_to_entry(execute, entry_url, known, None, ops, reset_notes)
                     except SessionNotReadyError as exc:
                         report = build_report([], [])
                         report["status"] = "login_required"
@@ -775,9 +768,7 @@ def run_replay(
                     while True:
                         info = execute("get_page_info", {})
                         here = str((info.get("data") or info).get("url") or "")
-                        if not here or _same_page(
-                            here, starts_from
-                        ):
+                        if not here or _same_page(here, starts_from):
                             break
                         if time.monotonic() >= deadline:
                             break
@@ -788,24 +779,30 @@ def run_replay(
                         # another page must not cost more than the wait itself.
                         time.sleep(_STARTS_FROM_POLL_S)
                 except SessionNotReadyError as exc:
-                    report = build_report(ops[: len(results)], results, already_downloaded=baseline_downloads)
+                    report = build_report(
+                        ops[: len(results)], results, already_downloaded=baseline_downloads
+                    )
                     report["status"] = "login_required"
                     report["detail"] = str(exc)
                     return report
                 except Exception:  # noqa: BLE001 — unreadable url: let the steps report
                     here = ""
                 if here and not _same_page(here, starts_from):
-                    results.append([{
-                        "command": "starts_from",
-                        "params": {"url": starts_from},
-                        "status": "blocked",
-                        "error": (
-                            f"this operation continues from {starts_from}, but the "
-                            f"browser is on {here}. The operation before it did not "
-                            "arrive, so running these steps here would act on the "
-                            "wrong page and report whatever it found."
-                        ),
-                    }])
+                    results.append(
+                        [
+                            {
+                                "command": "starts_from",
+                                "params": {"url": starts_from},
+                                "status": "blocked",
+                                "error": (
+                                    f"this operation continues from {starts_from}, but the "
+                                    f"browser is on {here}. The operation before it did not "
+                                    "arrive, so running these steps here would act on the "
+                                    "wrong page and report whatever it found."
+                                ),
+                            }
+                        ]
+                    )
                     continue
                 # Arrived -- now let it PAINT.
                 #
@@ -836,7 +833,10 @@ def run_replay(
             try:
                 for i, step in enumerate(steps):
                     result = replay_step(
-                        execute, step, recorded=recorded, approvals=approvals,
+                        execute,
+                        step,
+                        recorded=recorded,
+                        approvals=approvals,
                         known_downloads=known_downloads,
                         following=steps[i + 1 :],
                     )
@@ -845,7 +845,9 @@ def run_replay(
                         _let_the_step_land(step, execute)
             except SessionNotReadyError as exc:
                 results.append(step_results)
-                report = build_report(ops[: len(results)], results, already_downloaded=baseline_downloads)
+                report = build_report(
+                    ops[: len(results)], results, already_downloaded=baseline_downloads
+                )
                 report["status"] = "login_required"
                 report["detail"] = str(exc)
                 return report
@@ -871,7 +873,9 @@ def run_replay(
                 )
             except SessionNotReadyError as exc:
                 results.append(step_results)
-                report = build_report(ops[: len(results)], results, already_downloaded=baseline_downloads)
+                report = build_report(
+                    ops[: len(results)], results, already_downloaded=baseline_downloads
+                )
                 report["status"] = "login_required"
                 report["detail"] = str(exc)
                 return report
@@ -881,7 +885,10 @@ def run_replay(
         try:
             for i, step in enumerate(steps):
                 result = replay_step(
-                    execute, step, recorded=recorded, approvals=approvals,
+                    execute,
+                    step,
+                    recorded=recorded,
+                    approvals=approvals,
                     known_downloads=known_downloads,
                     following=steps[i + 1 :],
                 )
@@ -890,7 +897,9 @@ def run_replay(
                     _let_the_step_land(step, execute)
         except SessionNotReadyError as exc:
             results.append(step_results)
-            report = build_report(ops[: len(results)], results, already_downloaded=baseline_downloads)
+            report = build_report(
+                ops[: len(results)], results, already_downloaded=baseline_downloads
+            )
             report["status"] = "login_required"
             report["detail"] = str(exc)
             return report

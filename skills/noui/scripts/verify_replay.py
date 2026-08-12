@@ -36,7 +36,7 @@ from noui_core.verify.session import run_replay
 REPORT_FILE = "replay_report.json"
 
 
-def _read_text(path) -> str:
+def _read_text(path: Path) -> str:
     """File contents, or "" when absent."""
     try:
         return path.read_text(encoding="utf-8")

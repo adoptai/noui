@@ -113,7 +113,9 @@ def test_a_takeover_login_still_finds_the_page_it_landed_on():
         url(1, "about:blank", f"{BASE}/login-page"),
         url(3, f"{BASE}/login-page", f"{BASE}/overview"),
     ]
-    patterns = [s.get("pattern") for s in _takeover_steps(url_events, [click(2)]) if s.get("pattern")]
+    patterns = [
+        s.get("pattern") for s in _takeover_steps(url_events, [click(2)]) if s.get("pattern")
+    ]
     assert patterns == [f"{BASE}/overview**"]
 
 

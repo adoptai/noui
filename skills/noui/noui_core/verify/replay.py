@@ -241,7 +241,7 @@ def arrived_past(step: dict, following: Any, execute: Any) -> bool:
     treated as a real failure, which is the safe direction.
     """
     selector = ""
-    for candidate in (following if isinstance(following, list) else [following]):
+    for candidate in following if isinstance(following, list) else [following]:
         selector = _selector_of(candidate)
         if selector:
             break
@@ -584,9 +584,7 @@ def build_report(
     already: set[str] = set(already_downloaded or ())
     for op, steps in zip(operations, results, strict=False):
         reached = goal_reached(op, steps, already_downloaded=already)
-        already.update(
-            str(r["id"]) for r in downloads_listed(steps) if r.get("id") is not None
-        )
+        already.update(str(r["id"]) for r in downloads_listed(steps) if r.get("id") is not None)
         ops_out.append(
             {
                 "name": op.get("name"),

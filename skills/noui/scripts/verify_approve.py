@@ -33,7 +33,7 @@ from noui_core.verify.replay import approve
 REPORT_FILE = "replay_report.json"
 
 
-def _read(path) -> str:
+def _read(path: Path) -> str:
     """File contents, or "" when absent — an unreadable file is not amendments."""
     try:
         return path.read_text(encoding="utf-8")
@@ -113,9 +113,7 @@ def main() -> int:
         return 1
 
     failing = [
-        str(o.get("name"))
-        for o in report.get("operations") or []
-        if not o.get("goal_reached")
+        str(o.get("name")) for o in report.get("operations") or [] if not o.get("goal_reached")
     ]
     accepted = [str(n) for n in (args.accept_failing or [])]
     if failing and not accepted:
@@ -126,13 +124,14 @@ def main() -> int:
             "the one the member asked for.\n"
             "\n"
             "If the member has decided to ship without them, knowing what each one "
-            "was for, name them: "
-            + " ".join(f"--accept-failing {n}" for n in failing),
+            "was for, name them: " + " ".join(f"--accept-failing {n}" for n in failing),
             file=sys.stderr,
         )
         return 1
 
-    unknown = [n for n in accepted if n not in {str(o.get("name")) for o in report.get("operations") or []}]
+    unknown = [
+        n for n in accepted if n not in {str(o.get("name")) for o in report.get("operations") or []}
+    ]
     if unknown:
         print(
             f"No operation named {', '.join(sorted(unknown))} in this replay. A waiver "
@@ -172,7 +171,7 @@ def main() -> int:
     approved_ids: list[str] = []
     if amendments:
         wanted = set(args.approve_amendment or [])
-        unknown = wanted - {amendments_mod.amendment_id(a) for a in amendments}
+        unknown = sorted(set(wanted) - {amendments_mod.amendment_id(a) for a in amendments})
         if unknown:
             print(
                 f"No amendment has id {', '.join(sorted(unknown))}. Ids come from the "

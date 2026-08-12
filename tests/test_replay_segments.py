@@ -38,13 +38,21 @@ def _op(name, starts_from, seg, full):
 
 
 OPS = [
-    _op("read_cc", None,
+    _op(
+        "read_cc",
+        None,
         [{"command": "click_by_text", "params": {"text": "Cards"}}],
-        [{"command": "click_by_text", "params": {"text": "Cards"}}]),
-    _op("download", CC,
+        [{"command": "click_by_text", "params": {"text": "Cards"}}],
+    ),
+    _op(
+        "download",
+        CC,
         [{"command": "click_element", "params": {"selector": "#DL"}}],
-        [{"command": "click_by_text", "params": {"text": "Cards"}},
-         {"command": "click_element", "params": {"selector": "#DL"}}]),
+        [
+            {"command": "click_by_text", "params": {"text": "Cards"}},
+            {"command": "click_element", "params": {"selector": "#DL"}},
+        ],
+    ),
 ]
 
 
@@ -92,8 +100,9 @@ def test_a_predecessor_that_did_not_arrive_is_reported_not_replayed(monkeypatch)
 def test_a_skill_without_segments_runs_as_it_always_did(monkeypatch):
     page = _Page(OVERVIEW, after_first=CC)
     monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
-    legacy = [{k: v for k, v in o.items() if k not in ("segment_steps", "starts_from")}
-              for o in OPS]
+    legacy = [
+        {k: v for k, v in o.items() if k not in ("segment_steps", "starts_from")} for o in OPS
+    ]
     run_replay(legacy, profile_slug="p", token="t", entry_url=OVERVIEW)
     # The full chain runs, so "Cards" is clicked by both operations.
     assert page.calls.count("click_by_text") == 2
@@ -135,9 +144,7 @@ def test_a_slow_control_is_polled_until_the_budget_runs_out(monkeypatch):
             raise RuntimeError("nothing matches")
         return {"data": {"url": CC}}
 
-    session_mod._await_first_control(
-        never_there, [{"params": {"selector": "#DL"}}], 5.0
-    )
+    session_mod._await_first_control(never_there, [{"params": {"selector": "#DL"}}], 5.0)
     # Polled, then gave up rather than hanging — the step itself reports next.
     assert slept and all(s == 1.0 for s in slept)
 
@@ -177,7 +184,8 @@ def test_the_arrival_budget_comes_from_the_recording(monkeypatch):
     """
     seen: list[float] = []
     monkeypatch.setattr(
-        session_mod, "_await_first_control",
+        session_mod,
+        "_await_first_control",
         lambda ex, steps, budget: seen.append(budget),
     )
     page = _Page(OVERVIEW, after_first=CC)
@@ -191,7 +199,8 @@ def test_the_arrival_budget_comes_from_the_recording(monkeypatch):
 def test_a_skill_without_a_recorded_budget_uses_the_constant(monkeypatch):
     seen: list[float] = []
     monkeypatch.setattr(
-        session_mod, "_await_first_control",
+        session_mod,
+        "_await_first_control",
         lambda ex, steps, budget: seen.append(budget),
     )
     page = _Page(OVERVIEW, after_first=CC)
@@ -271,9 +280,14 @@ def test_operation_zero_resets_to_the_journey_entry_not_the_host_entry(monkeypat
     monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
 
     run_replay(
-        OPS, profile_slug="p", token="t", entry_url=OVERVIEW,
-        entry_by_origin={"https://infinity.icici.bank.in": PORTAL,
-                         "https://retailnetbanking.icici.bank.in": OVERVIEW},
+        OPS,
+        profile_slug="p",
+        token="t",
+        entry_url=OVERVIEW,
+        entry_by_origin={
+            "https://infinity.icici.bank.in": PORTAL,
+            "https://retailnetbanking.icici.bank.in": OVERVIEW,
+        },
     )
     assert aimed == [OVERVIEW]
 
@@ -287,7 +301,8 @@ def test_a_mid_journey_operation_run_alone_is_not_sent_to_the_entry(monkeypatch)
     """
     reset_called: list[str] = []
     monkeypatch.setattr(
-        session_mod, "_return_to_entry",
+        session_mod,
+        "_return_to_entry",
         lambda *a, **k: reset_called.append(a[1]) or None,
     )
     page = _Page(CC)
@@ -301,7 +316,8 @@ def test_a_mid_journey_operation_run_alone_is_not_sent_to_the_entry(monkeypatch)
 def test_the_journey_opener_still_resets_wherever_it_sits(monkeypatch):
     reset_called: list[str] = []
     monkeypatch.setattr(
-        session_mod, "_return_to_entry",
+        session_mod,
+        "_return_to_entry",
         lambda *a, **k: reset_called.append(a[1]) or None,
     )
     page = _Page(OVERVIEW, after_first=CC)
@@ -314,7 +330,8 @@ def test_a_single_operation_run_still_uses_segments(monkeypatch):
     # `len(ops) > 1` silently undid segments the moment --only narrowed a run.
     reset_called: list = []
     monkeypatch.setattr(
-        session_mod, "_return_to_entry",
+        session_mod,
+        "_return_to_entry",
         lambda *a, **k: reset_called.append(a[1]) or None,
     )
     page = _Page(CC)
@@ -424,16 +441,29 @@ def test_operations_are_emitted_in_the_order_they_were_recorded():
     # segment_steps is the operation's OWN work; `steps` prefixes the shared
     # journey, whose first click is identical for every operation.
     journey = [{"_seq": 9}]
-    read_cards = {"name": "read_credit_card", "steps": journey,
-                  "segment_steps": [{"_seq": 9}]}
-    read_portal = {"name": "read_corp_auth", "steps": journey + [{"_seq": 11}],
-                   "segment_steps": [{"_seq": 11}, {"_seq": 12}]}
-    read_finacle = {"name": "read_corp_finacle", "steps": journey + [{"_seq": 20}],
-                    "segment_steps": [{"_seq": 20}, {"_seq": 23}]}
-    submit = {"name": "submit_portal_login", "_terminal_seq": 18,
-              "steps": journey, "segment_steps": [{}]}
-    download = {"name": "download_statement", "_terminal_seq": 22,
-                "steps": journey, "segment_steps": [{"_seq": 23}]}
+    read_cards = {"name": "read_credit_card", "steps": journey, "segment_steps": [{"_seq": 9}]}
+    read_portal = {
+        "name": "read_corp_auth",
+        "steps": journey + [{"_seq": 11}],
+        "segment_steps": [{"_seq": 11}, {"_seq": 12}],
+    }
+    read_finacle = {
+        "name": "read_corp_finacle",
+        "steps": journey + [{"_seq": 20}],
+        "segment_steps": [{"_seq": 20}, {"_seq": 23}],
+    }
+    submit = {
+        "name": "submit_portal_login",
+        "_terminal_seq": 18,
+        "steps": journey,
+        "segment_steps": [{}],
+    }
+    download = {
+        "name": "download_statement",
+        "_terminal_seq": 22,
+        "steps": journey,
+        "segment_steps": [{"_seq": 23}],
+    }
 
     ops = [read_cards, read_portal, read_finacle, submit, download]
     ops.sort(key=_recorded_position)
@@ -441,9 +471,9 @@ def test_operations_are_emitted_in_the_order_they_were_recorded():
     assert [o["name"] for o in ops] == [
         "read_credit_card",
         "read_corp_auth",
-        "submit_portal_login",     # 18 — before the read that navigates past it
-        "read_corp_finacle",       # 20
-        "download_statement",      # 22
+        "submit_portal_login",  # 18 — before the read that navigates past it
+        "read_corp_finacle",  # 20
+        "download_statement",  # 22
     ]
 
 
@@ -463,10 +493,11 @@ def test_a_terminals_position_is_the_earliest_of_what_it_touches():
     """Its lead-in steps carry no position; its terminal does."""
     from noui_core.compile.browser_skill import _recorded_position
 
-    assert _recorded_position(
-        {"_terminal_seq": 22, "segment_steps": [{"_seq": 23}, {"_seq": 24}]}) == 22
-    assert _recorded_position(
-        {"_terminal_seq": 40, "segment_steps": [{"_seq": 23}]}) == 23
+    assert (
+        _recorded_position({"_terminal_seq": 22, "segment_steps": [{"_seq": 23}, {"_seq": 24}]})
+        == 22
+    )
+    assert _recorded_position({"_terminal_seq": 40, "segment_steps": [{"_seq": 23}]}) == 23
 
 
 def test_a_page_that_has_not_finished_loading_is_not_somewhere_to_click(monkeypatch):
@@ -501,7 +532,7 @@ def test_a_worker_that_reports_no_readiness_behaves_as_before(monkeypatch):
         return {"data": {"url": next(urls)}}
 
     monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
-    session_mod._wait_until_the_page_stops_moving(execute)   # returns, does not hang
+    session_mod._wait_until_the_page_stops_moving(execute)  # returns, does not hang
 
 
 def test_a_read_stops_where_the_next_goal_begins():
@@ -515,16 +546,18 @@ def test_a_read_stops_where_the_next_goal_begins():
     """
     from noui_core.compile.browser_skill import _truncate_reads_at_terminals
 
-    read = {"name": "read_page",
-            "steps": [{"_seq": 9}, {"_seq": 17}, {"_seq": 22}, {"_seq": 23}],
-            "segment_steps": [{"_seq": 17}, {"_seq": 22}, {"_seq": 23}]}
+    read = {
+        "name": "read_page",
+        "steps": [{"_seq": 9}, {"_seq": 17}, {"_seq": 22}, {"_seq": 23}],
+        "segment_steps": [{"_seq": 17}, {"_seq": 22}, {"_seq": 23}],
+    }
     monthly = {"name": "download_monthly", "_terminal_seq": 21}
     annual = {"name": "download_annual", "_terminal_seq": 32}
 
     _truncate_reads_at_terminals([read, monthly, annual])
 
     assert [s["_seq"] for s in read["segment_steps"]] == [17]
-    assert [s["_seq"] for s in read["steps"]] == [9, 17]   # journey kept, tail cut
+    assert [s["_seq"] for s in read["steps"]] == [9, 17]  # journey kept, tail cut
 
 
 def test_a_read_that_does_not_span_a_terminal_is_untouched():

@@ -26,12 +26,17 @@ DOWNLOAD_OP = {
     "parameters": [{"name": "timeframe", "default": "monthly"}],
     "steps": [
         {"command": "click_by_text", "params": {"text": "download previous statement"}},
-        {"command": "click_element", "params": {"selector": "#HDisplay23"},
-         "when": {"timeframe": "monthly"}},
-        {"command": "click_by_text", "params": {"text": "Annual"},
-         "when": {"timeframe": "annual"}},
-        {"command": "click_by_text", "params": {"text": "{{financial_year}}"},
-         "when": {"timeframe": "annual"}},
+        {
+            "command": "click_element",
+            "params": {"selector": "#HDisplay23"},
+            "when": {"timeframe": "monthly"},
+        },
+        {"command": "click_by_text", "params": {"text": "Annual"}, "when": {"timeframe": "annual"}},
+        {
+            "command": "click_by_text",
+            "params": {"text": "{{financial_year}}"},
+            "when": {"timeframe": "annual"},
+        },
         {"command": "click_element", "params": {"selector": "#DOWNLOAD_ESTATEMENT_PDF"}},
     ],
 }
@@ -68,7 +73,7 @@ def test_choosing_the_other_variant_swaps_the_divergent_steps():
     assert targets == [
         "download previous statement",
         "Annual",
-        "FY2025-26",          # substitution still applies to the steps that survive
+        "FY2025-26",  # substitution still applies to the steps that survive
         "#DOWNLOAD_ESTATEMENT_PDF",
     ]
     assert "#HDisplay23" not in targets
@@ -77,8 +82,8 @@ def test_choosing_the_other_variant_swaps_the_divergent_steps():
 def test_the_shared_prefix_and_suffix_run_for_every_variant():
     for tf in ("monthly", "annual"):
         cmds = _commands(DOWNLOAD_OP, {"timeframe": tf})
-        assert cmds[0] == "click_by_text"      # reaching the page
-        assert cmds[-1] == "click_element"     # the download itself
+        assert cmds[0] == "click_by_text"  # reaching the page
+        assert cmds[-1] == "click_element"  # the download itself
 
 
 def test_every_named_key_has_to_match():

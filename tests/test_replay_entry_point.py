@@ -333,10 +333,6 @@ class _History(_Browser):
         return super().__call__(command, params)
 
 
-
-
-
-
 # --- history does not stop at the landing page ---------------------------------
 #
 # Measured on ICICI: from /overview one back press lands on /login-page, another
@@ -344,7 +340,6 @@ class _History(_Browser):
 # exactly like being logged out — and pressing on abandons the app entirely.
 
 LOGIN_PG = "https://retailnetbanking.icici.bank.in/login-page"
-
 
 
 def test_leaving_the_app_is_detected():
@@ -400,12 +395,15 @@ def test_without_a_map_behaviour_is_unchanged():
 def test_the_compiler_emits_one_entry_per_host():
     from noui_core.compile import browser_skill
 
-    got = browser_skill.entry_urls_by_origin(URL_EVENTS + [
-        {"seq": 13, "from_url": CC, "to_url": PORTAL},
-        {"seq": 19, "from_url": PORTAL, "to_url": PORTAL + ";jsessionid=x"},
-    ])
-    assert got["https://retailnetbanking.icici.bank.in"] == ENTRY   # not /login-page
-    assert got["https://infinity.icici.bank.in"] == PORTAL          # the FIRST one
+    got = browser_skill.entry_urls_by_origin(
+        URL_EVENTS
+        + [
+            {"seq": 13, "from_url": CC, "to_url": PORTAL},
+            {"seq": 19, "from_url": PORTAL, "to_url": PORTAL + ";jsessionid=x"},
+        ]
+    )
+    assert got["https://retailnetbanking.icici.bank.in"] == ENTRY  # not /login-page
+    assert got["https://infinity.icici.bank.in"] == PORTAL  # the FIRST one
 
 
 # --- repositioning by click, and being honest about which click ----------------
@@ -419,8 +417,7 @@ RECORDED_OPS = [
     {
         "name": "read_overview",
         "steps": [
-            {"command": "click_by_text", "params": {"text": "Home"},
-             "expect": {"url": ENTRY}},
+            {"command": "click_by_text", "params": {"text": "Home"}, "expect": {"url": ENTRY}},
             {"command": "get_page_summary", "params": {}},
         ],
     }
@@ -438,9 +435,7 @@ def test_a_recorded_control_is_preferred_over_hunting_the_page():
 
     b = _B(DRIFTED, HOME_LINK)
     notes: list = []
-    assert session_mod._return_to_entry(
-        b, ENTRY, {ENTRY}, None, RECORDED_OPS, notes
-    ) is None
+    assert session_mod._return_to_entry(b, ENTRY, {ENTRY}, None, RECORDED_OPS, notes) is None
     assert ("click_by_text", {"text": "Home"}) in b.calls
     assert "get_page_summary" not in b.commands, "should not hunt when evidence exists"
     assert notes == [], "a recorded control is not an unobserved reset"
@@ -457,16 +452,34 @@ def test_the_live_page_fallback_is_recorded_as_unobserved():
 
 
 def test_a_recorded_control_for_another_page_is_not_used():
-    ops = [{"name": "x", "steps": [
-        {"command": "click_by_text", "params": {"text": "Cards"},
-         "expect": {"url": DRIFTED}}]}]
+    ops = [
+        {
+            "name": "x",
+            "steps": [
+                {
+                    "command": "click_by_text",
+                    "params": {"text": "Cards"},
+                    "expect": {"url": DRIFTED},
+                }
+            ],
+        }
+    ]
     assert session_mod._recorded_way_back(ops, ENTRY) is None
 
 
 def test_the_query_string_does_not_hide_a_match():
-    ops = [{"name": "x", "steps": [
-        {"command": "click_element", "params": {"selector": "#home"},
-         "expect": {"url": ENTRY + "?ref=nav"}}]}]
+    ops = [
+        {
+            "name": "x",
+            "steps": [
+                {
+                    "command": "click_element",
+                    "params": {"selector": "#home"},
+                    "expect": {"url": ENTRY + "?ref=nav"},
+                }
+            ],
+        }
+    ]
     got = session_mod._recorded_way_back(ops, ENTRY)
     assert got == {"command": "click_element", "params": {"selector": "#home"}}
 
@@ -478,10 +491,12 @@ def test_the_origin_map_uses_the_page_before_the_first_hop():
     # reach, not the one it acts on.
     from noui_core.compile import browser_skill
 
-    got = browser_skill.entry_urls_by_origin([
-        {"seq": 4, "from_url": ENTRY, "to_url": CC},
-        {"seq": 13, "from_url": CC, "to_url": PORTAL},
-    ])
+    got = browser_skill.entry_urls_by_origin(
+        [
+            {"seq": 4, "from_url": ENTRY, "to_url": CC},
+            {"seq": 13, "from_url": CC, "to_url": PORTAL},
+        ]
+    )
     assert got["https://retailnetbanking.icici.bank.in"] == ENTRY
     assert got["https://infinity.icici.bank.in"] == PORTAL
 
@@ -517,10 +532,14 @@ def test_a_wild_recorded_settle_is_capped():
 def test_only_the_first_step_of_each_operation_counts():
     # A slow step deep in a flow says nothing about how long the ENTRY page
     # takes to paint.
-    ops = [{"steps": [
-        {"command": "hover", "expect": {"settle_ms": 100}},
-        {"command": "click_element", "expect": {"settle_ms": 9000}},
-    ]}]
+    ops = [
+        {
+            "steps": [
+                {"command": "hover", "expect": {"settle_ms": 100}},
+                {"command": "click_element", "expect": {"settle_ms": 9000}},
+            ]
+        }
+    ]
     session_mod._RESET_SETTLE_MS = 0
     assert session_mod._settle_after_reset(ops) == 0.1
 

@@ -379,8 +379,13 @@ def test_a_download_still_in_flight_or_failed_is_not_evidence():
 
     op = {"name": "d", "kind": "download"}
     for state in ("in_progress", "failed"):
-        steps = [{"status": "ok", "command": "list_downloads",
-                  "data": {"downloads": [{"id": "dl-1", "state": state}]}}]
+        steps = [
+            {
+                "status": "ok",
+                "command": "list_downloads",
+                "data": {"downloads": [{"id": "dl-1", "state": state}]},
+            }
+        ]
         assert goal_reached(op, steps) is False, state
 
 
@@ -398,8 +403,11 @@ def test_a_download_operation_is_judged_by_its_file_not_its_step_list():
     steps = [
         {"status": "ok", "command": "click_element"},
         {"status": "blocked", "command": "click_element"},
-        {"status": "ok", "command": "list_downloads",
-         "data": {"downloads": [{"id": "dl-7", "state": "completed", "size_bytes": 85216}]}},
+        {
+            "status": "ok",
+            "command": "list_downloads",
+            "data": {"downloads": [{"id": "dl-7", "state": "completed", "size_bytes": 85216}]},
+        },
     ]
     assert goal_reached(op, steps) is True
 
@@ -422,8 +430,11 @@ def test_an_unanswered_approval_still_stops_a_download():
     op = {"name": "download_statement", "kind": "download"}
     steps = [
         {"status": "needs_approval", "command": "click_element"},
-        {"status": "ok", "command": "list_downloads",
-         "data": {"downloads": [{"id": "dl-9", "state": "completed"}]}},
+        {
+            "status": "ok",
+            "command": "list_downloads",
+            "data": {"downloads": [{"id": "dl-9", "state": "completed"}]},
+        },
     ]
     assert goal_reached(op, steps) is False
 
@@ -484,13 +495,15 @@ def test_a_mixture_of_segmented_and_unsegmented_operations_is_refused(monkeypatc
     """
     from noui_core.verify import session as session_mod
 
-    monkeypatch.setattr(session_mod, "_executor", lambda *a, **k: (lambda c, p=None: {"data": {}}))
+    monkeypatch.setattr(session_mod, "_executor", lambda *a, **k: lambda c, p=None: {"data": {}})
     report = session_mod.run_replay(
         [
             {"name": "a", "tool": "call_web_browser", "steps": [], "segment_steps": []},
-            {"name": "b", "tool": "call_web_browser", "steps": []},   # no segment
+            {"name": "b", "tool": "call_web_browser", "steps": []},  # no segment
         ],
-        profile_slug="p", token="t", entry_url="https://x.test/home",
+        profile_slug="p",
+        token="t",
+        entry_url="https://x.test/home",
     )
 
     assert report["status"] == "not_replayable"

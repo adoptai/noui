@@ -91,7 +91,10 @@ def _folded():
     ops = [_op("monthly", [_s("#HDisplay23")]), _op("annual", [_s("#Annual")])]
     fold = fold_candidates(ops)[0]
     return apply_fold(
-        ops, fold, name="download_statement", param="timeframe",
+        ops,
+        fold,
+        name="download_statement",
+        param="timeframe",
         values=["monthly", "annual"],
     )
 
@@ -109,13 +112,19 @@ def test_the_pair_becomes_one_named_operation():
 
 def test_each_variant_replays_its_own_steps():
     op = _folded()[0]
+
     def targets(values):
-        return [
-            (s.get("params") or {}).get("selector")
-            for s in substitute_parameters(op, values)
-        ]
+        return [(s.get("params") or {}).get("selector") for s in substitute_parameters(op, values)]
+
     # The shared journey runs for both; only the middle differs.
-    assert targets({"timeframe": "monthly"}) == ["#nav", "#cards", "#past", "#stmt", "#HDisplay23", None]
+    assert targets({"timeframe": "monthly"}) == [
+        "#nav",
+        "#cards",
+        "#past",
+        "#stmt",
+        "#HDisplay23",
+        None,
+    ]
     assert targets({"timeframe": "annual"}) == ["#nav", "#cards", "#past", "#stmt", "#Annual", None]
 
 
@@ -147,17 +156,31 @@ def test_a_fold_naming_missing_operations_changes_nothing():
 def test_the_compiler_emits_the_hop_alongside_the_journey():
     from noui_core.compile import browser_skill as bs
 
-    pages = bs._resolve_nav_chains([
-        {"name": "read_overview", "url": "https://x.test/overview",
-         "nav": None, "_from_key": None},
-        {"name": "read_cc", "url": "https://x.test/credit-card",
-         "nav": [{"text": "Cards"}], "_from_key": bs._page_key("https://x.test/overview")},
-        {"name": "read_stmt", "url": "https://x.test/stmt",
-         "nav": [{"text": "Past"}], "_from_key": bs._page_key("https://x.test/credit-card")},
-    ])
+    pages = bs._resolve_nav_chains(
+        [
+            {
+                "name": "read_overview",
+                "url": "https://x.test/overview",
+                "nav": None,
+                "_from_key": None,
+            },
+            {
+                "name": "read_cc",
+                "url": "https://x.test/credit-card",
+                "nav": [{"text": "Cards"}],
+                "_from_key": bs._page_key("https://x.test/overview"),
+            },
+            {
+                "name": "read_stmt",
+                "url": "https://x.test/stmt",
+                "nav": [{"text": "Past"}],
+                "_from_key": bs._page_key("https://x.test/credit-card"),
+            },
+        ]
+    )
     stmt = [p for p in pages if p["name"] == "read_stmt"][0]
-    assert [c["text"] for c in stmt["nav"]] == ["Cards", "Past"]   # the journey
-    assert [c["text"] for c in stmt["segment"]] == ["Past"]        # the hop
+    assert [c["text"] for c in stmt["nav"]] == ["Cards", "Past"]  # the journey
+    assert [c["text"] for c in stmt["segment"]] == ["Past"]  # the hop
     assert stmt["starts_from"] == "https://x.test/credit-card"
 
 
@@ -165,10 +188,16 @@ def test_the_landing_page_starts_from_nothing():
     # A fresh session is already there, so there is no hop to record.
     from noui_core.compile import browser_skill as bs
 
-    pages = bs._resolve_nav_chains([
-        {"name": "read_overview", "url": "https://x.test/overview",
-         "nav": None, "_from_key": None},
-    ])
+    pages = bs._resolve_nav_chains(
+        [
+            {
+                "name": "read_overview",
+                "url": "https://x.test/overview",
+                "nav": None,
+                "_from_key": None,
+            },
+        ]
+    )
     assert pages[0]["starts_from"] is None
 
 
@@ -204,8 +233,12 @@ def test_a_terminal_operation_drops_the_journey_from_its_segment():
 def test_a_terminal_with_no_journey_starts_from_the_landing_page():
     from noui_core.compile import browser_skill as bs
 
-    op = {"nav": [], "lead": [], "parameters": [],
-          "terminal": {"command": "click_element", "params": {"selector": "#DL"}}}
+    op = {
+        "nav": [],
+        "lead": [],
+        "parameters": [],
+        "terminal": {"command": "click_element", "params": {"selector": "#DL"}},
+    }
     assert bs._terminal_starts_from(op) is None
     assert bs._terminal_segment(op) == bs._steps_for_terminal(op)
 
@@ -223,13 +256,20 @@ def test_a_terminal_starts_from_its_own_page_not_the_last_stamped_hop():
     op = {
         "url": "https://infinity.icici.bank.in/corp/AuthenticationController",
         "nav": [
-            {"text": "Cards", "outcome": {"to_url": "https://retailnetbanking.icici.bank.in/credit-card"}},
+            {
+                "text": "Cards",
+                "outcome": {"to_url": "https://retailnetbanking.icici.bank.in/credit-card"},
+            },
             {"text": "Past", "outcome": {"navigated": False, "to_url": None}},
         ],
-        "lead": [], "parameters": [],
+        "lead": [],
+        "parameters": [],
         "terminal": {"command": "click_element", "params": {"selector": "#DL"}},
     }
-    assert bs._terminal_starts_from(op) == "https://infinity.icici.bank.in/corp/AuthenticationController"
+    assert (
+        bs._terminal_starts_from(op)
+        == "https://infinity.icici.bank.in/corp/AuthenticationController"
+    )
 
 
 def test_the_segment_is_folded_too_not_just_the_full_steps():
@@ -241,20 +281,28 @@ def test_the_segment_is_folded_too_not_just_the_full_steps():
     from noui_core.verify.replay import substitute_parameters
 
     ops = [
-        {**_op("monthly", [_s("#HDisplay23")]),
-         "segment_steps": [_s("#HDisplay23"), _s("#DL")], "starts_from": "https://x/p"},
-        {**_op("annual", [_s("#Annual"), _s("#GO")]),
-         "segment_steps": [_s("#Annual"), _s("#GO"), _s("#DL")], "starts_from": "https://x/p"},
+        {
+            **_op("monthly", [_s("#HDisplay23")]),
+            "segment_steps": [_s("#HDisplay23"), _s("#DL")],
+            "starts_from": "https://x/p",
+        },
+        {
+            **_op("annual", [_s("#Annual"), _s("#GO")]),
+            "segment_steps": [_s("#Annual"), _s("#GO"), _s("#DL")],
+            "starts_from": "https://x/p",
+        },
     ]
     fold = fold_candidates(ops)[0]
-    out = apply_fold(ops, fold, name="download_statement", param="timeframe",
-                     values=["monthly", "annual"])[0]
+    out = apply_fold(
+        ops, fold, name="download_statement", param="timeframe", values=["monthly", "annual"]
+    )[0]
 
     def seg(tf):
         return [
             (s.get("params") or {}).get("selector")
-            for s in substitute_parameters({**out, "steps": out["segment_steps"]},
-                                           {"timeframe": tf})
+            for s in substitute_parameters(
+                {**out, "steps": out["segment_steps"]}, {"timeframe": tf}
+            )
         ]
 
     assert seg("monthly") == ["#HDisplay23", "#DL"]
@@ -274,7 +322,9 @@ def test_the_terminal_asserts_the_page_it_was_recorded_on():
     op = {
         "url": "https://infinity.icici.bank.in/corp/Finacle",
         "work_url": "https://infinity.icici.bank.in/corp/Finacle",
-        "nav": [], "lead": [], "parameters": [],
+        "nav": [],
+        "lead": [],
+        "parameters": [],
         "terminal": {"command": "click_element", "params": {"selector": "#DL"}},
     }
     steps = bs._steps_for_terminal(op)
@@ -286,12 +336,19 @@ def test_a_recorded_expectation_is_not_overwritten():
     from noui_core.compile import browser_skill as bs
 
     op = {
-        "url": "https://x/page", "nav": [], "lead": [], "parameters": [],
-        "terminal": {"command": "click_element", "params": {"selector": "#DL"},
-                     "expect": {"url": "https://x/observed", "download": True}},
+        "url": "https://x/page",
+        "nav": [],
+        "lead": [],
+        "parameters": [],
+        "terminal": {
+            "command": "click_element",
+            "params": {"selector": "#DL"},
+            "expect": {"url": "https://x/observed", "download": True},
+        },
     }
-    dl = [s for s in bs._steps_for_terminal(op)
-          if (s.get("params") or {}).get("selector") == "#DL"][0]
+    dl = [
+        s for s in bs._steps_for_terminal(op) if (s.get("params") or {}).get("selector") == "#DL"
+    ][0]
     assert dl["expect"]["url"] == "https://x/observed", "what was observed wins"
     assert dl["expect"]["download"] is True
 
@@ -309,24 +366,35 @@ def test_a_branch_keeps_the_journey_only_it_takes():
     from noui_core.verify.replay import substitute_parameters
 
     to_fork = [_s("#nav"), _s("#past"), _s("#stmt")]
-    monthly = {**_op("monthly", [_s("#DL")]),
-               "steps": to_fork + [_s("#DL")] + TAIL,
-               "segment_steps": [_s("#DL")] + TAIL, "starts_from": "https://x/fork"}
-    annual = {**_op("annual", [_s("#DL")]),
-              # its journey continues past the fork: radio, then GO (navigates)
-              "steps": to_fork + [_s("#Annual"), _s("#GO")] + [_s("#year"), _s("#DL")] + TAIL,
-              "segment_steps": [_s("#year"), _s("#DL")] + TAIL,
-              "starts_from": "https://x/after-go"}
+    monthly = {
+        **_op("monthly", [_s("#DL")]),
+        "steps": to_fork + [_s("#DL")] + TAIL,
+        "segment_steps": [_s("#DL")] + TAIL,
+        "starts_from": "https://x/fork",
+    }
+    annual = {
+        **_op("annual", [_s("#DL")]),
+        # its journey continues past the fork: radio, then GO (navigates)
+        "steps": to_fork + [_s("#Annual"), _s("#GO")] + [_s("#year"), _s("#DL")] + TAIL,
+        "segment_steps": [_s("#year"), _s("#DL")] + TAIL,
+        "starts_from": "https://x/after-go",
+    }
 
     fold = fold_candidates([monthly, annual])[0]
-    out = apply_fold([monthly, annual], fold, name="download_statement",
-                     param="timeframe", values=["monthly", "annual"])[0]
+    out = apply_fold(
+        [monthly, annual],
+        fold,
+        name="download_statement",
+        param="timeframe",
+        values=["monthly", "annual"],
+    )[0]
 
     def seg(tf):
         return [
             (s.get("params") or {}).get("selector")
-            for s in substitute_parameters({**out, "steps": out["segment_steps"]},
-                                           {"timeframe": tf})
+            for s in substitute_parameters(
+                {**out, "steps": out["segment_steps"]}, {"timeframe": tf}
+            )
         ]
 
     assert "#Annual" in seg("annual"), "the branch must select itself"
@@ -346,14 +414,16 @@ def test_a_radio_with_no_unique_selector_is_set_by_role_and_name():
     """
     from noui_core.compile.browser_skill import _step_for_click
 
-    step = _step_for_click({
-        "element": {"role": "radio"},
-        "candidates": [
-            {"kind": "id", "value": "#PERIOD_TYPE", "match_count": 2},
-            {"kind": "name", "value": 'input[name="PERIOD_TYPE"]', "match_count": 2},
-            {"kind": "role_name", "value": "radio|Annual", "match_count": 1},
-        ],
-    })
+    step = _step_for_click(
+        {
+            "element": {"role": "radio"},
+            "candidates": [
+                {"kind": "id", "value": "#PERIOD_TYPE", "match_count": 2},
+                {"kind": "name", "value": 'input[name="PERIOD_TYPE"]', "match_count": 2},
+                {"kind": "role_name", "value": "radio|Annual", "match_count": 1},
+            ],
+        }
+    )
     assert step["command"] == "set_checked"
     assert step["params"] == {"role": "radio", "name": "Annual", "checked": True}
 
@@ -361,13 +431,15 @@ def test_a_radio_with_no_unique_selector_is_set_by_role_and_name():
 def test_a_unique_selector_is_still_preferred():
     from noui_core.compile.browser_skill import _step_for_click
 
-    step = _step_for_click({
-        "element": {"role": "radio"},
-        "candidates": [
-            {"kind": "id", "value": "#annual", "match_count": 1},
-            {"kind": "role_name", "value": "radio|Annual", "match_count": 1},
-        ],
-    })
+    step = _step_for_click(
+        {
+            "element": {"role": "radio"},
+            "candidates": [
+                {"kind": "id", "value": "#annual", "match_count": 1},
+                {"kind": "role_name", "value": "radio|Annual", "match_count": 1},
+            ],
+        }
+    )
     assert step["params"]["selector"] == "#annual"
 
 
@@ -384,21 +456,28 @@ def test_a_completed_download_ends_the_previous_variant():
     from noui_core.compile.browser_skill import _after_last_terminal
 
     steps = [
-        {"command": "click_element", "params": {"selector": "#PDF_Download"},
-         "expect": {"download": True}},
+        {
+            "command": "click_element",
+            "params": {"selector": "#PDF_Download"},
+            "expect": {"download": True},
+        },
         {"command": "set_checked", "params": {"role": "radio", "name": "Annual"}},
         {"command": "click_element", "params": {"selector": "#GO"}},
     ]
-    kept = [(s.get("params") or {}).get("selector") or (s.get("params") or {}).get("name")
-            for s in _after_last_terminal(steps)]
+    kept = [
+        (s.get("params") or {}).get("selector") or (s.get("params") or {}).get("name")
+        for s in _after_last_terminal(steps)
+    ]
     assert kept == ["Annual", "#GO"]
 
 
 def test_steps_with_no_terminal_are_left_alone():
     from noui_core.compile.browser_skill import _after_last_terminal
 
-    steps = [{"command": "click_by_text", "params": {"text": "Past"}},
-             {"command": "click_element", "params": {"selector": "#x"}}]
+    steps = [
+        {"command": "click_by_text", "params": {"text": "Past"}},
+        {"command": "click_element", "params": {"selector": "#x"}},
+    ]
     assert _after_last_terminal(steps) == steps
 
 
@@ -413,7 +492,9 @@ def test_only_the_last_terminal_bounds_it():
         {"command": "list_downloads", "params": {}},
         {"command": "click_element", "params": {"selector": "#keep"}},
     ]
-    assert [(s.get("params") or {}).get("selector") for s in _after_last_terminal(steps)] == ["#keep"]
+    assert [(s.get("params") or {}).get("selector") for s in _after_last_terminal(steps)] == [
+        "#keep"
+    ]
 
 
 def test_a_terminal_the_steps_cannot_show_still_bounds_the_branch():
@@ -433,8 +514,10 @@ def test_a_terminal_the_steps_cannot_show_still_bounds_the_branch():
         {"command": "set_checked", "params": {"role": "radio", "name": "Annual"}, "_seq": 23},
         {"command": "click_element", "params": {"selector": "#DUMMY1"}, "_seq": 24},
     ]
-    kept = [(s.get("params") or {}).get("selector") or (s.get("params") or {}).get("name")
-            for s in _after_last_terminal(steps, boundary_seq=22)]
+    kept = [
+        (s.get("params") or {}).get("selector") or (s.get("params") or {}).get("name")
+        for s in _after_last_terminal(steps, boundary_seq=22)
+    ]
     assert kept == ["Annual", "#DUMMY1"]
 
 
@@ -447,9 +530,9 @@ def test_a_terminal_that_has_not_happened_yet_bounds_nothing():
     """
     from noui_core.compile.browser_skill import _preceding_terminal
 
-    assert _preceding_terminal(22, 40) is None      # monthly bounded by annual: no
-    assert _preceding_terminal(40, 22) == 22        # annual bounded by monthly: yes
-    assert _preceding_terminal(22, 22) is None      # one operation is not its own boundary
+    assert _preceding_terminal(22, 40) is None  # monthly bounded by annual: no
+    assert _preceding_terminal(40, 22) == 22  # annual bounded by monthly: yes
+    assert _preceding_terminal(22, 22) is None  # one operation is not its own boundary
     assert _preceding_terminal(None, 22) is None
     assert _preceding_terminal(40, None) is None
 
@@ -472,13 +555,18 @@ def test_provenance_never_makes_two_identical_actions_differ():
 def _pair():
     """The monthly/annual pair, shaped like the real fold."""
     to_fork = [_s("#nav"), _s("#past"), _s("#stmt")]
-    monthly = {**_op("monthly", [_s("#DL")]),
-               "steps": to_fork + [_s("#DL")] + TAIL,
-               "segment_steps": [_s("#DL")] + TAIL}
-    annual = {**_op("annual", [_s("#DL")]),
-              "steps": to_fork + [_s("#Annual"), _s("#GO")] + [_s("#year"), _s("#DL")] + TAIL,
-              "segment_steps": [_s("#year"), _s("#DL")] + TAIL}
+    monthly = {
+        **_op("monthly", [_s("#DL")]),
+        "steps": to_fork + [_s("#DL")] + TAIL,
+        "segment_steps": [_s("#DL")] + TAIL,
+    }
+    annual = {
+        **_op("annual", [_s("#DL")]),
+        "steps": to_fork + [_s("#Annual"), _s("#GO")] + [_s("#year"), _s("#DL")] + TAIL,
+        "segment_steps": [_s("#year"), _s("#DL")] + TAIL,
+    }
     return monthly, annual
+
 
 def test_each_variant_starts_where_its_own_work_happens():
     """A folded operation's variants need not share a page.
@@ -495,8 +583,13 @@ def test_each_variant_starts_where_its_own_work_happens():
     annual["starts_from"] = "https://p.test/corp/Finacle"
 
     fold = fold_candidates([monthly, annual])[0]
-    out = apply_fold([monthly, annual], fold, name="download_statement",
-                     param="timeframe", values=["monthly", "annual"])
+    out = apply_fold(
+        [monthly, annual],
+        fold,
+        name="download_statement",
+        param="timeframe",
+        values=["monthly", "annual"],
+    )
     op = [o for o in out if o["name"] == "download_statement"][0]
 
     assert op["starts_from_by"] == {
@@ -516,7 +609,8 @@ def test_variants_that_share_a_page_carry_no_override():
     monthly["starts_from"] = annual["starts_from"] = "https://p.test/same"
 
     fold = fold_candidates([monthly, annual])[0]
-    out = apply_fold([monthly, annual], fold, name="d", param="timeframe",
-                     values=["monthly", "annual"])
+    out = apply_fold(
+        [monthly, annual], fold, name="d", param="timeframe", values=["monthly", "annual"]
+    )
     op = [o for o in out if o["name"] == "d"][0]
     assert "starts_from_by" not in op

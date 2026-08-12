@@ -30,8 +30,13 @@ LOGIN_CLICK = {
         {"kind": "name", "value": 'input[name="Action\\.DEH_LOGIN"]', "match_count": 1},
         {"kind": "role_name", "value": "button|Log In", "match_count": 1},
     ],
-    "locator": {"kind": "id", "value": "#DEH_LOGIN", "is_css": True,
-                "match_count": 1, "confidence": "unique"},
+    "locator": {
+        "kind": "id",
+        "value": "#DEH_LOGIN",
+        "is_css": True,
+        "match_count": 1,
+        "confidence": "unique",
+    },
 }
 
 
@@ -41,17 +46,31 @@ def test_a_login_control_is_recognised_by_its_accessible_name():
 
 
 def test_an_ordinary_control_is_not():
-    assert _is_login_control({"candidates": [
-        {"kind": "role_name", "value": "button|GO"},
-        {"kind": "id", "value": "#DUMMY1"},
-    ]}) is False
+    assert (
+        _is_login_control(
+            {
+                "candidates": [
+                    {"kind": "role_name", "value": "button|GO"},
+                    {"kind": "id", "value": "#DUMMY1"},
+                ]
+            }
+        )
+        is False
+    )
 
 
 def test_a_page_about_logins_is_not_a_login_control():
     # The match is anchored to the end of the accessible name.
-    assert _is_login_control({"candidates": [
-        {"kind": "role_name", "value": "link|Login history"},
-    ]}) is False
+    assert (
+        _is_login_control(
+            {
+                "candidates": [
+                    {"kind": "role_name", "value": "link|Login history"},
+                ]
+            }
+        )
+        is False
+    )
 
 
 def test_the_step_is_marked_optional_with_a_reason():
@@ -64,7 +83,7 @@ def test_an_absent_login_control_is_skipped_not_blocked():
     step = {**_step_for_click(LOGIN_CLICK), "command": "click_element"}
 
     def execute(cmd, params):
-        raise RuntimeError("nothing on the page matches \"#DEH_LOGIN\"")
+        raise RuntimeError('nothing on the page matches "#DEH_LOGIN"')
 
     res = replay_step(execute, step, recorded={_control_identity(step)})
     assert res["status"] == SKIPPED
@@ -86,7 +105,7 @@ def test_a_non_optional_step_is_never_skipped():
     step = {"command": "click_element", "params": {"selector": "#DL"}}
 
     def execute(cmd, params):
-        raise RuntimeError("nothing on the page matches \"#DL\"")
+        raise RuntimeError('nothing on the page matches "#DL"')
 
     assert replay_step(execute, step, recorded={_control_identity(step)})["status"] == BLOCKED
 

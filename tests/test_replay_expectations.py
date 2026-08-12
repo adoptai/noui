@@ -121,7 +121,11 @@ def test_a_genuinely_different_page_still_fails():
     from noui_core.verify.replay import expectation_unmet
 
     def execute(cmd, params):
-        return {"data": {"url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=x"}}
+        return {
+            "data": {
+                "url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=x"
+            }
+        }
 
     unmet = expectation_unmet(
         {"url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=y"}, execute
@@ -136,8 +140,7 @@ def test_a_download_step_does_not_pass_on_a_file_from_an_earlier_step():
     nothing; the monthly PDF from four steps earlier is still listed, so the
     step's own `expect.download` was satisfied by it.
     """
-    step = {"command": "click_element", "params": {"selector": "#dl"},
-            "expect": {"download": True}}
+    step = {"command": "click_element", "params": {"selector": "#dl"}, "expect": {"download": True}}
     known = {"dl-1"}
     res = replay_step(
         _exec(downloads=[{"id": "dl-1", "state": "completed"}]),
@@ -150,12 +153,12 @@ def test_a_download_step_does_not_pass_on_a_file_from_an_earlier_step():
 
 
 def test_a_download_step_passes_on_a_file_that_arrived_here():
-    step = {"command": "click_element", "params": {"selector": "#dl"},
-            "expect": {"download": True}}
+    step = {"command": "click_element", "params": {"selector": "#dl"}, "expect": {"download": True}}
     known = {"dl-1"}
     res = replay_step(
-        _exec(downloads=[{"id": "dl-1", "state": "completed"},
-                         {"id": "dl-2", "state": "completed"}]),
+        _exec(
+            downloads=[{"id": "dl-1", "state": "completed"}, {"id": "dl-2", "state": "completed"}]
+        ),
         step,
         recorded={_control_identity(step)},
         known_downloads=known,
@@ -167,8 +170,12 @@ def test_a_download_step_passes_on_a_file_that_arrived_here():
 
 # --- arrived past a step ------------------------------------------------------
 
+
 def _invisible(_cmd, _params=None):
-    return {"success": False, "error": "this control is on the page but not visible, so acting on it would do nothing"}
+    return {
+        "success": False,
+        "error": "this control is on the page but not visible, so acting on it would do nothing",
+    }
 
 
 def test_a_step_the_page_has_moved_past_is_skipped_not_blocked():
@@ -184,12 +191,14 @@ def test_a_step_the_page_has_moved_past_is_skipped_not_blocked():
     def execute(command, params=None):
         calls.append((command, params))
         if command == "wait_for_selector":
-            return {"success": True}          # the NEXT control is on screen
+            return {"success": True}  # the NEXT control is on screen
         return _invisible(command, params)
 
     step = {"command": "click_element", "params": {"selector": "#DUMMY1"}}
     res = replay_step(
-        execute, step, recorded={_control_identity(step)},
+        execute,
+        step,
+        recorded={_control_identity(step)},
         following=[{"command": "click_element", "params": {"selector": "#PDF_Download"}}],
     )
 
@@ -204,14 +213,17 @@ def test_an_invisible_control_whose_successor_is_also_hidden_still_blocks():
     after it. Blocking there is right -- something that should have revealed it
     has not run.
     """
+
     def execute(command, params=None):
         if command == "wait_for_selector":
-            return {"success": False, "error": "Timeout"}   # successor not there either
+            return {"success": False, "error": "Timeout"}  # successor not there either
         return _invisible(command, params)
 
     step = {"command": "click_element", "params": {"selector": "a.sub-menu-list-item-link"}}
     res = replay_step(
-        execute, step, recorded={_control_identity(step)},
+        execute,
+        step,
+        recorded={_control_identity(step)},
         following=[{"command": "click_element", "params": {"selector": "#deeper"}}],
     )
 
@@ -229,7 +241,9 @@ def test_a_successor_named_only_by_text_is_not_evidence():
     """Only a CSS selector can be probed without acting on the page."""
     step = {"command": "click_element", "params": {"selector": "#DUMMY1"}}
     res = replay_step(
-        _invisible, step, recorded={_control_identity(step)},
+        _invisible,
+        step,
+        recorded={_control_identity(step)},
         following=[{"command": "click_by_text", "params": {"text": "FY2025-26"}}],
     )
     assert res["status"] == BLOCKED
@@ -243,15 +257,20 @@ def test_a_control_that_is_gone_entirely_is_the_same_situation():
     what decides whether that is a failure is the same either way: what comes
     next.
     """
+
     def execute(command, params=None):
         if command == "wait_for_selector":
             return {"success": True}
-        return {"success": False,
-                "error": 'nothing on the page matches "#DUMMY1", nor any of the 1 recorded alternative(s)'}
+        return {
+            "success": False,
+            "error": 'nothing on the page matches "#DUMMY1", nor any of the 1 recorded alternative(s)',
+        }
 
     step = {"command": "click_element", "params": {"selector": "#DUMMY1"}}
     res = replay_step(
-        execute, step, recorded={_control_identity(step)},
+        execute,
+        step,
+        recorded={_control_identity(step)},
         following=[{"command": "click_element", "params": {"selector": "#PDF_Download"}}],
     )
     assert res["status"] == SKIPPED
@@ -275,9 +294,11 @@ def test_evidence_comes_from_the_next_step_that_names_a_control():
 
     step = {"command": "click_element", "params": {"selector": "#DUMMY1"}}
     res = replay_step(
-        execute, step, recorded={_control_identity(step)},
+        execute,
+        step,
+        recorded={_control_identity(step)},
         following=[
-            {"command": "get_page_summary", "params": {}},          # names nothing
+            {"command": "get_page_summary", "params": {}},  # names nothing
             {"command": "click_element", "params": {"selector": "#PDF_Download"}},
         ],
     )
@@ -328,12 +349,14 @@ def test_the_retry_happens_before_deciding_the_page_moved_past_it():
 
     step = {"command": "click_element", "params": {"selector": "#slow"}}
     res = replay_step(
-        execute, step, recorded={_control_identity(step)},
+        execute,
+        step,
+        recorded={_control_identity(step)},
         following=[{"command": "click_element", "params": {"selector": "#later"}}],
     )
 
     assert res["status"] == OK
-    assert probed == []          # never had to ask whether we had moved past it
+    assert probed == []  # never had to ask whether we had moved past it
 
 
 def test_a_control_that_stays_unreachable_still_blocks():
@@ -344,7 +367,9 @@ def test_a_control_that_stays_unreachable_still_blocks():
 
     step = {"command": "click_element", "params": {"selector": "#gone"}}
     res = replay_step(
-        execute, step, recorded={_control_identity(step)},
+        execute,
+        step,
+        recorded={_control_identity(step)},
         following=[{"command": "click_element", "params": {"selector": "#later"}}],
     )
     assert res["status"] == BLOCKED

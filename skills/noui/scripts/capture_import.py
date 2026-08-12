@@ -149,7 +149,8 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     # this is the recommendation surfaced to a user authoring a skill in the
     # harness, so browser mode is never picked silently.
     _report_kind(result, skill, declared=bool(getattr(args, "browser_driven", False)))
-    _apply_folds(skill, getattr(args, "fold", []) or []) or _report_folds(skill)
+    if not _apply_folds(skill, getattr(args, "fold", []) or []):
+        _report_folds(skill)
     if args.auth_type == "api-key":
         secrets = (skill.get("secrets_required") if skill else None) or (
             mcp.get("secrets_required") if mcp else None

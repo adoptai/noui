@@ -25,6 +25,7 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from noui_core.compile.locators import AMBIGUOUS, UNKNOWN, choose_locator
@@ -694,9 +695,13 @@ def _step_for_click(click: dict) -> dict | None:
             # meant to fix, made silent again. An ambiguous selector is worse
             # here than no selector: falling through leaves the step as it was.
             if cand.get("value") and cand.get("match_count") in (1, -1):
-                target = {"value": str(cand["value"]), "kind": cand.get("kind"),
-                          "match_count": cand.get("match_count"),
-                          "confidence": UNKNOWN, "is_css": True}
+                target = {
+                    "value": str(cand["value"]),
+                    "kind": cand.get("kind"),
+                    "match_count": cand.get("match_count"),
+                    "confidence": UNKNOWN,
+                    "is_css": True,
+                }
                 break
     # No unique selector? Address it the way the recorder identified it: role
     # plus accessible name, which the worker now resolves for set_checked. That
@@ -712,18 +717,17 @@ def _step_for_click(click: dict) -> dict | None:
             role_part, name_part = value.split("|", 1)
             if role_part.strip().lower() not in ("radio", "checkbox"):
                 continue
-            step = {
+            checked_step: dict[str, Any] = {
                 "command": "set_checked",
-                "params": {"role": role_part.strip(), "name": name_part.strip(),
-                           "checked": True},
+                "params": {"role": role_part.strip(), "name": name_part.strip(), "checked": True},
             }
             expect = _expect_for_click(click)
             if expect:
-                step["expect"] = expect
-            return step
+                checked_step["expect"] = expect
+            return checked_step
 
     if role in ("radio", "checkbox") and target:
-        step = {
+        checked_step = {
             "command": "set_checked",
             "params": {"selector": target["value"], "checked": True},
         }
@@ -731,11 +735,11 @@ def _step_for_click(click: dict) -> dict | None:
             for key in ("frame_url", "frame_name"):
                 value = str(element.get(key) or "").strip()
                 if value:
-                    step["params"][key] = value
+                    checked_step["params"][key] = value
         expect = _expect_for_click(click)
         if expect:
-            step["expect"] = expect
-        return step
+            checked_step["expect"] = expect
+        return checked_step
 
     # A locator that resolves to the document addresses no control. It appears
     # when the click landed on padding and the walk found nothing better, and at
@@ -849,8 +853,7 @@ def _step_for_click(click: dict) -> dict | None:
     if step is not None and optional:
         step["optional"] = True
         step["optional_reason"] = (
-            "this signs in to the app this operation runs on, which a replay "
-            "may already have done"
+            "this signs in to the app this operation runs on, which a replay may already have done"
         )
     return step
 
@@ -946,8 +949,10 @@ def _fold_hover_into_click(steps: list[dict]) -> list[dict]:
             and nxt.get("command") == "click_element"
             and (step.get("params") or {}).get("selector")
         ):
-            merged = {**nxt, "params": {**(nxt.get("params") or {}),
-                                        "hover_first": step["params"]["selector"]}}
+            merged = {
+                **nxt,
+                "params": {**(nxt.get("params") or {}), "hover_first": step["params"]["selector"]},
+            }
             _scope_under_the_hover(merged, step["params"]["selector"])
             # The hover's own expectation described opening the menu; the click's
             # describes where the gesture lands. Keep the click's -- but NOT its
@@ -967,8 +972,7 @@ def _fold_hover_into_click(steps: list[dict]) -> list[dict]:
             # it exists.
             hover_settle = (step.get("expect") or {}).get("settle_ms")
             if hover_settle and not (merged.get("expect") or {}).get("settle_ms"):
-                merged["expect"] = {**(merged.get("expect") or {}),
-                                    "settle_ms": hover_settle}
+                merged["expect"] = {**(merged.get("expect") or {}), "settle_ms": hover_settle}
             out.append(merged)
             i += 2
             continue
@@ -1038,7 +1042,7 @@ def arrival_budget_ms(click_events: list[dict], arrive_seq: int | None) -> int |
         return None
     ordered = sorted(
         (c for c in click_events or [] if event_seq(c) is not None),
-        key=lambda c: event_seq(c),
+        key=lambda c: event_seq(c) or 0,
     )
     cause = next((c for c in ordered if event_seq(c) == arrive_seq), None)
     if cause is None:
@@ -1047,7 +1051,7 @@ def arrival_budget_ms(click_events: list[dict], arrive_seq: int | None) -> int |
     if start is None:
         return None
     for c in ordered:
-        if event_seq(c) <= arrive_seq:
+        if (event_seq(c) or 0) <= arrive_seq:
             continue
         at = _parse_ts(c.get("timestamp") or "")
         if at is None:
@@ -1258,10 +1262,7 @@ def _truncate_reads_at_terminals(operations: list[dict]) -> None:
         if not inside:
             continue
         cut = inside[0]
-        kept = [
-            s for s in segment
-            if not (isinstance(s.get("_seq"), int) and s["_seq"] > cut)
-        ]
+        kept = [s for s in segment if not (isinstance(s.get("_seq"), int) and s["_seq"] > cut)]
         dropped = len(segment) - len(kept)
         if not dropped:
             continue
@@ -1289,9 +1290,7 @@ def _recorded_position(op: dict) -> float:
     if own is None:
         own = op.get("steps") or []
     seqs = [
-        step["_seq"]
-        for step in own
-        if isinstance(step, dict) and isinstance(step.get("_seq"), int)
+        step["_seq"] for step in own if isinstance(step, dict) and isinstance(step.get("_seq"), int)
     ]
     terminal = op.get("_terminal_seq")
     if isinstance(terminal, int):
@@ -1373,9 +1372,7 @@ def render_browser_operations_json(
             # with "expected to be on /credit-card ... but the page is
             # /overview". Every operation after it then failed its own guard.
             segment = p.get("nav") or []
-        op["segment_steps"] = (
-            _steps_for_page({**p, "nav": segment}) if segment is not None else []
-        )
+        op["segment_steps"] = _steps_for_page({**p, "nav": segment}) if segment is not None else []
         # How long the page AFTER this operation took to become usable, measured
         # from the human's own gap. Stamped on the operation that CAUSES the
         # arrival, because that is the click the gap was measured from.
@@ -1422,7 +1419,7 @@ def render_browser_operations_json(
     # place, since a stable sort leaves equal keys alone.
     _truncate_reads_at_terminals(operations)
     operations.sort(key=_recorded_position)
-    doc = {"schema_version": "1", "style": "browser", "operations": operations}
+    doc: dict[str, Any] = {"schema_version": "1", "style": "browser", "operations": operations}
     if entry_by_origin:
         # One per host. A reset must not change hosts -- see entry_urls_by_origin.
         doc["entry_urls"] = entry_by_origin
@@ -2129,9 +2126,7 @@ def fold_candidates(operations: list[dict]) -> list[dict]:
     out: list[dict] = []
     # `operations` is a count in some result shapes, not a list of steps -- and
     # a report that raises would fail an import that otherwise succeeded.
-    ops = [
-        o for o in operations or [] if isinstance(o, dict) and isinstance(o.get("steps"), list)
-    ]
+    ops = [o for o in operations or [] if isinstance(o, dict) and isinstance(o.get("steps"), list)]
     for i, a in enumerate(ops):
         for b in ops[i + 1 :]:
             if (a.get("kind") or "read") != (b.get("kind") or "read"):
@@ -2232,8 +2227,9 @@ def _branch_work(a: dict, b: dict) -> tuple[list[dict], list[dict]]:
     )
 
 
-def _merge_branches(a_steps: list[dict], b_steps: list[dict], param: str,
-                    values: list[str]) -> list[dict]:
+def _merge_branches(
+    a_steps: list[dict], b_steps: list[dict], param: str, values: list[str]
+) -> list[dict]:
     """One list: shared prefix, each divergent middle tagged, shared ending.
 
     Used for BOTH `steps` and `segment_steps`. Folding only the former left the

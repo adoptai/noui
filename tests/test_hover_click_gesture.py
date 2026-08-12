@@ -22,12 +22,17 @@ ITEM = "a.sub-menu-list-item-link"
 
 
 def test_the_pair_becomes_one_step():
-    out = _fold_hover_into_click([
-        {"command": "hover", "params": {"selector": NAV}, "expect": {"settle_ms": 4322}},
-        {"command": "click_element", "params": {"selector": ITEM},
-         "expect": {"url": "https://x/credit-card"}},
-        {"command": "get_page_summary", "params": {}},
-    ])
+    out = _fold_hover_into_click(
+        [
+            {"command": "hover", "params": {"selector": NAV}, "expect": {"settle_ms": 4322}},
+            {
+                "command": "click_element",
+                "params": {"selector": ITEM},
+                "expect": {"url": "https://x/credit-card"},
+            },
+            {"command": "get_page_summary", "params": {}},
+        ]
+    )
     assert [s["command"] for s in out] == ["click_element", "get_page_summary"]
     # The click is addressed INSIDE what the hover revealed. `a.sub-menu-list-
     # item-link` is a class every submenu item in this nav carries, so unscoped
@@ -83,10 +88,12 @@ def test_a_selector_that_already_names_one_node_is_left_alone():
     """An id addresses one node by definition; scoping it would only add risk."""
     from noui_core.compile.browser_skill import _fold_hover_into_click
 
-    out = _fold_hover_into_click([
-        {"command": "hover", "params": {"selector": "#nav"}},
-        {"command": "click_element", "params": {"selector": "#cards"}},
-    ])
+    out = _fold_hover_into_click(
+        [
+            {"command": "hover", "params": {"selector": "#nav"}},
+            {"command": "click_element", "params": {"selector": "#cards"}},
+        ]
+    )
     assert out[0]["params"] == {"selector": "#cards", "hover_first": "#nav"}
 
 
@@ -95,10 +102,12 @@ def test_a_recorded_path_is_left_alone_too():
     from noui_core.compile.browser_skill import _fold_hover_into_click
 
     path = "#scroll-container > div > div:nth-of-type(2) > a"
-    out = _fold_hover_into_click([
-        {"command": "hover", "params": {"selector": "#nav"}},
-        {"command": "click_element", "params": {"selector": path}},
-    ])
+    out = _fold_hover_into_click(
+        [
+            {"command": "hover", "params": {"selector": "#nav"}},
+            {"command": "click_element", "params": {"selector": path}},
+        ]
+    )
     assert out[0]["params"]["selector"] == path
     assert "fallbacks" not in out[0]["params"]
 
@@ -106,11 +115,15 @@ def test_a_recorded_path_is_left_alone_too():
 def test_an_existing_fallback_is_kept_behind_the_unscoped_one():
     from noui_core.compile.browser_skill import _fold_hover_into_click
 
-    out = _fold_hover_into_click([
-        {"command": "hover", "params": {"selector": "#nav"}},
-        {"command": "click_element",
-         "params": {"selector": "a.item", "fallbacks": [{"text": "Credit Cards"}]}},
-    ])
+    out = _fold_hover_into_click(
+        [
+            {"command": "hover", "params": {"selector": "#nav"}},
+            {
+                "command": "click_element",
+                "params": {"selector": "a.item", "fallbacks": [{"text": "Credit Cards"}]},
+            },
+        ]
+    )
     assert out[0]["params"]["selector"] == "#nav a.item"
     assert out[0]["params"]["fallbacks"] == [{"selector": "a.item"}, {"text": "Credit Cards"}]
 
@@ -142,12 +155,16 @@ def test_the_merged_step_keeps_the_hovers_measurement_of_the_menu():
     """
     from noui_core.compile.browser_skill import _fold_hover_into_click
 
-    out = _fold_hover_into_click([
-        {"command": "hover", "params": {"selector": "#nav"},
-         "expect": {"settle_ms": 4322}},
-        {"command": "click_element", "params": {"selector": "#cards"},
-         "expect": {"url": "https://x.test/credit-card"}},
-    ])
+    out = _fold_hover_into_click(
+        [
+            {"command": "hover", "params": {"selector": "#nav"}, "expect": {"settle_ms": 4322}},
+            {
+                "command": "click_element",
+                "params": {"selector": "#cards"},
+                "expect": {"url": "https://x.test/credit-card"},
+            },
+        ]
+    )
     assert out[0]["expect"] == {"url": "https://x.test/credit-card", "settle_ms": 4322}
 
 
@@ -155,9 +172,14 @@ def test_the_clicks_own_measurement_wins_when_it_has_one():
     """What the click observed is about where it landed — the better answer."""
     from noui_core.compile.browser_skill import _fold_hover_into_click
 
-    out = _fold_hover_into_click([
-        {"command": "hover", "params": {"selector": "#nav"}, "expect": {"settle_ms": 4322}},
-        {"command": "click_element", "params": {"selector": "#cards"},
-         "expect": {"settle_ms": 900}},
-    ])
+    out = _fold_hover_into_click(
+        [
+            {"command": "hover", "params": {"selector": "#nav"}, "expect": {"settle_ms": 4322}},
+            {
+                "command": "click_element",
+                "params": {"selector": "#cards"},
+                "expect": {"settle_ms": 900},
+            },
+        ]
+    )
     assert out[0]["expect"]["settle_ms"] == 900
