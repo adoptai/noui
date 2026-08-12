@@ -424,7 +424,28 @@ def _nav_clicks_for(from_url: str, nav_ev: dict, click_events: list[dict]) -> li
     # ["Banking","Cards","Credit Card"], so the first click targeted an element
     # still hidden behind the un-opened hamburger. Three-deep accordions behind a
     # menu toggle are normal on HSBCnet/ICICI.
-    return [out[0]] + out[-(_NAV_MAX_CLICKS - 1) :]
+    #
+    # But never at the cost of work done ON the destination page. The cap exists
+    # to bound a long MENU walk, where the middle really is redundant once the
+    # first and last are known. It was applied to the whole chain, so it also
+    # threw away clicks that changed the page's own state: an ICICI capture
+    # recorded hover, "Past", hover, "download previous statement" on
+    # /credit-card, and `[out[0]] + out[-2:]` returned hover, hover,
+    # "download previous statement" -- dropping the tab switch. The replay then
+    # sat on the CURRENT tab looking for a link that only exists under PAST, and
+    # reported "nothing on the page matches" about a control that was genuinely
+    # not there. Nothing in the bundle or the report said a step had been
+    # discarded.
+    #
+    # So the cap only trims the LEAD-IN: entries recorded on an earlier page than
+    # the one this gesture ends on. Everything on the destination page is the
+    # operation's own work and is kept whole.
+    last_key = _page_key(str(out[-1].get("url") or ""))
+    on_destination = [c for c in out if _page_key(str(c.get("url") or "")) == last_key]
+    lead_in = [c for c in out if c not in on_destination]
+    if not lead_in:
+        return out
+    return [lead_in[0]] + lead_in[-(_NAV_MAX_CLICKS - 1) :] + on_destination
 
 
 def app_origins_from(
