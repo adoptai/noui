@@ -658,8 +658,15 @@ def _collapse_repeats(steps: list[dict]) -> list[dict]:
 
 
 def _is_css_kind(kind: str) -> bool:
-    """Kinds whose value is a CSS selector rather than human-visible text."""
-    return kind in ("css", "testid", "id", "name", "css_path")
+    """Kinds whose value is a CSS selector rather than human-visible text.
+
+    `row_scoped` and `container_label` are selectors too -- Playwright's
+    `:has-text()` dialect rather than plain CSS, but selectors, and they must
+    never be emitted as click_by_text. Omitting them compiled
+    `tr:has-text("31 Jan 2025") button[...]` into a TEXT param, which is a string
+    no page has ever displayed, so the step could only ever fail.
+    """
+    return kind in ("css", "testid", "id", "name", "css_path", "row_scoped", "container_label")
 
 
 _LOGIN_CONTROL = re.compile(r"\|\s*(log ?in|sign ?in|login|signin|continue to login)\s*$", re.I)
