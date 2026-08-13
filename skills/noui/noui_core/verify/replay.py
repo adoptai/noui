@@ -284,6 +284,39 @@ def replay_step(
     following: Any = None,
     unactionable_targets: set[str] | None = None,
 ) -> dict:
+    """Run one step, timing it, and stamp elapsed_ms on the result.
+
+    Wraps the real work so every one of its exits is measured, whichever branch
+    returns -- a fast-fail, an approval gate, a success, a block. `elapsed_ms` is
+    what makes "the replay felt slow" answerable: without it, where a run spends
+    its time is guesswork, and a step that fails after a full attach-plus-click
+    timeout looks identical in the report to one that failed instantly.
+    """
+    started = time.monotonic()
+    result = _replay_step_inner(
+        execute,
+        step,
+        recorded=recorded,
+        approvals=approvals,
+        known_downloads=known_downloads,
+        following=following,
+        unactionable_targets=unactionable_targets,
+    )
+    if isinstance(result, dict):
+        result["elapsed_ms"] = round((time.monotonic() - started) * 1000)
+    return result
+
+
+def _replay_step_inner(
+    execute: Any,
+    step: dict,
+    *,
+    recorded: set[str],
+    approvals: set[str] | None = None,
+    known_downloads: set[str] | None = None,
+    following: Any = None,
+    unactionable_targets: set[str] | None = None,
+) -> dict:
     """Run one step and report what happened, without ever raising.
 
     ``execute(command, params)`` performs the command and returns the worker's

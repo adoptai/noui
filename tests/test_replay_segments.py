@@ -108,45 +108,48 @@ def test_a_skill_without_segments_runs_as_it_always_did(monkeypatch):
     assert page.calls.count("click_by_text") == 2
 
 
-def test_an_arrival_waits_for_its_first_control(monkeypatch):
-    """Poll for the thing we are about to click, not a fixed time.
+def test_an_arrival_waits_for_the_page_to_be_ready(monkeypatch):
+    """Wait on the PAGE, not on the operation's first control.
 
-    A fixed sleep was wrong twice: 3s was too short for ICICI's statement portal
-    (the control was there when probed by hand a minute later) and dead weight on
-    every fast page. The recording says the human's own gap after that hop was
-    17-29s — an upper bound, since some of it was reading.
+    The first control is frequently interaction-gated -- a submenu item that
+    does not exist until a hover, a select hidden behind a styled overlay -- so
+    polling it could never succeed before the step's own hover_first/force ran,
+    and it spent its whole budget on an already-loaded page. Measured on ICICI:
+    three operations of every replay waited ~30s each for a control that was not
+    yet in the DOM. The document being ready is the honest precondition; the
+    step itself waits for and reveals its control.
     """
     monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
     asked: list[str] = []
 
-    class _Waits(_Page):
+    class _Ready(_Page):
         def __call__(self, command, params):
-            if command == "wait_for_selector":
-                asked.append(params["selector"])
-                return {"data": {}}
+            asked.append(command)
+            if command == "get_page_info":
+                return {"data": {"url": CC, "ready_state": "complete"}}
             return super().__call__(command, params)
 
-    page = _Waits(OVERVIEW, after_first=CC)
+    page = _Ready(OVERVIEW, after_first=CC)
     monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
     run_replay(OPS, profile_slug="p", token="t", entry_url=OVERVIEW)
-    # It waited for the download's own target before clicking it.
-    assert asked == ["#DL"]
+    # It asked the page whether it was ready -- and never hunted a control here.
+    assert "get_page_info" in asked
+    assert "wait_for_selector" not in asked
 
 
-def test_a_slow_control_is_polled_until_the_budget_runs_out(monkeypatch):
+def test_a_page_that_never_reports_ready_gives_up_at_the_budget(monkeypatch):
     slept: list[float] = []
     monkeypatch.setattr(session_mod.time, "sleep", lambda s: slept.append(s))
-    ticks = iter([0.0, 1.0, 2.0, 99.0])
+    ticks = iter([0.0, 0.0, 1.0, 2.0, 99.0])
     monkeypatch.setattr(session_mod.time, "monotonic", lambda: next(ticks, 99.0))
 
-    def never_there(command, params):
-        if command == "wait_for_selector":
-            raise RuntimeError("nothing matches")
-        return {"data": {"url": CC}}
+    def still_loading(command, params):
+        # A page stuck on readyState "loading" -- the budget bounds the wait so
+        # the run never hangs; the step itself reports next.
+        return {"data": {"url": CC, "ready_state": "loading"}}
 
-    session_mod._await_first_control(never_there, [{"params": {"selector": "#DL"}}], 5.0)
-    # Polled, then gave up rather than hanging — the step itself reports next.
-    assert slept and all(s == 1.0 for s in slept)
+    session_mod._await_first_control(still_loading, [{"params": {"selector": "#DL"}}], 5.0)
+    assert slept and all(s == 1.0 for s in slept[1:])
 
 
 def test_a_step_with_no_selector_cannot_be_polled_for(monkeypatch):

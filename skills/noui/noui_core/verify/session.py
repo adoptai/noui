@@ -241,36 +241,44 @@ proceed the instant the control appears and only give up when this elapses.
 
 
 def _await_first_control(execute: Any, steps: list[dict], budget_s: float) -> None:
-    """Wait for the arriving operation's first target, not for a fixed time.
+    """Wait for the arriving PAGE to be ready, not for a specific control.
 
-    A fixed sleep was wrong twice: 3s was too short for ICICI's statement portal
-    (the control was there when probed by hand a minute later) and long enough
-    to be dead weight on every fast page. Polling for the thing we are about to
-    click is both faster and more tolerant.
+    An earlier version polled the first step's own selector. That is wrong for
+    this whole class of app: the first control is often INTERACTION-GATED --
+    ICICI's "Credit Cards" submenu item does not exist in the DOM until a hover
+    reveals it, and its period radio and year select sit behind a styled overlay
+    that hides them. Neither `visible` nor `attached` can ever come true for such
+    a control before the step's own hover_first/force runs, so this polled its
+    full 20s budget on THREE operations of every replay -- ~90s -- on a page
+    that had reported ready in under a second. Measured: arrivals of ~30s each,
+    unchanged by switching visible->attached, because the control simply is not
+    there yet.
 
-    Only when that first step names a selector. There is no wait-by-text, and
-    guessing one would wait for the wrong element.
+    The honest precondition is that the PAGE has finished loading. The step
+    itself already waits up to 12s for its control (see wait_for_selector in
+    replay), and reveals it if gated, so there is nothing for this to add beyond
+    "the document is ready". Return the instant readyState reports complete.
+
+    Never raises: a page we cannot read is one the first step will report on.
     """
-    first = steps[0] if steps else None
-    selector = ((first or {}).get("params") or {}).get("selector")
-    if not selector:
-        time.sleep(min(_RESET_SETTLE_MS / 1000.0, budget_s))
-        return
-
     deadline = time.monotonic() + budget_s
-    while True:
+    # A short unconditional beat: a postback that has not started yet reads as
+    # ready, the same reason _wait_until_the_page_stops_moving opens with one.
+    settled_floor = min(_RESET_SETTLE_MS / 1000.0, budget_s)
+    time.sleep(settled_floor)
+    while time.monotonic() < deadline:
         try:
-            execute(
-                "wait_for_selector",
-                {"selector": selector, "state": "visible", "timeout_ms": 1500},
-            )
-            return
+            info = execute("get_page_info", {})
+            ready = str((info.get("data") or info).get("ready_state") or "")
         except SessionNotReadyError:
             raise
-        except Exception:  # noqa: BLE001 — not there yet is the normal case
-            if time.monotonic() >= deadline:
-                return  # let the step itself report what it finds
-            time.sleep(1.0)
+        except Exception:  # noqa: BLE001 — unreadable now, the step will say so
+            return
+        # Empty means the worker does not report readiness; the floor above is
+        # then all we have, which is how this behaved before readiness existed.
+        if ready in ("", "complete", "unknown"):
+            return
+        time.sleep(_STABILISE_POLL_S)
 
 
 def _settle_after_reset(operations: list[dict]) -> float:
@@ -763,20 +771,71 @@ def run_replay(
                 # the browser still on /credit-card, and the portal appeared a
                 # moment later. Checking instantly blocked the next operation on
                 # a page that was in the middle of becoming the right one.
+                # What this operation begins by acting on, and the pages the
+                # recording actually visited. Computed once, used to end the wait
+                # the instant the screen is ready instead of polling to the cap.
+                first_selector = ""
+                for candidate in steps or []:
+                    params = candidate.get("params") or {}
+                    if isinstance(params.get("selector"), str) and params["selector"]:
+                        first_selector = params["selector"]
+                        break
+                known_pages = set()
+                for other in ops:
+                    for key in ("starts_from", "url", "work_url"):
+                        value = str(other.get(key) or "").strip()
+                        if value:
+                            known_pages.add(_page_identity(value))
+
+                def _ready(
+                    here_url: str,
+                    *,
+                    starts_from: str = starts_from,
+                    first_selector: str = first_selector,
+                    known_pages: set = known_pages,
+                ) -> bool:
+                    # The recorded URL is the fast path. Otherwise: a portal can
+                    # serve one screen from more than one entry (ICICI's form
+                    # answers at both /corp/Finacle and
+                    # /corp/AuthenticationController), so accept a DIFFERENT page
+                    # only when the recording visited it AND this operation's
+                    # first control is attached there. That keeps the guard --
+                    # a predecessor that stranded us on an unrecorded page still
+                    # fails -- while ending the wait the moment the work can be
+                    # done, rather than 8s later.
+                    if _same_page(here_url, starts_from):
+                        return True
+                    if not (first_selector and _page_identity(here_url) in known_pages):
+                        return False
+                    try:
+                        return bool(
+                            execute(
+                                "wait_for_selector",
+                                {
+                                    "selector": first_selector,
+                                    "state": "attached",
+                                    "timeout_ms": 500,
+                                },
+                            )
+                        )
+                    except Exception:  # noqa: BLE001 — absent means not ready yet
+                        return False
+
                 deadline = time.monotonic() + _STARTS_FROM_WAIT_S
                 try:
                     while True:
                         info = execute("get_page_info", {})
                         here = str((info.get("data") or info).get("url") or "")
-                        if not here or _same_page(here, starts_from):
+                        # A cross-origin hop returns ok before it lands, so an
+                        # empty read is "still arriving", not "wrong page".
+                        if here and _ready(here):
+                            here = ""
                             break
                         if time.monotonic() >= deadline:
                             break
-                        # Gently. Polling twice a second across several
-                        # operations tripped the API's rate limit (HTTP 429) and
-                        # every later step failed on that instead of on
-                        # anything real -- a check for a page turning into
-                        # another page must not cost more than the wait itself.
+                        # Gently: polling twice a second across operations tripped
+                        # the API rate limit, and a check must not cost more than
+                        # the wait it guards.
                         time.sleep(_STARTS_FROM_POLL_S)
                 except SessionNotReadyError as exc:
                     report = build_report(
@@ -787,22 +846,7 @@ def run_replay(
                     return report
                 except Exception:  # noqa: BLE001 — unreadable url: let the steps report
                     here = ""
-                # The page that can do the work, not the URL it was recorded at.
-                #
-                # A portal can serve the SAME screen from more than one entry
-                # URL. ICICI's statement form was recorded at /corp/Finacle and
-                # a replay arrives at /corp/AuthenticationController -- same
-                # form, both #PDF_Download and #DOWNLOAD_ESTATEMENT_PDF present,
-                # same radios, same selects. The URL check refused every time,
-                # so set_checked Annual and both select_options -- the steps
-                # that decide WHICH statement -- never ran, and the session sat
-                # on Monthly looking correct.
-                #
-                # Ask the page instead: if this operation's first step resolves
-                # here, this is the screen it was written for. That keeps the
-                # guard's whole point -- it still refuses when the controls are
-                # absent, which is the case it exists to catch -- while dropping
-                # an assumption about URLs the portal never promised.
+
                 if here and not _same_page(here, starts_from):
                     first_selector = ""
                     for candidate in steps or []:
@@ -902,7 +946,9 @@ def run_replay(
                     )
                     step_results.append(result)
                     if result.get("status") == OK:
+                        _settle_started = time.monotonic()
                         _let_the_step_land(step, execute)
+                        result["settle_ms"] = round((time.monotonic() - _settle_started) * 1000)
             except SessionNotReadyError as exc:
                 results.append(step_results)
                 report = build_report(
@@ -958,7 +1004,9 @@ def run_replay(
                 )
                 step_results.append(result)
                 if result.get("status") == OK:
+                    _settle_started = time.monotonic()
                     _let_the_step_land(step, execute)
+                    result["settle_ms"] = round((time.monotonic() - _settle_started) * 1000)
         except SessionNotReadyError as exc:
             results.append(step_results)
             report = build_report(
