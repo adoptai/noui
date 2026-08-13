@@ -1,0 +1,212 @@
+[
+ {
+  "name": "read_credit_card",
+  "kind": null,
+  "steps": [
+   {
+    "command": "click_element",
+    "target": "#subContainer4 > ul > li:nth-of-type(1) > a > div",
+    "value": null,
+    "hover_first": "#scroll-container > div > div:nth-of-type(5)"
+   },
+   {
+    "command": "get_page_summary",
+    "target": null,
+    "value": null,
+    "hover_first": null
+   }
+  ]
+ },
+ {
+  "name": "read_corp_authenticationcontroller",
+  "kind": null,
+  "steps": [
+   {
+    "command": "click_by_text",
+    "target": "Past",
+    "value": null,
+    "hover_first": "#cardStatementTrackerCard > div:nth-of-type(1)"
+   },
+   {
+    "command": "click_by_text",
+    "target": "download previous statement",
+    "value": null,
+    "hover_first": "#cardStatementTrackerCard > div:nth-of-type(2) > div"
+   },
+   {
+    "command": "get_page_summary",
+    "target": null,
+    "value": null,
+    "hover_first": null
+   }
+  ]
+ },
+ {
+  "name": "read_corp_finacle",
+  "kind": null,
+  "steps": [
+   {
+    "command": "click_element",
+    "target": "#DEH_LOGIN",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "get_page_summary",
+    "target": null,
+    "value": null,
+    "hover_first": null
+   }
+  ]
+ },
+ {
+  "name": "submit_corp_authenticationcontroller",
+  "kind": "submit",
+  "steps": [
+   {
+    "command": "click_element",
+    "target": "#DEH_LOGIN",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "get_page_summary",
+    "target": null,
+    "value": null,
+    "hover_first": null
+   }
+  ]
+ },
+ {
+  "name": "download_please_click_on_the_icon_below_to_download_a_printa",
+  "kind": "download",
+  "steps": [
+   {
+    "command": "set_checked",
+    "target": "radio",
+    "value": "Annual",
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "#InfoPanel1\\.Ra5\\.C1 > span > span > div",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "#InfoPanel1\\.Ra5\\.C1 > span > span > div > div:nth-of-type(1)",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "click_by_text",
+    "target": "FY2025-26",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "select_option",
+    "target": "#CustomViewEStatementsFG\\.PERIOD",
+    "value": "{{custom_view_e_statements_f_g_p_e_r_i_o_d}}",
+    "hover_first": null
+   },
+   {
+    "command": "select_option",
+    "target": "#FieldDropdown",
+    "value": "{{field_dropdown}}",
+    "hover_first": null
+   },
+   {
+    "command": "click_by_text",
+    "target": "Please click on the icon below to download a printable copy of your e-Statement. Monthly Annual Credit Card Number Selec",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "list_downloads",
+    "target": null,
+    "value": null,
+    "hover_first": null
+   }
+  ]
+ },
+ {
+  "name": "submit_corp_finacle",
+  "kind": "submit",
+  "steps": [
+   {
+    "command": "click_element",
+    "target": "#InfoPanel1\\.Ra5\\.C1 > span > span > div",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "#InfoPanel1\\.Ra5\\.C1 > span > span > div > div:nth-of-type(1)",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "click_by_text",
+    "target": "FY2025-26",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "click_by_text",
+    "target": "Please click on the icon below to download a printable copy of your e-Statement. Monthly Annual Credit Card Number Selec",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "#PDF_Download",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "#DOWNLOAD_ESTATEMENT_PDF",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "select_option",
+    "target": "#CustomViewEStatementsFG\\.PERIOD",
+    "value": "{{custom_view_e_statements_f_g_p_e_r_i_o_d}}",
+    "hover_first": null
+   },
+   {
+    "command": "select_option",
+    "target": "#FieldDropdown",
+    "value": "{{field_dropdown}}",
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "#DOWNLOAD_ESTATEMENT_PDF",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "get_page_summary",
+    "target": null,
+    "value": null,
+    "hover_first": null
+   }
+  ]
+ },
+ {
+  "name": "read_overview",
+  "kind": null,
+  "steps": [
+   {
+    "command": "get_page_summary",
+    "target": null,
+    "value": null,
+    "hover_first": null
+   }
+  ]
+ }
+]
