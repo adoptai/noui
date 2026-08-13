@@ -2321,6 +2321,39 @@ def _terminal_starts_from(op: dict) -> str | None:
     return url or None
 
 
+# A control whose own label names a download or a form submit. These ACTIVATE
+# the operation, so they run after the parameters are set, not before.
+# Specific download/submit terms, matched as substrings because selectors run
+# them together with underscores (#DOWNLOAD_ESTATEMENT_PDF) where a trailing word
+# boundary would never fire. The loose words that caused false hits -- "view"
+# (matched inside "CustomView"), a bare "go" -- are gone; and only clicks are
+# tested (see below), so the value-scoped set_checked whose selector says
+# "CustomView...PERIOD_TYPE" is excluded by command before this ever runs.
+_ACTIVATION_CONTROL = re.compile(
+    r"(download|e-?statement|estatement|pdf|export|submit)", re.I
+)
+
+
+def _is_activation_step(step: dict) -> bool:
+    """Whether a lead step submits/downloads rather than sets the page up.
+
+    Only a CLICK can activate. set_checked and select_option set a control's
+    state -- they are always setup and must precede the fills, whatever their
+    selector happens to spell. Restricting to clicks is what keeps the
+    value-scoped radio (selector `...CustomView...PERIOD_TYPE...`) from being
+    mistaken for a "view" control and deferred after the period it precedes.
+
+    Matched on the selector and any text the click carries -- #PDF_Download,
+    #DOWNLOAD_ESTATEMENT_PDF, a "Download" button. A setup click (a tab) does not
+    match and stays ahead of the fills.
+    """
+    if step.get("command") not in ("click_element", "click_by_text"):
+        return False
+    params = step.get("params") or {}
+    haystack = " ".join(str(params.get(k) or "") for k in ("selector", "text"))
+    return bool(_ACTIVATION_CONTROL.search(haystack))
+
+
 def _steps_for_terminal(op: dict) -> list[dict]:
     """Recipe for a terminal operation: reach the page, then do the thing."""
     steps: list[dict] = []
@@ -2342,8 +2375,28 @@ def _steps_for_terminal(op: dict) -> list[dict]:
     # means the fragile half runs first -- and on ICICI the first of them clicked
     # "Monthly" immediately after Annual had been set.
     superseded = set(op.get("superseded_seqs") or [])
-    steps.extend([s for s in (op.get("lead") or []) if s.get("_seq") not in superseded])
+    lead = [s for s in (op.get("lead") or []) if s.get("_seq") not in superseded]
+
+    # Setup before the fills, download-triggers AFTER them.
+    #
+    # Lead clicks are of two kinds: SETUP that puts the page into the state the
+    # fills need (the "Past" tab, the period-type), and ACTIVATION that submits
+    # or downloads. Emitting all of lead before fill_steps was right for setup
+    # and wrong for activation: on ICICI the recording clicked #PDF_Download and
+    # #DOWNLOAD_ESTATEMENT_PDF as ordinary clicks, so they landed in lead and
+    # fired BEFORE select_option chose the period. The form was submitted at its
+    # Monthly default, then the period was set on a page that had already
+    # downloaded -- the "Annual reverted to Monthly" a human watched happen.
+    #
+    # A click whose own label names a download/submit control is activation; the
+    # parameter fills must precede it, exactly as a person sets the period before
+    # pressing the button.
+    activation, setup = [], []
+    for step in lead:
+        (activation if _is_activation_step(step) else setup).append(step)
+    steps.extend(setup)
     steps.extend(fill_steps(op.get("parameters") or []))
+    steps.extend(activation)
     # The terminal asserts WHICH PAGE it fires on.
     #
     # ICICI's annual and monthly statement pages are identically designed:

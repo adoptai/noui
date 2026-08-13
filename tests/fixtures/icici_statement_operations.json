@@ -208,18 +208,6 @@
     "hover_first": null
    },
    {
-    "command": "click_element",
-    "target": "#PDF_Download",
-    "value": null,
-    "hover_first": null
-   },
-   {
-    "command": "click_element",
-    "target": "#DOWNLOAD_ESTATEMENT_PDF",
-    "value": null,
-    "hover_first": null
-   },
-   {
     "command": "select_option",
     "target": "#CustomViewEStatementsFG\\.PERIOD",
     "value": "{{custom_view_e_statements_f_g_p_e_r_i_o_d}}",
@@ -229,6 +217,12 @@
     "command": "select_option",
     "target": "#FieldDropdown",
     "value": "{{field_dropdown}}",
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "#PDF_Download",
+    "value": null,
     "hover_first": null
    },
    {
