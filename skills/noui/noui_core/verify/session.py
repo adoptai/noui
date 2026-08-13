@@ -810,8 +810,27 @@ def run_replay(
                         if isinstance(params.get("selector"), str) and params["selector"]:
                             first_selector = params["selector"]
                             break
+                    # Only a page the RECORDING itself visited.
+                    #
+                    # The relaxation exists for a portal that serves one screen
+                    # from two entry paths -- ICICI's statement form answers at
+                    # both /corp/Finacle and /corp/AuthenticationController -- not
+                    # for landing anywhere that happens to carry a similarly
+                    # named control. So the page we are actually on has to be one
+                    # the journey recorded: another operation's starts_from, or
+                    # its url. A predecessor that failed and left the browser
+                    # somewhere the recording never saw is still reported, never
+                    # replayed over, which is the guarantee this guard is for.
+                    known_pages = set()
+                    for other in ops:
+                        for key in ("starts_from", "url", "work_url"):
+                            value = str(other.get(key) or "").strip()
+                            if value:
+                                known_pages.add(_page_identity(value))
+                    on_a_recorded_page = _page_identity(here) in known_pages
+
                     resolves_here = False
-                    if first_selector:
+                    if first_selector and on_a_recorded_page:
                         try:
                             probe = execute(
                                 "wait_for_selector",
