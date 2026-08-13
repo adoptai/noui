@@ -60,6 +60,25 @@ _READ_ONLY_COMMANDS = frozenset(
     {"get_page_summary", "get_page_info", "screenshot", "wait_for_selector", "list_downloads"}
 )
 
+#: Commands that act on the PAGE or the BROWSER rather than on a specific control
+#: -- navigation, scrolling, HAR capture, collecting a finished download. They
+#: carry no selector/label/text by nature, so an empty control identity is
+#: expected for them and is NOT a risk signal. Everything else that is neither
+#: read-only nor listed here acts on a control, and an action whose control
+#: cannot be identified (a coordinate click, a key-press on the focused element)
+#: is treated as risky below -- see classify_risk ground 2.
+_NON_CONTROL_COMMANDS = frozenset(
+    {
+        "navigate",
+        "scroll_page",
+        "wait_for_url",
+        "har_start",
+        "har_stop",
+        "har_status",
+        "get_download",
+    }
+)
+
 #: Words that mean this control does something to the account, not just shows it.
 #: Deliberately broad: a false stop costs one question, a false proceed can move
 #: money.
@@ -68,7 +87,10 @@ _RISKY_TEXT = (
     "transfer",
     "remit",
     "send money",
+    "wire",
     "fund",
+    "withdraw",
+    "deposit",
     "block",
     "close",
     "cancel",
@@ -83,6 +105,18 @@ _RISKY_TEXT = (
     "change",
     "reset",
     "modify",
+    # Money-moving and account-structural actions a bank/broker portal carries
+    # that the list above missed: adding a payee/beneficiary, taking a loan,
+    # buying/selling/redeeming an investment. Same rule as the rest -- a false
+    # stop costs one question, a false proceed can move money.
+    "payee",
+    "beneficiary",
+    "loan",
+    "purchase",
+    "buy",
+    "sell",
+    "invest",
+    "redeem",
 )
 
 
@@ -100,19 +134,23 @@ def _text_of(step: dict) -> str:
 def classify_risk(step: dict, *, recorded_controls: set[str]) -> str | None:
     """Why this step must not be replayed unattended, or None if it is safe.
 
-    Three grounds, in the order they catch things:
+    Grounds, in the order they catch things:
 
     1. It moves money or is irreversible — pay, transfer, block, delete, submit.
     2. It touches a control the human never touched. This is the one that
        actually catches the unexpected: the plan only departs from the recording
        when the agent is improvising, and that is exactly when nobody has
        verified what the control does.
-    3. It is a form submission. `submit` operations are compiled from a real
-       submit the human made, but replaying one on a bank portal repeats
-       whatever it did.
+    3. It acts on a control that cannot be identified at all — a coordinate click
+       or a key-press on the focused element carries no selector/label/text, so
+       grounds 1 and 2 both find nothing and would wave it through. That is the
+       fail-open version of ground 2, closed here: an action the recording cannot
+       vouch for is refused, not run.
 
     Read-only commands are never risky, whatever their text says — reading a page
-    that happens to contain the word "Transfer" is not a transfer.
+    that happens to contain the word "Transfer" is not a transfer. Page/browser
+    commands (navigate, scroll) target no control, so an empty identity is
+    expected for them and does not trip ground 3.
     """
     command = step.get("command") or ""
     if command in _READ_ONLY_COMMANDS:
@@ -126,6 +164,20 @@ def classify_risk(step: dict, *, recorded_controls: set[str]) -> str | None:
     identity = _control_identity(step)
     if identity and identity not in recorded_controls:
         return "the human never touched this control during the recording"
+
+    # Ground 2 needs an identity to compare. A control-acting step that carries
+    # none -- a coordinate click (click_at), a key-press on the focused element
+    # (press_key) -- has no identity here AND no text for ground 1, so both gates
+    # above silently pass it, and it replays unattended: exactly the improvisation
+    # the module's docstring warns of ("reach Pay/Transfer/Block Card while
+    # hunting for a statement"). Read-only commands already returned above, and
+    # page/browser commands (navigate, scroll) legitimately target no control, so
+    # anything left here with no identity is an action on a control the recording
+    # cannot vouch for. Fail closed -- a needless question costs one click.
+    if not identity and command not in _NON_CONTROL_COMMANDS:
+        return (
+            "acts on a control the recording cannot identify (e.g. a coordinate click or key-press)"
+        )
 
     return None
 

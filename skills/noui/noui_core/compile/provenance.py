@@ -137,6 +137,49 @@ def build(
 #: `_step_locators`/`_TYPED_VALUE_COMMANDS` exactly.
 _TYPED_VALUE_COMMANDS = frozenset({"type_into_label", "type_text", "fill", "select_option"})
 
+#: Commands that act ON a specific control (a click, a keypress, a checkbox or
+#: dropdown, a text entry). For these a locator is the whole evidence the step is
+#: backed by the recording, so one that carries none -- a coordinate click
+#: (click_at), a key-press on the focused element (press_key) -- contributes
+#: nothing to step_locators and would sail through unobserved_locators as
+#: trivially backed. The shipped compiler never emits a keyless control action
+#: (it addresses every control by selector/label/text), so this only guards
+#: hand-written operations. Reads / navigation / scroll are absent by design:
+#: they legitimately target no control.
+_CONTROL_ACTION_COMMANDS = frozenset(
+    {
+        "click_element",
+        "click_by_text",
+        "click_at",
+        "type_text",
+        "type_into_label",
+        "fill",
+        "press_key",
+        "set_checked",
+        "select_option",
+        "hover",
+    }
+)
+
+
+def _locator_of_step(step: dict[str, Any]) -> str | None:
+    """The one locator a step targets, or None if it carries none."""
+    if not isinstance(step, dict):
+        return None
+    raw = step.get("params")
+    params: dict[str, Any] = raw if isinstance(raw, dict) else step
+    command = str(step.get("command") or "")
+    keys = (
+        ("label", "selector")
+        if command in _TYPED_VALUE_COMMANDS
+        else ("selector", "text", "label", "value")
+    )
+    for key in keys:
+        v = params.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
 
 def step_locators(operations: list[dict[str, Any]]) -> list[str]:
     """The locator each step targets, for steps that target one.
@@ -148,21 +191,32 @@ def step_locators(operations: list[dict[str, Any]]) -> list[str]:
     out: list[str] = []
     for op in operations or []:
         for step in op.get("steps") or []:
+            loc = _locator_of_step(step)
+            if loc:
+                out.append(loc)
+    return out
+
+
+def unbacked_control_steps(operations: list[dict[str, Any]]) -> list[str]:
+    """Control-acting steps that carry NO locator to check against the recording.
+
+    ``unobserved_locators`` compares the locators steps drive against what the
+    recording saw, but a control action with no locator (a coordinate click, a
+    key-press) contributes nothing to that list -- so an operation built entirely
+    from such steps would "verify" against any bundle at all, defeating a check
+    whose whole job is catching fabricated or hand-written operations. Returns a
+    human-readable marker per offending step. Empty for every skill the compiler
+    produces; non-empty only for hand-authored keyless control actions.
+    """
+    out: list[str] = []
+    for op in operations or []:
+        name = str(op.get("name") or op.get("operation") or "operation")
+        for step in op.get("steps") or []:
             if not isinstance(step, dict):
                 continue
-            raw = step.get("params")
-            params: dict[str, Any] = raw if isinstance(raw, dict) else step
             command = str(step.get("command") or "")
-            keys = (
-                ("label", "selector")
-                if command in _TYPED_VALUE_COMMANDS
-                else ("selector", "text", "label", "value")
-            )
-            for key in keys:
-                v = params.get(key)
-                if isinstance(v, str) and v.strip():
-                    out.append(v.strip())
-                    break
+            if command in _CONTROL_ACTION_COMMANDS and not _locator_of_step(step):
+                out.append(f"{name}: {command} targets a control by nothing the recording saw")
     return out
 
 

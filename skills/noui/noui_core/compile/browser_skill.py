@@ -2014,7 +2014,15 @@ def _terminal_kind(ev: dict) -> str | None:
     outcome = ev.get("outcome")
     if isinstance(outcome, dict) and outcome.get("download"):
         return "download"
-    if (ev.get("event_type") or "") == "submit":
+    # Gate submit on the PRESENCE of an outcome too, not on event_type alone. A
+    # `submit` event predates schema 5 -- login_assets reads it for login-form
+    # detection -- so keying a terminal operation on event_type alone made a
+    # pre-schema-5 bundle carrying a non-login submit (a "Save Note" form, say)
+    # compile a brand-new operation, breaking this module's "older captures
+    # compile exactly as they did" promise (the download branch is already
+    # outcome-gated). An outcome means the recorder was schema 5, i.e. a capture
+    # from this PR onward.
+    if isinstance(outcome, dict) and (ev.get("event_type") or "") == "submit":
         return "submit"
     return None
 

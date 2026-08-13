@@ -965,6 +965,25 @@ def test_recordings_without_outcomes_emit_no_terminal_operations():
     assert all("kind" not in o for o in _ops(pages, clicks)["operations"])
 
 
+def test_a_legacy_submit_without_an_outcome_emits_no_terminal_operation():
+    # The backward-compat hole the download branch didn't have: `event_type ==
+    # "submit"` predates schema 5 (login_assets reads it for login detection), so
+    # gating the terminal on event_type alone made a pre-schema-5 non-login submit
+    # (a "Save Note" form) compile a brand-new operation, breaking "older captures
+    # compile exactly as they did". A submit with no outcome must stay inert.
+    legacy_submit = {
+        "event_type": "submit",
+        "text_content": "Save Note",
+        "url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:20.000Z",
+        "event_time": "2026-08-07T10:00:20.000Z",
+    }
+    clicks = [_rich_click(), legacy_submit]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+
+    assert all("kind" not in o for o in _ops(pages, clicks)["operations"])
+
+
 def test_skill_md_names_the_operations_that_produce_a_result():
     clicks = [_rich_click(), _terminal_click()]
     pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)

@@ -84,6 +84,46 @@ def test_reading_a_page_is_never_risky_whatever_it_says():
     assert classify_risk({"command": "screenshot", "params": {}}, recorded_controls=set()) is None
 
 
+def test_a_coordinate_click_or_keypress_with_no_control_is_stopped():
+    # The fail-open the risk gate must not have: a click_at (x,y) or a press_key
+    # on the focused element names no control, so ground 2 (identity) and ground 1
+    # (text) both find nothing and would wave it through -- the exact improvisation
+    # that could land on Pay/Transfer. It carries no identity, so it also cannot
+    # be in recorded_controls. Fail closed.
+    for keyless in (
+        {"command": "click_at", "params": {"x": 120, "y": 44}},
+        {"command": "press_key", "params": {"key": "Enter"}},
+    ):
+        risk = classify_risk(keyless, recorded_controls=set())
+        assert risk and "cannot identify" in risk, keyless
+
+
+def test_a_page_or_browser_command_with_no_control_is_not_risky():
+    # navigate / scroll_page target no control by nature; an empty identity there
+    # is expected, not a red flag. Only CONTROL actions with no identity are.
+    assert (
+        classify_risk(
+            {"command": "navigate", "params": {"url": "https://x.test/next"}},
+            recorded_controls=set(),
+        )
+        is None
+    )
+    assert (
+        classify_risk(
+            {"command": "scroll_page", "params": {"direction": "down"}}, recorded_controls=set()
+        )
+        is None
+    )
+
+
+def test_money_moving_words_the_original_list_missed_are_stopped():
+    # Widened after review: add-beneficiary / withdraw / buy-sell-redeem are the
+    # same irreversible, money-moving class the gate exists to catch.
+    for label in ("Add Beneficiary", "Withdraw Cash", "Buy units", "Redeem now", "New Payee"):
+        risk = classify_risk(step(text=label), recorded_controls={f"text:{label.lower()}"})
+        assert risk is not None, label
+
+
 def test_recorded_controls_come_from_the_draft_itself():
     # The draft is compiled from the recording, so its steps ARE what the human
     # did — no separate bookkeeping to drift out of date.

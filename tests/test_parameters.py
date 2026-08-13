@@ -84,6 +84,16 @@ def test_an_otp_is_never_a_parameter():
     assert derive_parameters([ev(field_role="otp", value="482913")]) == []
 
 
+def test_an_unknown_sensitive_field_is_never_a_parameter_even_unredacted():
+    # unknown_sensitive is the recorder's "sensitive but not confidently password
+    # or otp" bucket (e.g. a re-entered transaction PIN). It is in the canonical
+    # credential-role set, so it must be excluded HERE regardless of whether
+    # redaction happened upstream -- otherwise the plaintext value could ship as a
+    # compiled operation's default. username is a credential too, and excluded.
+    assert derive_parameters([ev(field_role="unknown_sensitive", value="4821")]) == []
+    assert derive_parameters([ev(field_role="username", value="jdoe")]) == []
+
+
 def test_the_last_value_for_a_field_wins():
     # A human who types, corrects and retypes leaves several events for one
     # field; what matters is what it held when they acted.

@@ -116,3 +116,46 @@ def test_reassembling_steps_changes_the_digest():
         )
     ]
     assert steps_digest(reassembled) != SHARED_STEPS_DIGEST
+
+
+def test_a_keyless_control_action_is_flagged_as_unbacked():
+    """The defense-in-depth gap unobserved_locators alone left open.
+
+    A control action with no locator -- a coordinate click, a key-press on the
+    focused element -- contributes nothing to step_locators, so unobserved_locators
+    returns [] and the operation "verifies" against any bundle at all. Such steps
+    are never emitted by the compiler; their presence means the operations were
+    hand-written, which is exactly what the provenance gate exists to catch.
+    """
+    from noui_core.compile.provenance import unbacked_control_steps
+
+    ops = [
+        {
+            "name": "sneaky_pay",
+            "steps": [
+                {"command": "click_at", "params": {"x": 120, "y": 44}},
+                {"command": "press_key", "params": {"key": "Enter"}},
+            ],
+        }
+    ]
+    flagged = unbacked_control_steps(ops)
+    assert len(flagged) == 2
+    assert all("sneaky_pay" in f for f in flagged)
+
+
+def test_a_control_action_with_a_locator_and_a_read_are_not_flagged():
+    # A properly compiled step carries a locator; a read targets no control. Only
+    # a keyless CONTROL action is unbacked -- reads must not be false-flagged.
+    from noui_core.compile.provenance import unbacked_control_steps
+
+    ops = [
+        {
+            "name": "read_statement",
+            "steps": [
+                {"command": "click_element", "params": {"selector": "#dl"}},
+                {"command": "get_page_summary", "params": {}},
+                {"command": "list_downloads"},
+            ],
+        }
+    ]
+    assert unbacked_control_steps(ops) == []

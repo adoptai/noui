@@ -26,10 +26,17 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from noui_core.capture.split import CREDENTIAL_FIELD_ROLES
 from noui_core.compile.locators import choose_locator
 
-#: Field roles that must never become parameters, whatever their value.
-_CREDENTIAL_ROLES = frozenset({"password", "otp"})
+#: Field roles that must never become parameters, whatever their value. Reuses
+#: the SINGLE canonical set (capture/split.py) rather than a local subset: a
+#: narrower copy here ({"password", "otp"}) silently let an ``unknown_sensitive``
+#: field -- sensitive but not confidently password/otp, e.g. a re-entered
+#: transaction PIN -- through unless it happened to be redacted upstream, and
+#: compile it to a plaintext parameter default. Aligning fails closed on every
+#: role Tabby treats as a credential (also ``username``).
+_CREDENTIAL_ROLES = CREDENTIAL_FIELD_ROLES
 
 #: The recorder writes this in place of a credential value.
 _REDACTED = "[REDACTED]"

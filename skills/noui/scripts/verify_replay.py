@@ -166,6 +166,21 @@ def main() -> int:
             print(f"Cannot read {bundle_path}: {exc}", file=sys.stderr)
             return 1
 
+        unbacked = provenance.unbacked_control_steps(operations)
+        if unbacked:
+            shown = ", ".join(repr(u) for u in unbacked[:5])
+            more = f" (and {len(unbacked) - 5} more)" if len(unbacked) > 5 else ""
+            print(
+                f"These steps drive a control the recording could never have backed: {shown}{more}.\n"
+                "\n"
+                "A coordinate click or a key-press names no control the recording saw, so "
+                "nothing ties it to what was captured. The compiler never emits these; their "
+                "presence means the operations were written or edited by hand. Restore the "
+                "compiled operations.json, or re-record the part you meant to change.",
+                file=sys.stderr,
+            )
+            return 1
+
         unobserved = provenance.unobserved_locators(operations, bundle)
         if unobserved:
             shown = ", ".join(repr(u) for u in unobserved[:5])

@@ -337,6 +337,29 @@ def _before_first_click(
     kept = [
         t for t, s in zip(transitions, url_seqs, strict=False) if s is not None and s < first_click
     ]
+    # A login lands you by REDIRECT, and for SSO / auto-submit that redirect
+    # precedes the first click, so `s < first_click` captures it. But the classic
+    # form login lands via the "Log In" click ITSELF: its redirect fires just
+    # after that recorded click, and `s < first_click` then drops the one
+    # transition that matters -- e.g. url_events=[seq0 ''->/login, seq3
+    # /login->/overview], click=[seq2 "Log In"] keeps only ''->/login, and the
+    # compiler emits no_post_login_url for the most ordinary login shape there is.
+    # So when nothing before the first click has actually left the login page --
+    # the login has not landed yet -- extend the segment to the redirect the first
+    # click caused, stopping at the SECOND click: the earliest interaction that
+    # can belong to the workflow rather than to the login.
+    login_page = transitions[0][1] if transitions else ""
+    landed_before = any(
+        t[1] and t[1] != login_page and not _is_login_flow_segment_url(t[1]) for t in kept
+    )
+    if not landed_before:
+        ordered = sorted(click_seqs)
+        second_click = ordered[1] if len(ordered) > 1 else None
+        kept = [
+            t
+            for t, s in zip(transitions, url_seqs, strict=False)
+            if s is not None and (second_click is None or s < second_click)
+        ]
     # A click before any navigation (a cookie banner, say) would leave nothing.
     return kept or transitions
 

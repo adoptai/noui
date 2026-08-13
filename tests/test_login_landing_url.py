@@ -36,6 +36,38 @@ def test_the_login_segment_stops_at_the_first_click():
     assert all("credit-card" not in t[1] for t in kept)
 
 
+def test_a_form_login_whose_submit_click_triggers_the_landing_keeps_it():
+    # The classic shape: the human clicks "Log In" (a recorded click) and THAT
+    # click's redirect IS the post-login landing. `s < first_click` alone dropped
+    # it, so the compiler saw no post-login URL for the most ordinary login there
+    # is. Nothing left the login page before the click, so extend to the redirect
+    # the click caused.
+    url_events = [
+        url(0, "", f"{BASE}/login-page"),
+        url(3, f"{BASE}/login-page", f"{BASE}/overview"),
+    ]
+    transitions = [(u["from_url"], u["to_url"]) for u in url_events]
+    kept = _before_first_click(transitions, url_events, [click(2)])
+
+    assert [t[1] for t in kept] == [f"{BASE}/login-page", f"{BASE}/overview"]
+
+
+def test_a_form_login_keeps_the_landing_but_not_later_workflow_pages():
+    # Submit click (seq2) lands /overview (seq3); the human then works: a workflow
+    # click (seq6) navigates to /credit-card (seq7). The landing is kept, the
+    # workflow is not -- the SECOND click bounds the login segment.
+    url_events = [
+        url(0, "", f"{BASE}/login-page"),
+        url(3, f"{BASE}/login-page", f"{BASE}/overview"),
+        url(7, f"{BASE}/overview", f"{BASE}/credit-card"),
+    ]
+    transitions = [(u["from_url"], u["to_url"]) for u in url_events]
+    kept = _before_first_click(transitions, url_events, [click(2), click(6)])
+
+    assert [t[1] for t in kept] == [f"{BASE}/login-page", f"{BASE}/overview"]
+    assert all("credit-card" not in t[1] for t in kept)
+
+
 def test_a_login_that_settles_through_several_redirects_keeps_them_all():
     # Logins commonly bounce once or twice before landing; none of that is a click.
     url_events = [
