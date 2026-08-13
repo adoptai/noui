@@ -2184,6 +2184,21 @@ def derive_terminal_operations(
                 continue
             source = {
                 "text": (c.get("text_content") or "").strip(),
+                # Without this a hover compiles as a CLICK. _step_for_click
+                # branches on event_type and this projection did not carry it, so
+                # every hover in a terminal's lead-in became click_element on
+                # whatever locator was chosen for it.
+                #
+                # On ICICI that meant clicking the radio group's container --
+                # `div.width100percent:has-text("Monthly")` -- immediately after
+                # set_checked had chosen Annual, reverting it. Another hover
+                # became a click_by_text carrying the whole form's prose. The
+                # human had only moved the pointer across them.
+                #
+                # Sixth field a projection here has been caught dropping, after
+                # candidates, is_opener, event_type, seq and reveal -- the same
+                # one, in fact, in the sibling builder.
+                "event_type": c.get("event_type"),
                 "locator": choose_locator(c.get("candidates")),
                 "candidates": c.get("candidates"),
                 "is_opener": event_seq(c) in term_opener_seqs,
@@ -2327,9 +2342,7 @@ def _steps_for_terminal(op: dict) -> list[dict]:
     # means the fragile half runs first -- and on ICICI the first of them clicked
     # "Monthly" immediately after Annual had been set.
     superseded = set(op.get("superseded_seqs") or [])
-    steps.extend(
-        [s for s in (op.get("lead") or []) if s.get("_seq") not in superseded]
-    )
+    steps.extend([s for s in (op.get("lead") or []) if s.get("_seq") not in superseded])
     steps.extend(fill_steps(op.get("parameters") or []))
     # The terminal asserts WHICH PAGE it fires on.
     #

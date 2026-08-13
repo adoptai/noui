@@ -264,6 +264,16 @@ def arrived_past(step: dict, following: Any, execute: Any) -> bool:
     return bool(result.get("success", True)) if isinstance(result, dict) else False
 
 
+def _target_identity(step: dict) -> str:
+    """What a step acts on, for recognising a control we have already failed."""
+    params = step.get("params") or {}
+    for key in ("selector", "text", "role"):
+        value = params.get(key)
+        if isinstance(value, str) and value:
+            return f"{key}={value}"
+    return ""
+
+
 def replay_step(
     execute: Any,
     step: dict,
@@ -272,6 +282,7 @@ def replay_step(
     approvals: set[str] | None = None,
     known_downloads: set[str] | None = None,
     following: Any = None,
+    unactionable_targets: set[str] | None = None,
 ) -> dict:
     """Run one step and report what happened, without ever raising.
 
@@ -292,6 +303,28 @@ def replay_step(
         "expect": step.get("expect"),
         "locator": step.get("locator"),
     }
+
+    # A control already proven unactionable on this page is not worth waiting for
+    # again.
+    #
+    # ICICI's statement operations repeat a selector -- #DUMMY1 twice, then
+    # #DOWNLOAD_ESTATEMENT_PDF twice -- and when the control is present but
+    # hidden, each attempt spends the attach wait AND the click timeout before
+    # reporting the same thing it reported a moment ago. That was roughly three
+    # minutes of a replay sitting on the statement page, none of it doing
+    # anything.
+    #
+    # Reported as blocked, not skipped: the step DID fail, and the run should say
+    # so. It simply says it immediately, on the evidence it already has.
+    repeat_target = _target_identity(step)
+    if unactionable_targets is not None and repeat_target and repeat_target in unactionable_targets:
+        result["status"] = BLOCKED
+        result["error"] = (
+            f"{repeat_target} was already found on the page but not actionable earlier in "
+            "this run, so this repeat was not attempted -- waiting again would cost the "
+            "same timeout to learn the same thing."
+        )
+        return result
 
     risk = classify_risk(step, recorded_controls=recorded)
     if risk and identity not in approvals:
@@ -320,6 +353,10 @@ def replay_step(
 
     if isinstance(response, dict) and response.get("success") is False:
         detail = str(response.get("error") or "the command reported failure")
+        if unactionable_targets is not None and _unactionable(detail):
+            identity = _target_identity(step)
+            if identity:
+                unactionable_targets.add(identity)
         if _satisfied_already(step, detail):
             result["status"] = SKIPPED
             result["detail"] = (

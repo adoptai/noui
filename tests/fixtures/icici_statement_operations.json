@@ -70,7 +70,7 @@
     "hover_first": null
    },
    {
-    "command": "click_element",
+    "command": "hover",
     "target": "div.width100percent:has-text(\"Monthly\")",
     "value": null,
     "hover_first": null
@@ -204,12 +204,6 @@
    {
     "command": "click_by_text",
     "target": "FY2025-26",
-    "value": null,
-    "hover_first": null
-   },
-   {
-    "command": "click_by_text",
-    "target": "Please click on the icon below to download a printable copy of your e-Statement. Monthly Annual Credit Card Number Selec",
     "value": null,
     "hover_first": null
    },

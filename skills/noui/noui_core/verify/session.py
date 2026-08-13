@@ -787,6 +787,42 @@ def run_replay(
                     return report
                 except Exception:  # noqa: BLE001 — unreadable url: let the steps report
                     here = ""
+                # The page that can do the work, not the URL it was recorded at.
+                #
+                # A portal can serve the SAME screen from more than one entry
+                # URL. ICICI's statement form was recorded at /corp/Finacle and
+                # a replay arrives at /corp/AuthenticationController -- same
+                # form, both #PDF_Download and #DOWNLOAD_ESTATEMENT_PDF present,
+                # same radios, same selects. The URL check refused every time,
+                # so set_checked Annual and both select_options -- the steps
+                # that decide WHICH statement -- never ran, and the session sat
+                # on Monthly looking correct.
+                #
+                # Ask the page instead: if this operation's first step resolves
+                # here, this is the screen it was written for. That keeps the
+                # guard's whole point -- it still refuses when the controls are
+                # absent, which is the case it exists to catch -- while dropping
+                # an assumption about URLs the portal never promised.
+                if here and not _same_page(here, starts_from):
+                    first_selector = ""
+                    for candidate in steps or []:
+                        params = candidate.get("params") or {}
+                        if isinstance(params.get("selector"), str) and params["selector"]:
+                            first_selector = params["selector"]
+                            break
+                    resolves_here = False
+                    if first_selector:
+                        try:
+                            probe = execute(
+                                "wait_for_selector",
+                                {"selector": first_selector, "timeout_ms": 4000},
+                            )
+                            resolves_here = bool(probe)
+                        except Exception:  # noqa: BLE001 — absent is the answer, not an error
+                            resolves_here = False
+                    if resolves_here:
+                        here = ""
+
                 if here and not _same_page(here, starts_from):
                     results.append(
                         [
@@ -830,6 +866,10 @@ def run_replay(
                     else _ARRIVAL_BUDGET_S
                 )
                 _await_first_control(execute, steps, budget)
+            # Per OPERATION, not per run: a control hidden on one screen may be
+            # perfectly actionable on the next, so the knowledge must not outlive
+            # the page it was learned on.
+            unactionable_targets: set[str] = set()
             try:
                 for i, step in enumerate(steps):
                     result = replay_step(
@@ -838,6 +878,7 @@ def run_replay(
                         recorded=recorded,
                         approvals=approvals,
                         known_downloads=known_downloads,
+                        unactionable_targets=unactionable_targets,
                         following=steps[i + 1 :],
                     )
                     step_results.append(result)
@@ -882,6 +923,9 @@ def run_replay(
             if failed is not None:
                 results.append([failed])
                 continue
+        # Per OPERATION, as above: a control hidden on one screen may be
+        # actionable on the next.
+        unactionable_targets = set()
         try:
             for i, step in enumerate(steps):
                 result = replay_step(
@@ -890,6 +934,7 @@ def run_replay(
                     recorded=recorded,
                     approvals=approvals,
                     known_downloads=known_downloads,
+                    unactionable_targets=unactionable_targets,
                     following=steps[i + 1 :],
                 )
                 step_results.append(result)
