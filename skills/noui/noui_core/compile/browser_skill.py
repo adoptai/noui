@@ -1051,8 +1051,8 @@ def _expect_for_click(click: dict) -> dict | None:
         expect["download"] = True
     settled = outcome.get("settled_ms")
     if isinstance(settled, int) and settled > 0:
-        # Observed, not guessed. Rounded up to a whole second and given headroom,
-        # because a recorded settle is one sample from one network.
+        # Observed, not guessed: doubled for headroom, floored at a second and
+        # capped at fifteen, because a recorded settle is one sample from one network.
         expect["settle_ms"] = min(15000, max(1000, settled * 2))
     return expect or None
 

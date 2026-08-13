@@ -274,7 +274,11 @@ def warn_if_capture_was_downgraded(bundle: dict, classification: str) -> None:
     if classification not in (WORKFLOW, COMBINED):
         return
     version = bundle.get("schema_version")
-    if not isinstance(version, int) or version < 4:
+    # Rich capture is schema_version 5 (the recorder's RECORDING_SCHEMA_VERSION,
+    # and what SKILL.md/pillar-1 document). Anything older, or absent, predates it
+    # and carries nothing to expect -- treating < 4 as the cutoff would demand rich
+    # fields of a bundle that never had them and warn spuriously.
+    if not isinstance(version, int) or version < 5:
         return  # recorded before rich capture existed — nothing to expect
     if "download_events" in bundle:
         return  # workflow-shaped: the pod knew what it was
