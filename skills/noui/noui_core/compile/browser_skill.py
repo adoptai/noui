@@ -2241,9 +2241,36 @@ def derive_terminal_operations(
                 "nav": list(page.get("nav") or []),
                 "parameters": parameters,
                 "lead": lead_steps,
+                # Seqs the recorder says were a dropdown widget's own clicks.
+                # See _steps_for_terminal, which drops them.
+                "superseded_seqs": sorted(_superseded_seqs(click_events)),
                 "terminal": step,
             }
         )
+    return out
+
+
+def _superseded_seqs(click_events: list[dict] | None) -> set[int]:
+    """Clicks the recorder attributed to a dropdown widget it also recorded.
+
+    A portal draws a styled div over a native <select>: the human clicks the
+    overlay, picks an option, and the select's value changes a moment later. The
+    recorder stamps that change with `supersedes: [seq, ...]` naming the clicks
+    that were the widget, because only it can see the two are one act.
+
+    Without this the compiler emitted both -- an ICICI download clicked a
+    container labelled "Monthly" straight after setting Annual, then opened a
+    panel and hunted a floating option, before finally issuing the select_option
+    that would have done it outright. Every one of those clicks either undid the
+    step before it or burned a timeout, identically on four consecutive replays.
+    """
+    out: set[int] = set()
+    for ev in click_events or []:
+        if not isinstance(ev, dict):
+            continue
+        for seq in ev.get("supersedes") or []:
+            if isinstance(seq, int):
+                out.add(seq)
     return out
 
 
@@ -2295,7 +2322,14 @@ def _steps_for_terminal(op: dict) -> list[dict]:
     # Set the page up the way the human did — tab, period, filter — before the
     # values the caller can override, so a passed parameter lands on the screen
     # those clicks produced rather than on whatever loaded first.
-    steps.extend(op.get("lead") or [])
+    # Drive each control ONCE. A click the recorder marked as a dropdown's own
+    # widget is the same act as the select_option that follows, so emitting both
+    # means the fragile half runs first -- and on ICICI the first of them clicked
+    # "Monthly" immediately after Annual had been set.
+    superseded = set(op.get("superseded_seqs") or [])
+    steps.extend(
+        [s for s in (op.get("lead") or []) if s.get("_seq") not in superseded]
+    )
     steps.extend(fill_steps(op.get("parameters") or []))
     # The terminal asserts WHICH PAGE it fires on.
     #
