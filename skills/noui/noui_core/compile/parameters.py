@@ -123,9 +123,17 @@ def derive_parameters(events: list[dict] | None) -> list[dict]:
             "type": _param_type(value, str(ev.get("field_name") or ""), input_type),
             "default": value,
             "control": "select" if tag == "select" else "text",
-            # A native <select> cannot be set by any command a skill has
-            # (there is no select_option), so it is reported, never faked.
-            "settable": tag != "select",
+            # A native <select> IS settable: the runtime has had select_option
+            # (by option value or by visible label) all along -- see
+            # execute-browser-handler's `case 'select_option'`. Marking these
+            # read-only meant every dropdown a skill needed was surfaced as
+            # something to report rather than something to drive, and the only
+            # way left to change one was to click through whatever widget the
+            # page draws on top of it. On ICICI that is three brittle steps per
+            # dropdown, keyed on the overlay's current-state classes and on a
+            # :text-is holding the whole option list, and it stalled every
+            # replay mid-panel.
+            "settable": True,
         }
         if label:
             param["label"] = label
@@ -151,7 +159,17 @@ def fill_steps(parameters: list[dict]) -> list[dict]:
         if not p.get("settable"):
             continue
         placeholder = "{{" + p["name"] + "}}"
-        if p.get("selector"):
+        if p.get("control") == "select" and p.get("selector"):
+            # A dropdown is chosen, not typed into. select_option takes the
+            # option's value or its visible label, so the recorded default and a
+            # caller's override both work unchanged.
+            steps.append(
+                {
+                    "command": "select_option",
+                    "params": {"selector": p["selector"], "value": placeholder},
+                }
+            )
+        elif p.get("selector"):
             steps.append(
                 {"command": "type_text", "params": {"selector": p["selector"], "text": placeholder}}
             )

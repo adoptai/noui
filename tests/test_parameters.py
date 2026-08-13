@@ -82,15 +82,26 @@ def test_checkbox_state_is_not_a_parameter():
     )
 
 
-def test_a_dropdown_is_reported_but_not_faked():
-    # No browser command can set a native <select>, so compiling a step for it
-    # would silently do nothing. Report it and let the agent open and choose.
+def test_a_dropdown_is_chosen_not_typed_into():
+    """A native <select> IS settable -- the runtime has always had select_option.
+
+    Marking it read-only meant every dropdown a skill needed was surfaced as
+    something to report rather than something to drive, leaving clicks through
+    whatever widget the page draws over it as the only way to change one. On
+    ICICI that is three brittle steps per dropdown and a replay that stalls
+    mid-panel.
+
+    It must not compile to type_text either: you choose from a select, you do
+    not type into one.
+    """
     (p,) = derive_parameters(
         [ev(event_type="change", tag_name="SELECT", field_name="period", value="Last 6 months")]
     )
     assert p["control"] == "select"
-    assert p["settable"] is False
-    assert fill_steps([p]) == []
+    assert p["settable"] is True
+    (step,) = fill_steps([{**p, "selector": "#period"}])
+    assert step["command"] == "select_option"
+    assert step["params"] == {"selector": "#period", "value": "{{period}}"}
 
 
 def test_falls_back_to_the_label_when_a_field_has_no_name():

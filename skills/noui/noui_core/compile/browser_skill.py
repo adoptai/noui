@@ -773,6 +773,34 @@ def _step_for_click(click: dict) -> dict | None:
     locator = click.get("locator") or choose_locator(click.get("candidates"))
     text = (click.get("text") or "").strip()
 
+    # A dropdown the human changed is ONE command, not a click safari.
+    #
+    # The runtime has had select_option (by option value or visible label) all
+    # along, and the recorder now sees a <select> whose value was assigned by
+    # script -- which is how Finacle's styled overlay sets one. Without this the
+    # only compiled evidence was the human's clicks on that overlay: three steps
+    # per dropdown, keyed on classes encoding the widget's CURRENT state and on
+    # a :text-is carrying the entire option list. Replay stalled mid-panel every
+    # time, because step two needs the panel still open and step three needs to
+    # land on a floating option.
+    #
+    # Value first, label second, which is exactly what the runtime accepts. The
+    # selector must be css-expressible: there is no select-by-text.
+    if str(click.get("tag_name") or "").upper() == "SELECT":
+        chosen = str(click.get("value") or "").strip()
+        if chosen and locator and locator.get("is_css"):
+            select_step: dict[str, Any] = {
+                "command": "select_option",
+                "params": {"selector": locator["value"], "value": chosen},
+            }
+            element_ctx = click.get("element") or {}
+            if isinstance(element_ctx, dict) and element_ctx.get("in_iframe"):
+                for key in ("frame_url", "frame_name"):
+                    frame_val = str(element_ctx.get(key) or "").strip()
+                    if frame_val:
+                        select_step["params"][key] = frame_val
+            return select_step
+
     # A radio or checkbox is SET, not clicked.
     #
     # Portals style these as images or spans over a hidden input, so a click
