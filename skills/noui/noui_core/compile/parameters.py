@@ -34,6 +34,19 @@ _CREDENTIAL_ROLES = frozenset({"password", "otp"})
 #: The recorder writes this in place of a credential value.
 _REDACTED = "[REDACTED]"
 
+#: A <select>'s recorded value, normalised to letters/digits, that means "nothing
+#: was chosen" -- the inert placeholder option a decoy dropdown sits on. Kept
+#: deliberately tight: only values that are self-evidently non-selections, so a
+#: real option (a year, an account, "All accounts") is never dropped.
+_PLACEHOLDER_SELECT_VALUES = frozenset(
+    {"value", "select", "choose", "none", "pleaseselect", "selectanoption", "selectone"}
+)
+
+
+def _is_placeholder_select_value(value: str) -> bool:
+    return re.sub(r"[^a-z0-9]", "", (value or "").lower()) in _PLACEHOLDER_SELECT_VALUES
+
+
 _DATE_PATTERNS = (
     re.compile(r"^\d{4}-\d{2}-\d{2}$"),  # 2026-01-31
     re.compile(r"^\d{2}[/-]\d{2}[/-]\d{4}$"),  # 31/01/2026, 31-01-2026
@@ -114,6 +127,14 @@ def derive_parameters(events: list[dict] | None) -> list[dict]:
 
         tag = (ev.get("tag_name") or "").lower()
         input_type = (ev.get("input_type") or "").lower()
+        # A <select> still sitting on its placeholder option was never a choice
+        # the human made. ICICI's #FieldDropdown is exactly this: its recorded
+        # value is the literal "Value", the inert first option. Turning that into
+        # a parameter + select_option drives a meaningless control and asks the
+        # caller to supply a value that means "nothing is selected". A real
+        # selection (a period, an account) carries a real value and is kept.
+        if tag == "select" and _is_placeholder_select_value(value):
+            continue
         label = _label_of(ev)
         name = _param_name(str(ev.get("field_name") or ""), label, index)
 

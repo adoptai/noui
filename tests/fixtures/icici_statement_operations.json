@@ -94,12 +94,6 @@
     "hover_first": null
    },
    {
-    "command": "select_option",
-    "target": "#FieldDropdown",
-    "value": "{{field_dropdown}}",
-    "hover_first": null
-   },
-   {
     "command": "click_element",
     "target": "#DUMMY1",
     "value": null,
@@ -166,12 +160,6 @@
     "hover_first": null
    },
    {
-    "command": "select_option",
-    "target": "#FieldDropdown",
-    "value": "{{field_dropdown}}",
-    "hover_first": null
-   },
-   {
     "command": "click_by_text",
     "target": "Please click on the icon below to download a printable copy of your e-Statement. Monthly Annual Credit Card Number Selec",
     "value": null,
@@ -211,12 +199,6 @@
     "command": "select_option",
     "target": "#CustomViewEStatementsFG\\.PERIOD",
     "value": "{{custom_view_e_statements_f_g_p_e_r_i_o_d}}",
-    "hover_first": null
-   },
-   {
-    "command": "select_option",
-    "target": "#FieldDropdown",
-    "value": "{{field_dropdown}}",
     "hover_first": null
    },
    {

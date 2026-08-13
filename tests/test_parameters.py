@@ -31,6 +31,29 @@ def ev(**over) -> dict:
     return base
 
 
+def test_a_select_on_its_placeholder_option_is_not_a_parameter():
+    # ICICI's #FieldDropdown decoy records value "Value" -- the inert first
+    # option. It must not become a parameter + select_option that drives a
+    # meaningless control and asks the caller for a value meaning "nothing chosen".
+    for placeholder in ("Value", "-- Select --", "Choose", "Please select", "None"):
+        assert (
+            derive_parameters(
+                [ev(tag_name="SELECT", event_type="change", field_name="FieldDropdown", value=placeholder)]
+            )
+            == []
+        ), placeholder
+
+
+def test_a_select_with_a_real_choice_is_still_a_parameter():
+    # A real selection (a period, an account) carries a real value and is kept.
+    for real in ("FY2025-26", "All accounts", "Savings ...4471"):
+        params = derive_parameters(
+            [ev(tag_name="SELECT", event_type="change", field_name="period", value=real)]
+        )
+        assert len(params) == 1 and params[0]["default"] == real, real
+        assert params[0]["control"] == "select"
+
+
 def test_a_recorded_value_becomes_a_parameter_with_that_value_as_default():
     # Default = recorded, so the operation still does exactly what was recorded
     # when nothing is passed.
