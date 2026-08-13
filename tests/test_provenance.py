@@ -41,6 +41,26 @@ def test_observed_selectors_collects_every_form_a_step_might_use():
     assert {"button|Download", "Download", "#dl", "Past Statements"} <= seen
 
 
+def test_a_label_addressed_fill_is_read_by_its_label_not_its_typed_value():
+    # type_into_label carries the VALUE in `text` (often a {{placeholder}}); taking
+    # text first validated that placeholder as a locator the recording never saw,
+    # so the gate refused every label-addressed parameterised fill. The locator is
+    # the label. Mirrors the harness _step_locators / _TYPED_VALUE_COMMANDS.
+    from noui_core.compile.provenance import step_locators, unobserved_locators
+
+    ops = [
+        {
+            "name": "search",
+            "steps": [
+                {"command": "type_into_label", "params": {"label": "Search box", "text": "{{q}}"}}
+            ],
+        }
+    ]
+    assert step_locators(ops) == ["Search box"]
+    bundle = {"click_events": [{"candidates": [{"kind": "label", "value": "Search box"}]}]}
+    assert unobserved_locators(ops, bundle) == []
+
+
 def test_build_stamps_what_the_installer_verifies():
     prov = build(RECORDING, bundle_file="recording_bundle.json")
     assert prov["bundle_sha256"] == SHARED_BUNDLE_DIGEST

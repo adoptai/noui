@@ -129,6 +129,15 @@ def build(
     }
 
 
+#: Commands whose `text`/`value` param is the VALUE being typed/chosen, not the
+#: control being addressed. For these the locator is the label or the selector;
+#: taking `text` first meant a label-addressed parameterised fill had its own
+#: `{{placeholder}}` validated as a locator -- never in the recording, so the
+#: gate refused every such skill with "invented selector". Mirror adoptai-workflows
+#: `_step_locators`/`_TYPED_VALUE_COMMANDS` exactly.
+_TYPED_VALUE_COMMANDS = frozenset({"type_into_label", "type_text", "fill", "select_option"})
+
+
 def step_locators(operations: list[dict[str, Any]]) -> list[str]:
     """The locator each step targets, for steps that target one.
 
@@ -143,7 +152,13 @@ def step_locators(operations: list[dict[str, Any]]) -> list[str]:
                 continue
             raw = step.get("params")
             params: dict[str, Any] = raw if isinstance(raw, dict) else step
-            for key in ("selector", "text", "label", "value"):
+            command = str(step.get("command") or "")
+            keys = (
+                ("label", "selector")
+                if command in _TYPED_VALUE_COMMANDS
+                else ("selector", "text", "label", "value")
+            )
+            for key in keys:
                 v = params.get(key)
                 if isinstance(v, str) and v.strip():
                     out.append(v.strip())
