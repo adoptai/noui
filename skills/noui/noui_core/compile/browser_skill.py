@@ -2203,9 +2203,25 @@ def derive_terminal_operations(
                 lead["expect"] = lead_expect
             lead_steps.append(lead)
 
+        # A repeated name means a SECOND terminal on the same page, not a
+        # duplicate of the first.
+        #
+        # Discarding it threw away that terminal's whole operation, lead-in
+        # included. ICICI's statement form is submitted twice -- once by the GO
+        # button (#DUMMY1) to load the period's statements, once to download --
+        # and both submits name themselves after the same page, so the second
+        # collapsed into the first and #DUMMY1 reached no step at all. The
+        # journey then had no way to ask for the statements it was about to
+        # download.
+        #
+        # Number them instead. Two operations that genuinely do the same thing
+        # cost a redundant step; a dropped one costs the journey.
         name = _op_name(kind, ev, _slug_from_path(url))
         if name in seen:
-            continue
+            suffix = 2
+            while f"{name}_{suffix}" in seen:
+                suffix += 1
+            name = f"{name}_{suffix}"
         seen.add(name)
 
         out.append(

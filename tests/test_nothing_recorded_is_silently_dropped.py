@@ -29,8 +29,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from noui_core.compile.browser_skill import generate_browser_skill
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -92,18 +90,6 @@ def _step_haystack(ops: list[dict]) -> str:
     return _norm("\n".join(parts))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "KNOWN DEFECT, not a flaky test: the compiler drops the GO button "
-        "(#DUMMY1) that submits ICICI's statement form. Earlier compiles of the "
-        "same journey emitted `click_element #DUMMY1`; the current one does not, "
-        "so a step the human performed reaches no operation. Excluding it would "
-        "be editing the test to fit the code -- the thing this file exists to "
-        "prevent. When the compiler stops dropping it this test XPASSes and "
-        "strict=True fails the build, which is the signal to remove this marker."
-    ),
-)
 def test_every_state_changing_interaction_reaches_some_operation():
     bundle = json.loads(BUNDLE.read_text())
     clicks = bundle.get("click_events") or []

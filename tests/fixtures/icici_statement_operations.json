@@ -60,6 +60,60 @@
   ]
  },
  {
+  "name": "submit_corp_authenticationcontroller_2",
+  "kind": "submit",
+  "steps": [
+   {
+    "command": "click_element",
+    "target": "#DEH_LOGIN",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "div.width100percent:has-text(\"Monthly\")",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "set_checked",
+    "target": "input[name=\"CustomViewEStatementsFG\\.PERIOD_TYPE\"][value=\"Y\"]",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "#DUMMY1",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "select_option",
+    "target": "#CustomViewEStatementsFG\\.PERIOD",
+    "value": "{{custom_view_e_statements_f_g_p_e_r_i_o_d}}",
+    "hover_first": null
+   },
+   {
+    "command": "select_option",
+    "target": "#FieldDropdown",
+    "value": "{{field_dropdown}}",
+    "hover_first": null
+   },
+   {
+    "command": "click_element",
+    "target": "#DUMMY1",
+    "value": null,
+    "hover_first": null
+   },
+   {
+    "command": "get_page_summary",
+    "target": null,
+    "value": null,
+    "hover_first": null
+   }
+  ]
+ },
+ {
   "name": "submit_corp_authenticationcontroller",
   "kind": "submit",
   "steps": [
