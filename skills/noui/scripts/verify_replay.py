@@ -259,31 +259,19 @@ def main() -> int:
             return 1
         values[name] = value
 
-    # A control plane that never answers is not a fault in the skill, and it must
-    # not cost the member the amendment they just recorded or dump a raw urllib
-    # traceback. run_replay already turns "no session" (HTTP 404/409) into
-    # login_required; the gap is BEFORE it -- resolving the agent token, or the
-    # very first call -- when Tabby is down entirely. Treat that the same way: no
-    # replay ran, so nothing reached its goal, the amendments below are recorded
-    # unverified, and the message says plainly what was unreachable.
-    try:
-        token = resolve_agent_token()
-        report = run_replay(
-            operations,
-            profile_slug=args.profile_slug,
-            token=token,
-            approvals=set(args.approve_step) or None,
-            parameter_values=values or None,
-            # Every invocation restarts the journey rather than resuming it, so an
-            # amended step is judged from the same place the original one was.
-            entry_url=(doc.get("entry_url") if isinstance(doc, dict) else None),
-            # One entry per host: a reset never changes hosts, because no route
-            # between them was ever recorded.
-            entry_by_origin=(doc.get("entry_urls") if isinstance(doc, dict) else None),
-        )
-    except TabbyUnreachableError as exc:
-        print(str(exc), file=sys.stderr)
-        report = {
+    # Not being able to replay is not a fault in the skill, and it must not cost
+    # the member the amendment they just recorded or dump a raw traceback. Two
+    # gates sit BEFORE run_replay can turn "no session" (HTTP 404/409) into
+    # login_required, and either can fail with nothing having run:
+    #   - resolving the agent token: no credentials/broker token configured, or
+    #     the auth endpoint is unreachable. Any failure here means there is no
+    #     token, so there is no session to replay against.
+    #   - the very first browser call, when the control plane is down entirely
+    #     (TabbyUnreachableError rather than a 404).
+    # Treat both the same way: no replay ran, nothing reached its goal, the
+    # amendments below are recorded unverified, and the message says plainly why.
+    def _not_replayed() -> dict:
+        return {
             "operations": [
                 {"name": o.get("name"), "goal_reached": False, "steps": []} for o in operations
             ],
@@ -292,6 +280,33 @@ def main() -> int:
             "installable": False,
             "status": "unreachable",
         }
+
+    try:
+        token = resolve_agent_token()
+    except RuntimeError as exc:
+        # No token, no session — missing creds/broker token, or the auth endpoint
+        # is down. resolve_agent_token raises ONLY for "cannot obtain a token"
+        # reasons, so catching RuntimeError here cannot swallow a replay bug.
+        print(str(exc), file=sys.stderr)
+        report = _not_replayed()
+    else:
+        try:
+            report = run_replay(
+                operations,
+                profile_slug=args.profile_slug,
+                token=token,
+                approvals=set(args.approve_step) or None,
+                parameter_values=values or None,
+                # Every invocation restarts the journey rather than resuming it, so
+                # an amended step is judged from the same place the original one was.
+                entry_url=(doc.get("entry_url") if isinstance(doc, dict) else None),
+                # One entry per host: a reset never changes hosts, because no route
+                # between them was ever recorded.
+                entry_by_origin=(doc.get("entry_urls") if isinstance(doc, dict) else None),
+            )
+        except TabbyUnreachableError as exc:
+            print(str(exc), file=sys.stderr)
+            report = _not_replayed()
 
     # Amendments are persisted AFTER the replay, stamped with what it proved
     # about each one. Written beforehand they all looked equally confirmed: one
