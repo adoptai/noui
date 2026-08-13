@@ -2329,9 +2329,7 @@ def _terminal_starts_from(op: dict) -> str | None:
 # (matched inside "CustomView"), a bare "go" -- are gone; and only clicks are
 # tested (see below), so the value-scoped set_checked whose selector says
 # "CustomView...PERIOD_TYPE" is excluded by command before this ever runs.
-_ACTIVATION_CONTROL = re.compile(
-    r"(download|e-?statement|estatement|pdf|export|submit)", re.I
-)
+_ACTIVATION_CONTROL = re.compile(r"(download|e-?statement|estatement|pdf|export|submit)", re.I)
 
 
 def _is_activation_step(step: dict) -> bool:
@@ -2391,7 +2389,8 @@ def _steps_for_terminal(op: dict) -> list[dict]:
     # A click whose own label names a download/submit control is activation; the
     # parameter fills must precede it, exactly as a person sets the period before
     # pressing the button.
-    activation, setup = [], []
+    activation: list[dict] = []
+    setup: list[dict] = []
     for step in lead:
         (activation if _is_activation_step(step) else setup).append(step)
     steps.extend(setup)

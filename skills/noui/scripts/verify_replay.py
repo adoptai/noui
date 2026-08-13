@@ -30,6 +30,7 @@ import _bootstrap  # noqa: F401
 from noui_core.capture.recording import resolve_agent_token
 from noui_core.compile import amendments as amendments_mod
 from noui_core.compile import provenance
+from noui_core.tabby_client import TabbyUnreachableError
 from noui_core.verify.replay import plan_operations
 from noui_core.verify.session import run_replay
 
@@ -258,19 +259,39 @@ def main() -> int:
             return 1
         values[name] = value
 
-    report = run_replay(
-        operations,
-        profile_slug=args.profile_slug,
-        token=resolve_agent_token(),
-        approvals=set(args.approve_step) or None,
-        parameter_values=values or None,
-        # Every invocation restarts the journey rather than resuming it, so an
-        # amended step is judged from the same place the original one was.
-        entry_url=(doc.get("entry_url") if isinstance(doc, dict) else None),
-        # One entry per host: a reset never changes hosts, because no route
-        # between them was ever recorded.
-        entry_by_origin=(doc.get("entry_urls") if isinstance(doc, dict) else None),
-    )
+    # A control plane that never answers is not a fault in the skill, and it must
+    # not cost the member the amendment they just recorded or dump a raw urllib
+    # traceback. run_replay already turns "no session" (HTTP 404/409) into
+    # login_required; the gap is BEFORE it -- resolving the agent token, or the
+    # very first call -- when Tabby is down entirely. Treat that the same way: no
+    # replay ran, so nothing reached its goal, the amendments below are recorded
+    # unverified, and the message says plainly what was unreachable.
+    try:
+        token = resolve_agent_token()
+        report = run_replay(
+            operations,
+            profile_slug=args.profile_slug,
+            token=token,
+            approvals=set(args.approve_step) or None,
+            parameter_values=values or None,
+            # Every invocation restarts the journey rather than resuming it, so an
+            # amended step is judged from the same place the original one was.
+            entry_url=(doc.get("entry_url") if isinstance(doc, dict) else None),
+            # One entry per host: a reset never changes hosts, because no route
+            # between them was ever recorded.
+            entry_by_origin=(doc.get("entry_urls") if isinstance(doc, dict) else None),
+        )
+    except TabbyUnreachableError as exc:
+        print(str(exc), file=sys.stderr)
+        report = {
+            "operations": [
+                {"name": o.get("name"), "goal_reached": False, "steps": []} for o in operations
+            ],
+            "all_goals_reached": False,
+            "needs_approval": False,
+            "installable": False,
+            "status": "unreachable",
+        }
 
     # Amendments are persisted AFTER the replay, stamped with what it proved
     # about each one. Written beforehand they all looked equally confirmed: one
@@ -355,6 +376,11 @@ def main() -> int:
             "a failure to work around.",
             file=sys.stderr,
         )
+        return 2
+    if report.get("status") == "unreachable":
+        # The reason was already printed above. Non-zero so nothing downstream
+        # reads this as a passing replay; same "re-run once the platform answers"
+        # family as login_required.
         return 2
     return 0
 

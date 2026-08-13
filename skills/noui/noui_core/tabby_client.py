@@ -41,6 +41,14 @@ _RETRY_STATUSES = frozenset({502, 503, 504})
 _TRANSPORT_ERRORS = (OSError, http.client.HTTPException)
 
 
+class TabbyUnreachableError(RuntimeError):
+    """No answer came back from Tabby at all — the endpoint was down, the socket
+    timed out, or DNS failed. A subclass of RuntimeError so every existing
+    ``except RuntimeError`` handler still catches it and prints the clean message;
+    the distinct type lets a caller tell "the control plane is unreachable" apart
+    from "the control plane said no", which are different next steps."""
+
+
 def _unreachable_error(
     method: str, path: str, detail: str, attempts: int, elapsed: float
 ) -> RuntimeError:
@@ -57,7 +65,7 @@ def _unreachable_error(
     mode = settings.tabby_auth_mode or "agent_token"
     who = "control-plane broker" if settings.broker_mode() else "Tabby API"
     tried = f" Retried {attempts} time(s) over {elapsed:.0f}s." if attempts > 1 else " Not retried."
-    return RuntimeError(
+    return TabbyUnreachableError(
         f"Cannot reach the {who} at {base} ({mode} mode) for {method} {path}: {detail}."
         f"{tried} This is an upstream/network failure, not an auth problem — a rejected "
         f"bearer answers with HTTP 401/403. Check that the {who} is up, then re-run."
