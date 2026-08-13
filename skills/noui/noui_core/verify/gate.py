@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from noui_core.compile import amendments as amendments_mod
 from noui_core.verify.replay import operations_fingerprint
 
 #: Where an approved replay is recorded, beside the skill it approves.
@@ -111,3 +112,27 @@ def check_installable(skill_dir: str | Path) -> None:
             "the plan that was replayed. Replay again and get a fresh approval; the "
             "previous one was for a different set of steps."
         )
+
+    # Every amendment must be approved by name, to match the harness install gate
+    # (adoptai-workflows `_unapproved_amendments`). A step discovered at replay is
+    # not a step a human was watched performing, so approving the skill as a whole
+    # must not wave it through. No amendments.json (the common case, and the whole
+    # record→replay path that carries none) is a strict no-op.
+    amendments = amendments_mod.load(_read_amendments(path))
+    if amendments:
+        approved = set(approval.get("approved_amendments") or [])
+        unapproved = [a for a in amendments if amendments_mod.amendment_id(a) not in approved]
+        if unapproved:
+            raise NotApprovedError(
+                f"{len(unapproved)} step(s) were discovered at replay and not approved by "
+                "the member. Each amendment is approved individually — "
+                "verify_approve --approve-amendment ID — because nobody was watched "
+                "performing them."
+            )
+
+
+def _read_amendments(skill_dir: Path) -> str:
+    try:
+        return (skill_dir / amendments_mod.AMENDMENTS_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return ""

@@ -62,6 +62,37 @@ def test_a_browser_skill_with_an_approval_installs(tmp_path):
     check_installable(d)  # does not raise
 
 
+def test_an_unapproved_amendment_refuses_install(tmp_path):
+    # Parity with the harness gate: a step discovered at replay must be approved
+    # by name, so an approval of the skill as a whole cannot wave it through.
+    d = make_skill(tmp_path)
+    write_approval(d, approved_report([BROWSER_OP]))
+    (d / "amendments.json").write_text(
+        json.dumps(
+            {
+                "amendments": [
+                    {
+                        "operation": "download_statement",
+                        "step_index": 0,
+                        "replacement": {"command": "click_element", "params": {"selector": "#new"}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(NotApprovedError, match="discovered at replay"):
+        check_installable(d)
+
+
+def test_no_amendments_file_is_a_no_op(tmp_path):
+    # The whole record->replay->approve->install path carries no amendments; the
+    # amendment check must never turn a clean skill away.
+    d = make_skill(tmp_path)
+    write_approval(d, approved_report([BROWSER_OP]))
+    check_installable(d)  # does not raise
+
+
 def test_an_approval_does_not_survive_a_change_to_the_steps(tmp_path):
     # "The human's confirmation takes precedence" only means something if
     # amending the plan invalidates the confirmation.
