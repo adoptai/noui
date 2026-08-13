@@ -38,7 +38,14 @@ def test_a_select_on_its_placeholder_option_is_not_a_parameter():
     for placeholder in ("Value", "-- Select --", "Choose", "Please select", "None"):
         assert (
             derive_parameters(
-                [ev(tag_name="SELECT", event_type="change", field_name="FieldDropdown", value=placeholder)]
+                [
+                    ev(
+                        tag_name="SELECT",
+                        event_type="change",
+                        field_name="FieldDropdown",
+                        value=placeholder,
+                    )
+                ]
             )
             == []
         ), placeholder
