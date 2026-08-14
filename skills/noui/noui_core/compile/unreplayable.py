@@ -47,6 +47,27 @@ def _origin(url: str) -> str:
         return ""
 
 
+def _is_envelope_shape(keys: list, long_values: bool) -> bool:
+    """Envelope test from a body's SHAPE rather than its bytes.
+
+    Tabby reduces `workflow` HARs to metadata — no bodies, no headers, no query
+    strings — because a browser skill never replays a request and a bank
+    portal's payloads (balances, PANs, live tokens) have no business sitting in
+    a recording bundle. It keeps the top-level field NAMES and a flag for whether
+    any value was a long string, which is precisely what the text-based test
+    below reduces to: names ⊆ envelope set, and at least one ciphertext-looking
+    value.
+
+    Without this, reducing the HAR would silently disable browser-vs-replay
+    auto-detection: every workflow recording would look replayable, and apps like
+    ICICI would compile back into the 40-operations-that-all-403 skill.
+    """
+    if not keys or not long_values:
+        return False
+    names = {str(k).lower() for k in keys}
+    return bool(names) and names <= _ENVELOPE_KEYS
+
+
 def _is_encryption_envelope(text: str) -> bool:
     """True when ``text`` is a JSON object carrying only ciphertext/wrapped-key
     fields — the shape a page produces when it encrypts the real payload in JS."""
@@ -91,8 +112,15 @@ def detect_unreplayable(har: dict | None, *, app_origin: str = "") -> dict:
         if app_origin and _origin(url) != app_origin:
             continue
         app_posts += 1
-        text = (req.get("postData") or {}).get("text") or ""
-        if _is_encryption_envelope(text):
+        post = req.get("postData") or {}
+        text = post.get("text") or ""
+        if text:
+            is_envelope = _is_encryption_envelope(text)
+        else:
+            # A metadata-reduced HAR (Tabby workflow bundles) carries the body's
+            # shape instead of its bytes. Same test, same verdict.
+            is_envelope = _is_envelope_shape(post.get("keys") or [], bool(post.get("long_values")))
+        if is_envelope:
             envelope_posts += 1
 
     ratio = (envelope_posts / app_posts) if app_posts else 0.0

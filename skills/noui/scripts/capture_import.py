@@ -27,7 +27,7 @@ from noui_core.activate import register
 from noui_core.capture import ledger, recording
 from noui_core.capture.bundle import save_bundle
 from noui_core.capture.classify import COMBINED, LOGIN, WORKFLOW
-from noui_core.capture.split import split_bundle
+from noui_core.capture.split import SplitError, split_bundle, split_diagnosis
 from noui_core.compile.login import compile_login_bundle
 from noui_core.compile.workflow import compile_workflow_bundle
 
@@ -95,6 +95,49 @@ def _default_tenant(tenant_id: str) -> str:
     return auth.tenant_id_from_token(recording.resolve_agent_token())
 
 
+def _report_kind(result: dict, skill: dict | None, *, declared: bool) -> None:
+    """Say which KIND was compiled, why, and ask when nobody chose it.
+
+    This used to speak only when browser mode was auto-selected, so choosing
+    REPLAY was silent -- and an ICICI capture asked for as a browser skill
+    compiled to two Finacle POSTs with nothing anywhere saying a decision had
+    been taken. A default is fine; a default nobody is told about is not.
+
+    Auto-detection remains the default answer. What changes is that the answer
+    is stated, with its basis, and when the member never said which kind they
+    wanted the agent is told to confirm before installing -- the kind decides
+    whether the skill drives the page or replays requests, and changing it means
+    compiling again.
+    """
+    det = result.get("browser_detection") or {}
+    app = (skill.get("skill_id") if skill else None) or "this app"
+    browser = bool(det.get("unreplayable")) or declared
+
+    if browser:
+        from noui_core.compile.unreplayable import recommendation_message
+
+        basis = "you asked for it" if declared else recommendation_message(det, app_name=app)
+        print(f"KIND: browser-driven — {basis}", file=sys.stderr)
+    else:
+        reasons = "; ".join(det.get("reasons") or []) or "no unreplayable fingerprint in the HAR"
+        print(
+            f"KIND: replay (call_web_api) — auto-detected: {reasons}. The skill will "
+            f"fire the recorded requests rather than drive the page.",
+            file=sys.stderr,
+        )
+
+    if not declared:
+        print(
+            "CONFIRM THE KIND WITH THE MEMBER BEFORE INSTALLING. Nobody chose this; "
+            "it was detected. If they asked for a browser-driven skill -- or the app "
+            "encrypts or signs its requests in the page, so replay will 403 later -- "
+            "re-import with --browser-driven. Changing it afterwards means compiling "
+            "again, and a replay skill that looks fine today fails the first time the "
+            "app rotates what it signs.",
+            file=sys.stderr,
+        )
+
+
 def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     mcp = result.get("mcp") or {}
     skill = result.get("skill") or {}
@@ -105,16 +148,9 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     # Tell the operator when the app was auto-routed to browser mode, and why —
     # this is the recommendation surfaced to a user authoring a skill in the
     # harness, so browser mode is never picked silently.
-    det = result.get("browser_detection") or {}
-    if det.get("unreplayable"):
-        from noui_core.compile.unreplayable import recommendation_message
-
-        app = (skill.get("skill_id") if skill else None) or "this app"
-        print(
-            "Browser mode auto-selected —",
-            recommendation_message(det, app_name=app),
-            file=sys.stderr,
-        )
+    _report_kind(result, skill, declared=bool(getattr(args, "browser_driven", False)))
+    if not _apply_folds(skill, getattr(args, "fold", []) or []):
+        _report_folds(skill)
     if args.auth_type == "api-key":
         secrets = (skill.get("secrets_required") if skill else None) or (
             mcp.get("secrets_required") if mcp else None
@@ -176,7 +212,16 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
     feeding the login's own declared headers straight in (no Tabby round-trip).
     Falls back to workflow-only when the capture has no login segment.
     """
-    parts = split_bundle(bundle)
+    try:
+        parts = split_bundle(bundle)
+    except SplitError as exc:
+        print(split_diagnosis(bundle), file=sys.stderr)
+        print(f"Cannot split this capture: {exc}", file=sys.stderr)
+        return 1
+    # Always say what the splitter saw. The decision turns on one thing and used
+    # to be invisible, so a member who HAD recorded a login was asked to record
+    # it again with nothing anywhere explaining why.
+    print(split_diagnosis(bundle), file=sys.stderr)
     if parts is None:
         print(
             "No login segment detected — compiling workflow-only. Pass --profile-slug "
@@ -234,13 +279,27 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
         return 1
     try:
         prov = register.register_login(compiled, tenant_id=_default_tenant(args.tenant_id))
+        profile_slug = prov.get("profile_id", "")
+        print(f"Registered login App Template → profile slug '{profile_slug}'.", file=sys.stderr)
     except RuntimeError as exc:
-        print(f"Login register failed: {exc}", file=sys.stderr)
-        print(json.dumps({"compiled": compiled.get("service_profile_draft", {})}, indent=2))
-        return 1
-
-    profile_slug = prov.get("profile_id", "")
-    print(f"Registered login App Template → profile slug '{profile_slug}'.", file=sys.stderr)
+        # An App Template that already exists is not a failure -- it is the
+        # SECOND import of the same recording, which is what re-compiling after
+        # a compiler fix looks like. Failing here left operations.json stale at
+        # the previous compile while the run reported an error about the login
+        # half, so the fix appeared not to have worked.
+        if "409" not in str(exc) and "already exists" not in str(exc).lower():
+            print(f"Login register failed: {exc}", file=sys.stderr)
+            print(json.dumps({"compiled": compiled.get("service_profile_draft", {})}, indent=2))
+            return 1
+        profile_slug = (compiled.get("service_profile_draft") or {}).get("profile_id", "") or (
+            args.profile_slug or ""
+        )
+        print(
+            f"Login App Template '{profile_slug}' already exists — keeping it and "
+            "compiling the workflow half. The login was recorded once; re-registering "
+            "it would only overwrite a profile that is already serving sessions.",
+            file=sys.stderr,
+        )
 
     # The login compile ran on the login SLICE (not the workflow hosts), so its
     # target_urls won't cover the workflow's hosts — passing its declared headers
@@ -275,6 +334,111 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
         file=sys.stderr,
     )
     return rc
+
+
+def _apply_folds(skill: dict, specs: list[str]) -> bool:
+    """Fold named pairs in the written skill. True when anything was folded.
+
+    Rewrites operations.json AND re-stamps the manifest's steps digest: folding
+    changes the steps, and a skill whose digest no longer matches its manifest
+    cannot install however well it replays. The compiler is doing this fold, so
+    re-stamping is the honest record -- these are still exactly the recorded
+    steps, in the recorded order, with a condition naming which variant each
+    belongs to.
+    """
+    if not specs:
+        return False
+    from pathlib import Path
+
+    from noui_core.compile import provenance
+    from noui_core.config import settings
+    from noui_core.compile.browser_skill import apply_fold, fold_candidates
+
+    skill_dir = Path(settings.workbench_dir) / "skills" / str(skill.get("skill_id") or "")
+    ops_path, man_path = skill_dir / "operations.json", skill_dir / "manifest.json"
+    try:
+        doc = json.loads(ops_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"Cannot fold: {ops_path} is unreadable ({exc}).", file=sys.stderr)
+        return False
+
+    operations = doc.get("operations") or []
+    for raw in specs:
+        try:
+            spec = json.loads(raw)
+        except ValueError as exc:
+            print(f"--fold expects a JSON object, got {raw[:60]!r}: {exc}", file=sys.stderr)
+            return False
+        wanted = [str(n) for n in (spec.get("operations") or [])]
+        match = next(
+            (f for f in fold_candidates(operations) if list(f["operations"]) == wanted), None
+        )
+        if match is None:
+            print(
+                f"{' and '.join(wanted) or 'those operations'} are not a foldable pair. "
+                "Run the import without --fold to see which are, in the order the "
+                "report names them.",
+                file=sys.stderr,
+            )
+            return False
+        values = [str(v) for v in (spec.get("values") or [])]
+        if len(values) != 2 or not spec.get("name") or not spec.get("param"):
+            print(
+                "--fold needs 'name', 'param', and exactly two 'values' -- one per "
+                "branch, in the order the report listed them.",
+                file=sys.stderr,
+            )
+            return False
+        operations = apply_fold(
+            operations, match, name=str(spec["name"]), param=str(spec["param"]), values=values
+        )
+        print(
+            f"Folded {' + '.join(wanted)} -> {spec['name']} "
+            f"({spec['param']}: {', '.join(values)}).",
+            file=sys.stderr,
+        )
+
+    doc["operations"] = operations
+    ops_path.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+    try:
+        manifest = json.loads(man_path.read_text(encoding="utf-8"))
+        manifest.setdefault("provenance", {})["steps_sha256"] = provenance.steps_digest(operations)
+        man_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        print(
+            f"Folded, but could not re-stamp {man_path} ({exc}) -- the skill will be "
+            "refused at install until it is recompiled.",
+            file=sys.stderr,
+        )
+    return True
+
+
+def _report_folds(skill: dict) -> None:
+    """Surface operations that are one workflow with a choice in the middle.
+
+    Reported, never applied: naming the choice is a judgement from a person. A
+    parameter called "corp_finacle" -- the page an annual statement happened to
+    be served from -- is worse than the two operations it replaced, because the
+    model reads these names to decide what to call.
+    """
+    try:
+        from noui_core.compile.browser_skill import fold_candidates
+    except Exception:  # noqa: BLE001 — a missing fold report never fails an import
+        return
+    for f in fold_candidates(skill.get("operations") or []):
+        a, b = f["operations"]
+        print(
+            f"\n{a} and {b} are one workflow with a choice in the middle: "
+            f"{f['prefix']} identical steps to reach the same page, then they "
+            f"diverge, then the same ending.\n"
+            f"  As two operations each replays the whole journey, so every call "
+            f"has to start from the landing page. As ONE operation with a "
+            f"parameter, the caller just picks the variant.\n"
+            f"  ASK THE MEMBER what the choice is called and what to call each "
+            f"side (e.g. timeframe=monthly|annual). The recorded names say where "
+            f"the pages were served from, not what they mean.",
+            file=sys.stderr,
+        )
 
 
 def main() -> int:
@@ -401,6 +565,18 @@ def main() -> int:
         "(e.g. '**/lightning/**'). Enables auto-resolve: reaching it completes login with no "
         "'Mark as Resolved' click. Needed for same-origin apps where it can't be auto-derived.",
     )
+    p.add_argument(
+        "--fold",
+        action="append",
+        default=[],
+        metavar="JSON",
+        help="fold two operations that are one workflow with a choice into ONE, "
+        'as a JSON object: {"operations": ["a", "b"], "name": "download_statement", '
+        '"param": "timeframe", "values": ["monthly", "annual"]}. Run the import '
+        "once without this to see which pairs are foldable, ASK THE MEMBER what "
+        "the choice is called, then re-run. The recorded names say where the "
+        "pages were served from, not what they mean.",
+    )
     args = p.parse_args()
 
     print(f"Fetching recording bundle from Tabby ({args.session_id}) …", file=sys.stderr)
@@ -414,6 +590,22 @@ def main() -> int:
     # (Tabby TTL) and are the source for generalizing/regenerating the asset later.
     bundle_path = save_bundle(bundle, args.name or args.session_id)
     print(f"Saved capture bundle → {bundle_path}", file=sys.stderr)
+
+    # The kind travels with the recording, not with this command line.
+    #
+    # capture_record took --browser-driven, provisioned with it and never wrote
+    # it down, so the decision had to be repeated here. Forget it -- easily
+    # done, since nothing in the recording says so -- and an app that must be
+    # driven compiles to replayed API calls instead: an ICICI capture asked for
+    # as a BROWSER BASED skill shipped as two Finacle POSTs.
+    if not getattr(args, "browser_driven", False) and ledger.declared_browser_driven(
+        args.session_id
+    ):
+        args.browser_driven = True
+        print(
+            "browser-driven: carried from the recording (it was provisioned that way).",
+            file=sys.stderr,
+        )
 
     mode, source = _resolve_mode(args, inferred)
     _report_mode(mode, source, inferred, bundle)

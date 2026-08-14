@@ -1,0 +1,1863 @@
+{
+ "click_events": [
+  {
+   "candidates": [
+    {
+     "kind": "text",
+     "match_count": 13,
+     "value": "Login to Net Banking User ID Mobile No QR Code User ID Please enter your User ID Remember User ID Get User IDPasswordGet"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#adobePageLoadTimeTracker > app-new-login > div > div:nth-of-type(1) > div"
+    }
+   ],
+   "class_name": "top-section",
+   "element": {
+    "accessible_name": "Login to Net Banking User ID Mobile No QR Code User ID Please enter your User ID Remember User ID Get User IDPasswordGet",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 660,
+     "w": 1456,
+     "x": -12,
+     "y": 66
+    },
+    "role": null,
+    "tag": "div",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:45:48.782Z",
+   "event_type": "hover",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "reveal": true,
+   "selector": "div.top-section",
+   "seq": 2,
+   "tag_name": "DIV",
+   "text_content": "Login to Net Banking User ID Mobile No QR Code User ID Please enter your User ID Remember User ID Get User IDPasswordGet",
+   "timestamp": "2026-08-13T03:45:48.782Z",
+   "url": "https://retailnetbanking.icici.bank.in/login-page"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "button|QR Code"
+    },
+    {
+     "kind": "text",
+     "match_count": 1,
+     "value": "QR Code"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "button.tab-btn:text-is(\"QR Code\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "div:nth-of-type(1) > div > div > app-login-landing > div > div > div:nth-of-type(2) > button:nth-of-type(3)"
+    }
+   ],
+   "class_name": "tab-btn",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "QR Code",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 32,
+     "w": 88,
+     "x": 1216,
+     "y": 167
+    },
+    "role": "button",
+    "tag": "button",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:45:48.782Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": "submit",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 9,
+    "settled_ms": 1284,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "button.tab-btn",
+   "seq": 3,
+   "tag_name": "BUTTON",
+   "text_content": "QR Code",
+   "timestamp": "2026-08-13T03:45:48.782Z",
+   "url": "https://retailnetbanking.icici.bank.in/login-page",
+   "x": 1269,
+   "y": 174
+  },
+  {
+   "candidates": [
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "div.sidenav-icon-box.d-flex:has-text(\"Cards\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#scroll-container > div > div:nth-of-type(5)"
+    }
+   ],
+   "class_name": "sidenav-icon-box d-flex align-items-center atag",
+   "element": {
+    "accessible_name": null,
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 52,
+     "w": 245,
+     "x": 0,
+     "y": 288
+    },
+    "role": null,
+    "tag": "div",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:14.035Z",
+   "event_type": "hover",
+   "outcome": {
+    "download": false,
+    "navigated": true,
+    "request_count": 25,
+    "settled_ms": 2308,
+    "to_url": "https://retailnetbanking.icici.bank.in/credit-card"
+   },
+   "reveal": true,
+   "selector": "div.sidenav-icon-box.d-flex",
+   "seq": 6,
+   "tag_name": "DIV",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:14.035Z",
+   "url": "https://retailnetbanking.icici.bank.in/overview"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "text",
+     "match_count": 36,
+     "value": "Credit Cards"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "div.submenu-text:text-is(\"Credit Cards\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#subContainer4 > ul > li:nth-of-type(1) > a > div"
+    },
+    {
+     "kind": "row_scoped",
+     "match_count": -1,
+     "value": "li:has-text(\"Credit Cards\") div.submenu-text:text-is(\"Credit Cards\")"
+    }
+   ],
+   "class_name": "submenu-text",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Credit Cards",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 19,
+     "w": 91,
+     "x": 298,
+     "y": 304
+    },
+    "role": null,
+    "tag": "div",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:14.034Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": null,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "div.submenu-text",
+   "seq": 7,
+   "tag_name": "DIV",
+   "text_content": "Credit Cards",
+   "timestamp": "2026-08-13T03:46:14.035Z",
+   "url": "https://retailnetbanking.icici.bank.in/overview",
+   "x": 300,
+   "y": 304
+  },
+  {
+   "candidates": [
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "div.statementsRow:has-text(\"statements\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#cardStatementTrackerCard > div:nth-of-type(1)"
+    }
+   ],
+   "class_name": "statementsRow ng-tns-c2386082053-1",
+   "element": {
+    "accessible_name": null,
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 24,
+     "w": 511,
+     "x": 283,
+     "y": 457
+    },
+    "role": null,
+    "tag": "div",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:20.038Z",
+   "event_type": "hover",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "reveal": true,
+   "selector": "div.statementsRow.ng-tns-c2386082053-1",
+   "seq": 8,
+   "tag_name": "DIV",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:20.038Z",
+   "url": "https://retailnetbanking.icici.bank.in/credit-card"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "text",
+     "match_count": 1,
+     "value": "Past"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "li.tabItem:text-is(\"Past\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#cardStatementTrackerCard > div:nth-of-type(2) > div > ul > li:nth-of-type(3)"
+    }
+   ],
+   "class_name": "tabItem ng-tns-c2386082053-1",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Past",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 22,
+     "w": 170,
+     "x": 454,
+     "y": 498
+    },
+    "role": null,
+    "tag": "li",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:20.038Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": null,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 8,
+    "settled_ms": 2166,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "li.tabItem.ng-tns-c2386082053-1",
+   "seq": 9,
+   "tag_name": "LI",
+   "text_content": "Past",
+   "timestamp": "2026-08-13T03:46:20.038Z",
+   "url": "https://retailnetbanking.icici.bank.in/credit-card",
+   "x": 537,
+   "y": 504
+  },
+  {
+   "candidates": [
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "div.tabbarContainer:has-text(\"Current\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#cardStatementTrackerCard > div:nth-of-type(2) > div"
+    }
+   ],
+   "class_name": "tabbarContainer ng-tns-c2386082053-1",
+   "element": {
+    "accessible_name": null,
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 409,
+     "w": 511,
+     "x": 283,
+     "y": 497
+    },
+    "role": null,
+    "tag": "div",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:22.895Z",
+   "event_type": "hover",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "reveal": true,
+   "selector": "div.tabbarContainer.ng-tns-c2386082053-1",
+   "seq": 10,
+   "tag_name": "DIV",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:22.895Z",
+   "url": "https://retailnetbanking.icici.bank.in/credit-card"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "text",
+     "match_count": 1,
+     "value": "download previous statement"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "p.orange-text:text-is(\"download previous statement\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#cardStatementTrackerCard > div:nth-of-type(2) > div > div > div > div:nth-of-type(1) > div:nth-of-type(2) > p"
+    }
+   ],
+   "class_name": "orange-text ng-tns-c2386082053-1",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "download previous statement",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 16,
+     "w": 224,
+     "x": 283,
+     "y": 562
+    },
+    "role": null,
+    "tag": "p",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:22.895Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": null,
+   "outcome": {
+    "download": false,
+    "navigated": true,
+    "request_count": 56,
+    "settled_ms": 2680,
+    "to_url": "https://infinity.icici.bank.in/corp/AuthenticationController?FORMSGROUP_ID__=AuthenticationFG&__START_TRAN_FLAG__=Y&FG_BUTTONS__=LOAD&ACTION.LOAD=Y&AuthenticationFG.LOGIN_FLAG=1&BANK_ID=ICI&__CALL_MODE__=119&UX_TOKEN=Lt46dVNS3YrfCUrXfJRBJ1+pw6a6lDMDNwm+B5VSS5vV2GwiJNbGXwphexpkeRfMLjR+s2g1OjweXQXFNBN7pWgSJqrebUyWRYPeDal7Qmp8+Sh5PuLyiy8RdqkK4+n6BmteF9qdUbCmdqa5SeSm1AVCOsjyA4T7/R6N0xrGwvGEmxeS+zRGAL+VLEn93Qjov5BCCKzu/hgiX3ho4oz6ZnKCQrNpZVcjydWkXhspcdIZbhHXsrTfFuf7/P3dfs8AtiWnSPbR1hMJNp/D70UNT85h43ulbDsDUiMfegIdh8b9HtFbpkd8+/Bqe9ngthQSdB9sf5ymaUIn31ialDTncK2tNkIsbkXYKNUnvr2toejmxmDnjryJgqXhUi7SDh9p2HUsnGJUQtDB9AZLvQVeFObbDJ1y7AYkb0KpkqtSmHfJrOtxWG1PH4C+j3mAVe4DZgAnH0xMD6KNvMMZl7MgC8njCgysuePcARUmAUXLUrtm0fE/oFHuJwNNdxpjy5SdFJZW8CXHq3G+ooi8nHEotW8L29dvzrjlBgBsAd5m4nP4ZmFTLhy29G+gOboPWFlTBLiZ6k216t9PRYdtWDs7cnXqCWkpmiiwzAa7zqZ6m95Lnf6YvbNb2EmvNIt+pxF0WPf9AkPy2VgvfB1GnQRbWERZJqxqgMja2Yqv/8F4MjvP3GGWqlWoqe7RUuiFP8jcImCmB9eAWtjLaVsJsBnxryefpntX5oDTbOTeQSF+lRU9kSP/4WPyZp9cb1ScoDryIwev5hrCyaq/hwn/pYkOp9KpzYYShH9BLhttl80j1Rfe+KvqJtwtCvYByg9z2HBNA+nf+1KH6IrSn6MrLHaExo47dQLpcxORP7CPigwhNuTIho4HzrMSf38TOJ/GWp1Z3/1ibrlsEyfs/4vsWrgKT8l/GDCpc6wbjWS3/Fk2hFSyBNFZ+RCUDgPEyAoehAmNQo2wHwrvytM4lQRAjMsj3Cz2StGDhNVAyIJpi1HCvHGIzTfuyfkBjdXMAiMNkY5f&CTA_FLAG=CCPSTM"
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "p.orange-text.ng-tns-c2386082053-1",
+   "seq": 11,
+   "tag_name": "P",
+   "text_content": "download previous statement",
+   "timestamp": "2026-08-13T03:46:22.895Z",
+   "url": "https://retailnetbanking.icici.bank.in/credit-card",
+   "x": 438,
+   "y": 565
+  },
+  {
+   "candidates": [
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "body:has-text(\"Log in to Internet Banking\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "body"
+    }
+   ],
+   "class_name": null,
+   "element": {
+    "accessible_name": null,
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 778,
+     "w": 1439,
+     "x": 0,
+     "y": 0
+    },
+    "role": null,
+    "tag": "body",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:25.328Z",
+   "event_type": "hover",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "reveal": true,
+   "selector": "body",
+   "seq": 13,
+   "tag_name": "BODY",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:25.329Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController?FORMSGROUP_ID__=AuthenticationFG&__START_TRAN_FLAG__=Y&FG_BUTTONS__=LOAD&ACTION.LOAD=Y&AuthenticationFG.LOGIN_FLAG=1&BANK_ID=ICI&__CALL_MODE__=119&UX_TOKEN=Lt46dVNS3YrfCUrXfJRBJ1+pw6a6lDMDNwm+B5VSS5vV2GwiJNbGXwphexpkeRfMLjR+s2g1OjweXQXFNBN7pWgSJqrebUyWRYPeDal7Qmp8+Sh5PuLyiy8RdqkK4+n6BmteF9qdUbCmdqa5SeSm1AVCOsjyA4T7/R6N0xrGwvGEmxeS+zRGAL+VLEn93Qjov5BCCKzu/hgiX3ho4oz6ZnKCQrNpZVcjydWkXhspcdIZbhHXsrTfFuf7/P3dfs8AtiWnSPbR1hMJNp/D70UNT85h43ulbDsDUiMfegIdh8b9HtFbpkd8+/Bqe9ngthQSdB9sf5ymaUIn31ialDTncK2tNkIsbkXYKNUnvr2toejmxmDnjryJgqXhUi7SDh9p2HUsnGJUQtDB9AZLvQVeFObbDJ1y7AYkb0KpkqtSmHfJrOtxWG1PH4C+j3mAVe4DZgAnH0xMD6KNvMMZl7MgC8njCgysuePcARUmAUXLUrtm0fE/oFHuJwNNdxpjy5SdFJZW8CXHq3G+ooi8nHEotW8L29dvzrjlBgBsAd5m4nP4ZmFTLhy29G+gOboPWFlTBLiZ6k216t9PRYdtWDs7cnXqCWkpmiiwzAa7zqZ6m95Lnf6YvbNb2EmvNIt+pxF0WPf9AkPy2VgvfB1GnQRbWERZJqxqgMja2Yqv/8F4MjvP3GGWqlWoqe7RUuiFP8jcImCmB9eAWtjLaVsJsBnxryefpntX5oDTbOTeQSF+lRU9kSP/4WPyZp9cb1ScoDryIwev5hrCyaq/hwn/pYkOp9KpzYYShH9BLhttl80j1Rfe+KvqJtwtCvYByg9z2HBNA+nf+1KH6IrSn6MrLHaExo47dQLpcxORP7CPigwhNuTIho4HzrMSf38TOJ/GWp1Z3/1ibrlsEyfs/4vsWrgKT8l/GDCpc6wbjWS3/Fk2hFSyBNFZ+RCUDgPEyAoehAmNQo2wHwrvytM4lQRAjMsj3Cz2StGDhNVAyIJpi1HCvHGIzTfuyfkBjdXMAiMNkY5f&CTA_FLAG=CCPSTM"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#DEH_LOGIN"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "input[name=\"Action\\.DEH_LOGIN\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "button|Log In"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#DEH_LOGIN"
+    }
+   ],
+   "class_name": "completeHide",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Log In",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 0,
+     "w": 0,
+     "x": 0,
+     "y": 0
+    },
+    "role": "button",
+    "tag": "input",
+    "visible": false
+   },
+   "element_id": "DEH_LOGIN",
+   "event_time": "2026-08-13T03:46:25.328Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": "submit",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#DEH_LOGIN",
+   "seq": 14,
+   "tag_name": "INPUT",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:25.328Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController?FORMSGROUP_ID__=AuthenticationFG&__START_TRAN_FLAG__=Y&FG_BUTTONS__=LOAD&ACTION.LOAD=Y&AuthenticationFG.LOGIN_FLAG=1&BANK_ID=ICI&__CALL_MODE__=119&UX_TOKEN=Lt46dVNS3YrfCUrXfJRBJ1+pw6a6lDMDNwm+B5VSS5vV2GwiJNbGXwphexpkeRfMLjR+s2g1OjweXQXFNBN7pWgSJqrebUyWRYPeDal7Qmp8+Sh5PuLyiy8RdqkK4+n6BmteF9qdUbCmdqa5SeSm1AVCOsjyA4T7/R6N0xrGwvGEmxeS+zRGAL+VLEn93Qjov5BCCKzu/hgiX3ho4oz6ZnKCQrNpZVcjydWkXhspcdIZbhHXsrTfFuf7/P3dfs8AtiWnSPbR1hMJNp/D70UNT85h43ulbDsDUiMfegIdh8b9HtFbpkd8+/Bqe9ngthQSdB9sf5ymaUIn31ialDTncK2tNkIsbkXYKNUnvr2toejmxmDnjryJgqXhUi7SDh9p2HUsnGJUQtDB9AZLvQVeFObbDJ1y7AYkb0KpkqtSmHfJrOtxWG1PH4C+j3mAVe4DZgAnH0xMD6KNvMMZl7MgC8njCgysuePcARUmAUXLUrtm0fE/oFHuJwNNdxpjy5SdFJZW8CXHq3G+ooi8nHEotW8L29dvzrjlBgBsAd5m4nP4ZmFTLhy29G+gOboPWFlTBLiZ6k216t9PRYdtWDs7cnXqCWkpmiiwzAa7zqZ6m95Lnf6YvbNb2EmvNIt+pxF0WPf9AkPy2VgvfB1GnQRbWERZJqxqgMja2Yqv/8F4MjvP3GGWqlWoqe7RUuiFP8jcImCmB9eAWtjLaVsJsBnxryefpntX5oDTbOTeQSF+lRU9kSP/4WPyZp9cb1ScoDryIwev5hrCyaq/hwn/pYkOp9KpzYYShH9BLhttl80j1Rfe+KvqJtwtCvYByg9z2HBNA+nf+1KH6IrSn6MrLHaExo47dQLpcxORP7CPigwhNuTIho4HzrMSf38TOJ/GWp1Z3/1ibrlsEyfs/4vsWrgKT8l/GDCpc6wbjWS3/Fk2hFSyBNFZ+RCUDgPEyAoehAmNQo2wHwrvytM4lQRAjMsj3Cz2StGDhNVAyIJpi1HCvHGIzTfuyfkBjdXMAiMNkY5f&CTA_FLAG=CCPSTM",
+   "x": 0,
+   "y": 0
+  },
+  {
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#DEH_LOGIN"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "input[name=\"Action\\.DEH_LOGIN\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "button|Log In"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#DEH_LOGIN"
+    }
+   ],
+   "class_name": null,
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Log In",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 0,
+     "w": 0,
+     "x": 0,
+     "y": 0
+    },
+    "role": "button",
+    "tag": "input",
+    "visible": false
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:25.333Z",
+   "event_type": "submit",
+   "field_name": "AuthenticationFG",
+   "field_role": null,
+   "input_type": "form",
+   "is_redacted": false,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 2,
+    "settled_ms": 2725,
+    "to_url": null
+   },
+   "selector": "form[name=\"AuthenticationFG\"]",
+   "seq": 15,
+   "tag_name": "FORM",
+   "timestamp": "2026-08-13T03:46:25.333Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController?FORMSGROUP_ID__=AuthenticationFG&__START_TRAN_FLAG__=Y&FG_BUTTONS__=LOAD&ACTION.LOAD=Y&AuthenticationFG.LOGIN_FLAG=1&BANK_ID=ICI&__CALL_MODE__=119&UX_TOKEN=Lt46dVNS3YrfCUrXfJRBJ1+pw6a6lDMDNwm+B5VSS5vV2GwiJNbGXwphexpkeRfMLjR+s2g1OjweXQXFNBN7pWgSJqrebUyWRYPeDal7Qmp8+Sh5PuLyiy8RdqkK4+n6BmteF9qdUbCmdqa5SeSm1AVCOsjyA4T7/R6N0xrGwvGEmxeS+zRGAL+VLEn93Qjov5BCCKzu/hgiX3ho4oz6ZnKCQrNpZVcjydWkXhspcdIZbhHXsrTfFuf7/P3dfs8AtiWnSPbR1hMJNp/D70UNT85h43ulbDsDUiMfegIdh8b9HtFbpkd8+/Bqe9ngthQSdB9sf5ymaUIn31ialDTncK2tNkIsbkXYKNUnvr2toejmxmDnjryJgqXhUi7SDh9p2HUsnGJUQtDB9AZLvQVeFObbDJ1y7AYkb0KpkqtSmHfJrOtxWG1PH4C+j3mAVe4DZgAnH0xMD6KNvMMZl7MgC8njCgysuePcARUmAUXLUrtm0fE/oFHuJwNNdxpjy5SdFJZW8CXHq3G+ooi8nHEotW8L29dvzrjlBgBsAd5m4nP4ZmFTLhy29G+gOboPWFlTBLiZ6k216t9PRYdtWDs7cnXqCWkpmiiwzAa7zqZ6m95Lnf6YvbNb2EmvNIt+pxF0WPf9AkPy2VgvfB1GnQRbWERZJqxqgMja2Yqv/8F4MjvP3GGWqlWoqe7RUuiFP8jcImCmB9eAWtjLaVsJsBnxryefpntX5oDTbOTeQSF+lRU9kSP/4WPyZp9cb1ScoDryIwev5hrCyaq/hwn/pYkOp9KpzYYShH9BLhttl80j1Rfe+KvqJtwtCvYByg9z2HBNA+nf+1KH6IrSn6MrLHaExo47dQLpcxORP7CPigwhNuTIho4HzrMSf38TOJ/GWp1Z3/1ibrlsEyfs/4vsWrgKT8l/GDCpc6wbjWS3/Fk2hFSyBNFZ+RCUDgPEyAoehAmNQo2wHwrvytM4lQRAjMsj3Cz2StGDhNVAyIJpi1HCvHGIzTfuyfkBjdXMAiMNkY5f&CTA_FLAG=CCPSTM",
+   "value": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#CustomViewEStatementsFG\\.PERIOD"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "select[name=\"CustomViewEStatementsFG\\.PERIOD\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "combobox|Period"
+    },
+    {
+     "kind": "label",
+     "match_count": 1,
+     "value": "Period"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "select.dropdownexpandalbe:has-text(\"19/6/2026-18/7/2026\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#CustomViewEStatementsFG\\.PERIOD"
+    }
+   ],
+   "class_name": "dropdownexpandalbe",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Period",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 0,
+     "w": 0,
+     "x": 0,
+     "y": 0
+    },
+    "role": "combobox",
+    "tag": "select",
+    "visible": false
+   },
+   "element_id": "CustomViewEStatementsFG.PERIOD",
+   "event_time": "2026-08-13T03:46:29.943Z",
+   "event_type": "change",
+   "field_name": "CustomViewEStatementsFG.PERIOD",
+   "field_role": null,
+   "input_type": "select",
+   "is_redacted": false,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#CustomViewEStatementsFG.PERIOD",
+   "seq": 17,
+   "tag_name": "SELECT",
+   "timestamp": "2026-08-13T03:46:29.943Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D",
+   "value": "06/19/2026#07/18/2026"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#FieldDropdown"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "select[name=\"FieldDropdown\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "combobox|Upgrade Debit Card"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "select.dropdownexpandalbe.hide:has-text(\"Select\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#FieldDropdown"
+    }
+   ],
+   "class_name": "dropdownexpandalbe hide",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Upgrade Debit Card",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 0,
+     "w": 0,
+     "x": 0,
+     "y": 0
+    },
+    "role": "combobox",
+    "tag": "select",
+    "visible": false
+   },
+   "element_id": "FieldDropdown",
+   "event_time": "2026-08-13T03:46:30.698Z",
+   "event_type": "change",
+   "field_name": "FieldDropdown",
+   "field_role": null,
+   "input_type": "select",
+   "is_redacted": false,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#FieldDropdown",
+   "seq": 18,
+   "tag_name": "SELECT",
+   "timestamp": "2026-08-13T03:46:30.698Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D",
+   "value": "Value"
+  },
+  {
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 5,
+     "value": "#InfoPanel1\\.Rowset1"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "div.width100percent:has-text(\"Monthly\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 5,
+     "value": "#InfoPanel1\\.Rowset1"
+    }
+   ],
+   "class_name": "width100percent",
+   "element": {
+    "accessible_name": null,
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 188,
+     "w": 695,
+     "x": 483,
+     "y": 239
+    },
+    "role": null,
+    "tag": "div",
+    "visible": true
+   },
+   "element_id": "InfoPanel1.Rowset1",
+   "event_time": "2026-08-13T03:46:35.408Z",
+   "event_type": "hover",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "reveal": true,
+   "selector": "#InfoPanel1.Rowset1",
+   "seq": 19,
+   "tag_name": "DIV",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:35.409Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 2,
+     "value": "#CustomViewEStatementsFG\\.PERIOD_TYPE"
+    },
+    {
+     "kind": "name",
+     "match_count": 2,
+     "value": "input[name=\"CustomViewEStatementsFG\\.PERIOD_TYPE\"]"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "input[name=\"CustomViewEStatementsFG\\.PERIOD_TYPE\"][value=\"Y\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "radio|Annual"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 2,
+     "value": "#CustomViewEStatementsFG\\.PERIOD_TYPE"
+    }
+   ],
+   "class_name": "simpletext",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Annual",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 13,
+     "w": 13,
+     "x": 590,
+     "y": 270
+    },
+    "role": "radio",
+    "tag": "input",
+    "visible": true
+   },
+   "element_id": "CustomViewEStatementsFG.PERIOD_TYPE",
+   "event_time": "2026-08-13T03:46:35.408Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": "radio",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#CustomViewEStatementsFG.PERIOD_TYPE",
+   "seq": 20,
+   "tag_name": "INPUT",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:35.408Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D",
+   "x": 593,
+   "y": 275
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#DUMMY1"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "input[name=\"Action\\.DUMMY1\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 2,
+     "value": "button|GO"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#DUMMY1"
+    }
+   ],
+   "class_name": "formbtn",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "GO",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 24,
+     "w": 34,
+     "x": 508,
+     "y": 172
+    },
+    "role": "button",
+    "tag": "input",
+    "visible": false
+   },
+   "element_id": "DUMMY1",
+   "event_time": "2026-08-13T03:46:35.413Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": "submit",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#DUMMY1",
+   "seq": 21,
+   "tag_name": "INPUT",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:35.413Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D",
+   "x": 0,
+   "y": 0
+  },
+  {
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#DUMMY1"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "input[name=\"Action\\.DUMMY1\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 2,
+     "value": "button|GO"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#DUMMY1"
+    }
+   ],
+   "class_name": null,
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "GO",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 24,
+     "w": 34,
+     "x": 508,
+     "y": 172
+    },
+    "role": "button",
+    "tag": "input",
+    "visible": false
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:35.421Z",
+   "event_type": "submit",
+   "field_name": "CustomViewEStatementsFG",
+   "field_role": null,
+   "input_type": "form",
+   "is_redacted": false,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "selector": "form[name=\"CustomViewEStatementsFG\"]",
+   "seq": 22,
+   "tag_name": "FORM",
+   "timestamp": "2026-08-13T03:46:35.421Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D",
+   "value": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 2,
+     "value": "#CustomViewEStatementsFG\\.PERIOD_TYPE"
+    },
+    {
+     "kind": "name",
+     "match_count": 2,
+     "value": "input[name=\"CustomViewEStatementsFG\\.PERIOD_TYPE\"]"
+    },
+    {
+     "kind": "name",
+     "match_count": 2,
+     "value": "input[name=\"CustomViewEStatementsFG\\.PERIOD_TYPE\"][value=\"Y\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "radio|Annual"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 2,
+     "value": "#CustomViewEStatementsFG\\.PERIOD_TYPE"
+    }
+   ],
+   "class_name": "simpletext",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Annual",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 13,
+     "w": 13,
+     "x": 590,
+     "y": 270
+    },
+    "role": "radio",
+    "tag": "input",
+    "visible": true
+   },
+   "element_id": "CustomViewEStatementsFG.PERIOD_TYPE",
+   "event_time": "2026-08-13T03:46:35.424Z",
+   "event_type": "change",
+   "field_name": "CustomViewEStatementsFG.PERIOD_TYPE",
+   "field_role": null,
+   "input_type": "radio",
+   "is_redacted": false,
+   "outcome": {
+    "download": false,
+    "navigated": true,
+    "request_count": 150,
+    "settled_ms": 2472,
+    "to_url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D"
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#CustomViewEStatementsFG.PERIOD_TYPE",
+   "seq": 23,
+   "tag_name": "INPUT",
+   "timestamp": "2026-08-13T03:46:35.424Z",
+   "url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D",
+   "value": "checked"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#CustomViewEStatementsFG\\.PERIOD"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "select[name=\"CustomViewEStatementsFG\\.PERIOD\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "combobox|Period"
+    },
+    {
+     "kind": "label",
+     "match_count": 1,
+     "value": "Period"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "select.dropdownexpandalbe:has-text(\"FY2024-25\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#CustomViewEStatementsFG\\.PERIOD"
+    }
+   ],
+   "class_name": "dropdownexpandalbe",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Period",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 0,
+     "w": 0,
+     "x": 0,
+     "y": 0
+    },
+    "role": "combobox",
+    "tag": "select",
+    "visible": false
+   },
+   "element_id": "CustomViewEStatementsFG.PERIOD",
+   "event_time": "2026-08-13T03:46:37.876Z",
+   "event_type": "change",
+   "field_name": "CustomViewEStatementsFG.PERIOD",
+   "field_role": null,
+   "input_type": "select",
+   "is_redacted": false,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#CustomViewEStatementsFG.PERIOD",
+   "seq": 25,
+   "tag_name": "SELECT",
+   "timestamp": "2026-08-13T03:46:37.877Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "value": "FY2024-25"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#FieldDropdown"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "select[name=\"FieldDropdown\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "combobox|Upgrade Debit Card"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "select.dropdownexpandalbe.hide:has-text(\"Select\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#FieldDropdown"
+    }
+   ],
+   "class_name": "dropdownexpandalbe hide",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Upgrade Debit Card",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 0,
+     "w": 0,
+     "x": 0,
+     "y": 0
+    },
+    "role": "combobox",
+    "tag": "select",
+    "visible": false
+   },
+   "element_id": "FieldDropdown",
+   "event_time": "2026-08-13T03:46:38.816Z",
+   "event_type": "change",
+   "field_name": "FieldDropdown",
+   "field_role": null,
+   "input_type": "select",
+   "is_redacted": false,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#FieldDropdown",
+   "seq": 26,
+   "tag_name": "SELECT",
+   "timestamp": "2026-08-13T03:46:38.817Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "value": "Value"
+  },
+  {
+   "candidates": [
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "body:has-text(\"jQuery.noConflict();\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "body"
+    }
+   ],
+   "class_name": null,
+   "element": {
+    "accessible_name": null,
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 778,
+     "w": 1424,
+     "x": 0,
+     "y": 0
+    },
+    "role": null,
+    "tag": "body",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:40.437Z",
+   "event_type": "hover",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "reveal": true,
+   "selector": "body",
+   "seq": 27,
+   "tag_name": "BODY",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:40.441Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "div.newListSelected.newListSelFocus:has-text(\"FY2024-25\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#InfoPanel1\\.Ra5\\.C1 > span > span > div"
+    }
+   ],
+   "class_name": "newListSelected  newListSelFocus",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": null,
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 24,
+     "w": 210,
+     "x": 665,
+     "y": 341
+    },
+    "role": null,
+    "tag": "div",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:40.436Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": null,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "div.newListSelected.newListSelFocus",
+   "seq": 28,
+   "tag_name": "DIV",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:40.437Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "x": 675,
+   "y": 345
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "text",
+     "match_count": 4,
+     "value": "FY2024-25"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "div.selectedTxt:text-is(\"FY2024-25\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#InfoPanel1\\.Ra5\\.C1 > span > span > div > div:nth-of-type(1)"
+    }
+   ],
+   "class_name": "selectedTxt",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "FY2024-25",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 24,
+     "w": 195,
+     "x": 675,
+     "y": 346
+    },
+    "role": null,
+    "tag": "div",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:43.497Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": null,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "div.selectedTxt",
+   "seq": 29,
+   "tag_name": "DIV",
+   "text_content": "FY2024-25",
+   "timestamp": "2026-08-13T03:46:43.498Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "x": 724,
+   "y": 354
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "link|FY2025-26"
+    },
+    {
+     "kind": "text",
+     "match_count": 3,
+     "value": "FY2025-26"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "a.newListHover:text-is(\"FY2025-26\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#InfoPanel1\\.Ra5\\.C1 > span > span > div > div:nth-of-type(2) > ul > li:nth-of-type(4) > a"
+    }
+   ],
+   "class_name": "newListHover",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "FY2025-26",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 18,
+     "w": 208,
+     "x": 666,
+     "y": 428
+    },
+    "role": "link",
+    "tag": "a",
+    "visible": true
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:45.031Z",
+   "event_type": "click",
+   "href": "javascript:void(0);",
+   "input_type": null,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "a.newListHover",
+   "seq": 30,
+   "tag_name": "A",
+   "text_content": "FY2025-26",
+   "timestamp": "2026-08-13T03:46:45.032Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "x": 709,
+   "y": 429
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#CustomViewEStatementsFG\\.PERIOD"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "select[name=\"CustomViewEStatementsFG\\.PERIOD\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 1,
+     "value": "combobox|Period"
+    },
+    {
+     "kind": "label",
+     "match_count": 1,
+     "value": "Period"
+    },
+    {
+     "kind": "container_label",
+     "match_count": -1,
+     "value": "select.dropdownexpandalbe:has-text(\"FY2024-25\")"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#CustomViewEStatementsFG\\.PERIOD"
+    }
+   ],
+   "class_name": "dropdownexpandalbe",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Period",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 0,
+     "w": 0,
+     "x": 0,
+     "y": 0
+    },
+    "role": "combobox",
+    "tag": "select",
+    "visible": false
+   },
+   "element_id": "CustomViewEStatementsFG.PERIOD",
+   "event_time": "2026-08-13T03:46:45.217Z",
+   "event_type": "change",
+   "field_name": "CustomViewEStatementsFG.PERIOD",
+   "field_role": null,
+   "input_type": "select",
+   "is_redacted": false,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#CustomViewEStatementsFG.PERIOD",
+   "seq": 31,
+   "tag_name": "SELECT",
+   "timestamp": "2026-08-13T03:46:45.217Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "value": "FY2025-26"
+  },
+  {
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 5,
+     "value": "#InfoPanel1"
+    },
+    {
+     "kind": "text",
+     "match_count": 1,
+     "value": "Please click on the icon below to download a printable copy of your e-Statement. Monthly Annual Credit Card Number Selec"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 5,
+     "value": "#InfoPanel1"
+    }
+   ],
+   "class_name": "section m_AdvSrchFlds padding_20 Padding_adjust",
+   "element": {
+    "accessible_name": "Please click on the icon below to download a printable copy of your e-Statement. Monthly Annual Credit Card Number Selec",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 344,
+     "w": 695,
+     "x": 483,
+     "y": 217
+    },
+    "role": null,
+    "tag": "div",
+    "visible": true
+   },
+   "element_id": "InfoPanel1",
+   "event_time": "2026-08-13T03:46:49.061Z",
+   "event_type": "hover",
+   "outcome": {
+    "download": true,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "reveal": true,
+   "selector": "#InfoPanel1",
+   "seq": 32,
+   "tag_name": "DIV",
+   "text_content": "Please click on the icon below to download a printable copy of your e-Statement. Monthly Annual Credit Card Number Selec",
+   "timestamp": "2026-08-13T03:46:49.061Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D"
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#PDF_Download"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#PDF_Download"
+    }
+   ],
+   "class_name": "m_excelPDF",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Adobe - PDF Format",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 21,
+     "w": 16,
+     "x": 885,
+     "y": 343
+    },
+    "role": null,
+    "tag": "img",
+    "visible": true
+   },
+   "element_id": "PDF_Download",
+   "event_time": "2026-08-13T03:46:49.060Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": null,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#PDF_Download",
+   "seq": 33,
+   "tag_name": "IMG",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:49.060Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "x": 886,
+   "y": 348
+  },
+  {
+   "aria_label": null,
+   "autocomplete": null,
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#DOWNLOAD_ESTATEMENT_PDF"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "input[name=\"Action\\.DOWNLOAD_ESTATEMENT_PDF\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 5,
+     "value": "button|Go"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#DOWNLOAD_ESTATEMENT_PDF"
+    }
+   ],
+   "class_name": "Global_note_heading m_margin",
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Go",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 16,
+     "w": 25,
+     "x": 483,
+     "y": 586
+    },
+    "role": "button",
+    "tag": "input",
+    "visible": false
+   },
+   "element_id": "DOWNLOAD_ESTATEMENT_PDF",
+   "event_time": "2026-08-13T03:46:49.101Z",
+   "event_type": "click",
+   "href": null,
+   "input_type": "submit",
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 0,
+    "settled_ms": null,
+    "to_url": null
+   },
+   "placeholder": null,
+   "role_attr": null,
+   "selector": "#DOWNLOAD_ESTATEMENT_PDF",
+   "seq": 34,
+   "tag_name": "INPUT",
+   "text_content": null,
+   "timestamp": "2026-08-13T03:46:49.101Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "x": 0,
+   "y": 0
+  },
+  {
+   "candidates": [
+    {
+     "kind": "id",
+     "match_count": 1,
+     "value": "#DOWNLOAD_ESTATEMENT_PDF"
+    },
+    {
+     "kind": "name",
+     "match_count": 1,
+     "value": "input[name=\"Action\\.DOWNLOAD_ESTATEMENT_PDF\"]"
+    },
+    {
+     "kind": "role_name",
+     "match_count": 5,
+     "value": "button|Go"
+    },
+    {
+     "kind": "css_path",
+     "match_count": 1,
+     "value": "#DOWNLOAD_ESTATEMENT_PDF"
+    }
+   ],
+   "class_name": null,
+   "data_attrs_json": null,
+   "element": {
+    "accessible_name": "Go",
+    "frame_name": "",
+    "frame_url": "",
+    "in_iframe": false,
+    "in_shadow_dom": false,
+    "occluded": false,
+    "rect": {
+     "h": 16,
+     "w": 25,
+     "x": 483,
+     "y": 586
+    },
+    "role": "button",
+    "tag": "input",
+    "visible": false
+   },
+   "element_id": null,
+   "event_time": "2026-08-13T03:46:49.107Z",
+   "event_type": "submit",
+   "field_name": "CustomViewEStatementsFG",
+   "field_role": null,
+   "input_type": "form",
+   "is_redacted": false,
+   "outcome": {
+    "download": false,
+    "navigated": false,
+    "request_count": 1,
+    "settled_ms": 1416,
+    "to_url": null
+   },
+   "selector": "form[name=\"CustomViewEStatementsFG\"]",
+   "seq": 35,
+   "tag_name": "FORM",
+   "timestamp": "2026-08-13T03:46:49.107Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "value": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=p2SK0aNgNawtEi30FjwS%2BJnkpeRm04aPR2YNw91NLao%3D"
+  }
+ ],
+ "download_events": [
+  {
+   "page_id": 0,
+   "page_url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D",
+   "suggested_filename": "CreditCardStatement.pdf",
+   "timestamp": "2026-08-13T03:46:50.523Z",
+   "url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=p2SK0aNgNawtEi30FjwS%2BJnkpeRm04aPR2YNw91NLao%3D"
+  }
+ ],
+ "url_events": [
+  {
+   "from_url": "about:blank",
+   "seq": 1,
+   "timestamp": "2026-08-13T03:44:42.469Z",
+   "to_url": "https://retailnetbanking.icici.bank.in/login-page"
+  },
+  {
+   "from_url": "https://retailnetbanking.icici.bank.in/login-page",
+   "seq": 4,
+   "timestamp": "2026-08-13T03:46:04.223Z",
+   "to_url": "https://retailnetbanking.icici.bank.in/overview"
+  },
+  {
+   "from_url": "https://retailnetbanking.icici.bank.in/overview",
+   "seq": 5,
+   "timestamp": "2026-08-13T03:46:14.493Z",
+   "to_url": "https://retailnetbanking.icici.bank.in/credit-card"
+  },
+  {
+   "from_url": "https://retailnetbanking.icici.bank.in/credit-card",
+   "seq": 12,
+   "timestamp": "2026-08-13T03:46:23.997Z",
+   "to_url": "https://infinity.icici.bank.in/corp/AuthenticationController?FORMSGROUP_ID__=AuthenticationFG&__START_TRAN_FLAG__=Y&FG_BUTTONS__=LOAD&ACTION.LOAD=Y&AuthenticationFG.LOGIN_FLAG=1&BANK_ID=ICI&__CALL_MODE__=119&UX_TOKEN=Lt46dVNS3YrfCUrXfJRBJ1+pw6a6lDMDNwm+B5VSS5vV2GwiJNbGXwphexpkeRfMLjR+s2g1OjweXQXFNBN7pWgSJqrebUyWRYPeDal7Qmp8+Sh5PuLyiy8RdqkK4+n6BmteF9qdUbCmdqa5SeSm1AVCOsjyA4T7/R6N0xrGwvGEmxeS+zRGAL+VLEn93Qjov5BCCKzu/hgiX3ho4oz6ZnKCQrNpZVcjydWkXhspcdIZbhHXsrTfFuf7/P3dfs8AtiWnSPbR1hMJNp/D70UNT85h43ulbDsDUiMfegIdh8b9HtFbpkd8+/Bqe9ngthQSdB9sf5ymaUIn31ialDTncK2tNkIsbkXYKNUnvr2toejmxmDnjryJgqXhUi7SDh9p2HUsnGJUQtDB9AZLvQVeFObbDJ1y7AYkb0KpkqtSmHfJrOtxWG1PH4C+j3mAVe4DZgAnH0xMD6KNvMMZl7MgC8njCgysuePcARUmAUXLUrtm0fE/oFHuJwNNdxpjy5SdFJZW8CXHq3G+ooi8nHEotW8L29dvzrjlBgBsAd5m4nP4ZmFTLhy29G+gOboPWFlTBLiZ6k216t9PRYdtWDs7cnXqCWkpmiiwzAa7zqZ6m95Lnf6YvbNb2EmvNIt+pxF0WPf9AkPy2VgvfB1GnQRbWERZJqxqgMja2Yqv/8F4MjvP3GGWqlWoqe7RUuiFP8jcImCmB9eAWtjLaVsJsBnxryefpntX5oDTbOTeQSF+lRU9kSP/4WPyZp9cb1ScoDryIwev5hrCyaq/hwn/pYkOp9KpzYYShH9BLhttl80j1Rfe+KvqJtwtCvYByg9z2HBNA+nf+1KH6IrSn6MrLHaExo47dQLpcxORP7CPigwhNuTIho4HzrMSf38TOJ/GWp1Z3/1ibrlsEyfs/4vsWrgKT8l/GDCpc6wbjWS3/Fk2hFSyBNFZ+RCUDgPEyAoehAmNQo2wHwrvytM4lQRAjMsj3Cz2StGDhNVAyIJpi1HCvHGIzTfuyfkBjdXMAiMNkY5f&CTA_FLAG=CCPSTM"
+  },
+  {
+   "from_url": "https://infinity.icici.bank.in/corp/AuthenticationController?FORMSGROUP_ID__=AuthenticationFG&__START_TRAN_FLAG__=Y&FG_BUTTONS__=LOAD&ACTION.LOAD=Y&AuthenticationFG.LOGIN_FLAG=1&BANK_ID=ICI&__CALL_MODE__=119&UX_TOKEN=Lt46dVNS3YrfCUrXfJRBJ1+pw6a6lDMDNwm+B5VSS5vV2GwiJNbGXwphexpkeRfMLjR+s2g1OjweXQXFNBN7pWgSJqrebUyWRYPeDal7Qmp8+Sh5PuLyiy8RdqkK4+n6BmteF9qdUbCmdqa5SeSm1AVCOsjyA4T7/R6N0xrGwvGEmxeS+zRGAL+VLEn93Qjov5BCCKzu/hgiX3ho4oz6ZnKCQrNpZVcjydWkXhspcdIZbhHXsrTfFuf7/P3dfs8AtiWnSPbR1hMJNp/D70UNT85h43ulbDsDUiMfegIdh8b9HtFbpkd8+/Bqe9ngthQSdB9sf5ymaUIn31ialDTncK2tNkIsbkXYKNUnvr2toejmxmDnjryJgqXhUi7SDh9p2HUsnGJUQtDB9AZLvQVeFObbDJ1y7AYkb0KpkqtSmHfJrOtxWG1PH4C+j3mAVe4DZgAnH0xMD6KNvMMZl7MgC8njCgysuePcARUmAUXLUrtm0fE/oFHuJwNNdxpjy5SdFJZW8CXHq3G+ooi8nHEotW8L29dvzrjlBgBsAd5m4nP4ZmFTLhy29G+gOboPWFlTBLiZ6k216t9PRYdtWDs7cnXqCWkpmiiwzAa7zqZ6m95Lnf6YvbNb2EmvNIt+pxF0WPf9AkPy2VgvfB1GnQRbWERZJqxqgMja2Yqv/8F4MjvP3GGWqlWoqe7RUuiFP8jcImCmB9eAWtjLaVsJsBnxryefpntX5oDTbOTeQSF+lRU9kSP/4WPyZp9cb1ScoDryIwev5hrCyaq/hwn/pYkOp9KpzYYShH9BLhttl80j1Rfe+KvqJtwtCvYByg9z2HBNA+nf+1KH6IrSn6MrLHaExo47dQLpcxORP7CPigwhNuTIho4HzrMSf38TOJ/GWp1Z3/1ibrlsEyfs/4vsWrgKT8l/GDCpc6wbjWS3/Fk2hFSyBNFZ+RCUDgPEyAoehAmNQo2wHwrvytM4lQRAjMsj3Cz2StGDhNVAyIJpi1HCvHGIzTfuyfkBjdXMAiMNkY5f&CTA_FLAG=CCPSTM",
+   "seq": 16,
+   "timestamp": "2026-08-13T03:46:27.894Z",
+   "to_url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D"
+  },
+  {
+   "from_url": "https://infinity.icici.bank.in/corp/AuthenticationController;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=UK8t%2FhDi0cpVKGV1JqwMs5nkpeRm04aPR2YNw91NLao%3D",
+   "seq": 24,
+   "timestamp": "2026-08-13T03:46:35.602Z",
+   "to_url": "https://infinity.icici.bank.in/corp/Finacle;jsessionid=00004pP4Jyr2Wp3da96iESmTye2:CR03n36mnzd?bwayparam=nwRPpYFAhdWzVoHXXOKRkJnkpeRm04aPR2YNw91NLao%3D"
+  }
+ ]
+}

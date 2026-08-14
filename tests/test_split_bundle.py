@@ -69,10 +69,28 @@ class TestBoundary:
         # after that is /enterpassword -> /dashboard at T[4].
         assert find_login_boundary(_merged_bundle()) == T[4]
 
-    def test_no_credential_fields_returns_none(self) -> None:
+    def test_a_login_that_typed_nothing_still_has_a_boundary(self) -> None:
+        """ICICI offers a QR sign-in: scan with the bank's app, type nothing.
+
+        Defining "a login happened" as "credentials were typed" made those
+        recordings permanently unsplittable — and SSO redirects, magic links and
+        biometric approval are the same shape. The transition OUT of the sign-in
+        flow is what every one of them leaves behind.
+        """
         b = _merged_bundle()
         for c in b["click_events"]:
             c["field_role"] = None
+        # /enterpassword -> /dashboard is the exit from the sign-in flow.
+        assert find_login_boundary(b) == T[4]
+
+    def test_a_capture_with_no_sign_in_at_all_has_no_boundary(self) -> None:
+        b = _merged_bundle()
+        for c in b["click_events"]:
+            c["field_role"] = None
+        b["url_events"] = [
+            _url(T[0], "about:blank", "https://app.example.com/dashboard"),
+            _url(T[6], "https://app.example.com/dashboard", "https://app.example.com/reports"),
+        ]
         assert find_login_boundary(b) is None
 
     def test_no_nav_after_credentials_falls_back_to_last_credential(self) -> None:
@@ -83,10 +101,26 @@ class TestBoundary:
 
 class TestSplit:
     def test_workflow_only_bundle_returns_none(self) -> None:
+        # Genuinely workflow-only: recorded against an already-authenticated
+        # profile, so the timeline never passes through a sign-in page.
         b = _merged_bundle()
         for c in b["click_events"]:
             c["field_role"] = None
+        b["url_events"] = [
+            _url(T[0], "about:blank", "https://app.example.com/dashboard"),
+            _url(T[6], "https://app.example.com/dashboard", "https://app.example.com/reports"),
+        ]
         assert split_bundle(b) is None
+
+    def test_a_qr_login_splits_on_the_exit_from_the_sign_in_page(self) -> None:
+        b = _merged_bundle()
+        for c in b["click_events"]:
+            c["field_role"] = None
+        parts = split_bundle(b)
+        assert parts is not None
+        login, workflow = parts
+        # The workflow slice starts after the app was reached, not before.
+        assert all("login" not in (u.get("to_url") or "") for u in workflow["url_events"])
 
     def test_login_slice_keeps_credentials_and_login_request(self) -> None:
         login, _ = split_bundle(_merged_bundle())

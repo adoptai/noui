@@ -102,6 +102,34 @@ def main() -> int:
         "datacenter IPs, e.g. bank portals. Requires the residential proxy to be "
         "configured on Tabby; otherwise the recording-shell app default applies.",
     )
+    p.add_argument(
+        "--kind",
+        choices=("browser", "api", "auto"),
+        default=None,
+        help="What KIND of skill this recording is for. REQUIRED. 'browser' drives "
+        "the live page (call_web_browser); 'api' fires the recorded requests "
+        "(call_web_api); 'auto' lets the compiler decide from the HAR. NOTE: this "
+        "is the skill kind, NOT the live replay that verifies a draft before "
+        "install -- those are different things, which is why this is not called "
+        "'replay'. Matches the manifest's own operation_style. There is no default on purpose: the kind "
+        "decides which compiler runs, and a recording made for the wrong one "
+        "cannot be fixed by relabelling it afterwards -- it has to be recorded "
+        "again. The member's request usually says which ('a browser based skill'); "
+        "if it does not, ask before spending their time on a recording.",
+    )
+    p.add_argument(
+        "--browser-driven",
+        dest="browser_driven",
+        action="store_true",
+        help="this recording will be compiled into a BROWSER-DRIVEN skill, so "
+        "Tabby reduces the workflow HAR to metadata — no request/response bodies, "
+        "headers or query strings. Use when the kind is already known (the app "
+        "encrypts its requests, or replay is known to fail on it), which keeps a "
+        "bank's balances, account numbers and live tokens out of the bundle. Leave "
+        "it off for anything unknown: it is the skill KIND, not the capture phase, "
+        "and a workflow recording of an ordinary REST app still compiles by HAR "
+        "replay and needs the full HAR.",
+    )
     args = p.parse_args()
 
     # Default to ONE session for the login AND the workflow. Recording them
@@ -185,7 +213,54 @@ def main() -> int:
     # A combined capture is provisioned as a normal 'login' session — the server-side
     # mode is behaviorally inert, so one session records login + workflow in one HAR.
     # NoUI splits it at import, routed by the provision ledger written below.
+    # The kind is decided BEFORE a single click is recorded.
+    #
+    # It used to be an optional flag, so a request that opened with the words
+    # "BROWSER BASED skill" still recorded with the kind unset, auto-detection
+    # chose replay, and the first compile was wrong. Everything after that --
+    # patching the manifest, recompiling, re-recording -- was compensation for a
+    # decision nobody was asked to make while it was still cheap.
+    if args.kind is None and not args.browser_driven:
+        print(
+            "--kind is required: browser | api | auto.\n"
+            "\n"
+            "It decides which compiler runs, and a recording made for the wrong "
+            "one cannot be relabelled afterwards -- it has to be recorded again, "
+            "which costs the member another sign-in and another walkthrough.\n"
+            "\n"
+            "The request usually says which: 'a browser based skill' means "
+            "--kind browser. If it truly does not say, ask before recording; "
+            "--kind auto lets the compiler decide from the HAR, and is a choice "
+            "rather than a default. ('api' is the kind that fires recorded "
+            "requests -- not to be confused with the live replay that verifies a "
+            "draft before install.)",
+            file=sys.stderr,
+        )
+        return 1
+    if args.kind == "browser":
+        args.browser_driven = True
+
     tabby_mode = "login" if args.mode == "combined" else args.mode
+
+    # A combined capture ALWAYS asks Tabby for locator evidence, whether or not
+    # the caller passed --browser-driven.
+    #
+    # Whether a skill must be browser-driven is decided at COMPILE time, by
+    # inspecting the HAR for unreplayable requests — that is, after the recording
+    # is over. Tabby gates rich capture (locator candidates, element evidence) on
+    # this flag, so leaving it off until the kind is known meant the evidence was
+    # never captured for the one recording that turned out to need it: an ICICI
+    # capture came back with 718 HAR entries, auto-detected as browser-driven,
+    # and not one click interaction to compile steps from. The only way out was
+    # to record the whole thing again.
+    #
+    # Evidence is cheap and unknowable in advance; the recording is expensive and
+    # unrepeatable. So capture it always and decide the kind later.
+    #
+    # This does NOT reduce the HAR. Tabby strips bodies only for a WORKFLOW-mode
+    # browser-driven recording, and a combined capture is provisioned as 'login'
+    # precisely so its HAR stays whole for App Template registration.
+    want_evidence = args.browser_driven or args.mode == "combined"
     try:
         result = recording.provision_live_link(
             tabby_mode,
@@ -193,6 +268,7 @@ def main() -> int:
             profile=args.profile,
             from_session=args.from_session,
             residential=args.residential_proxy,
+            browser_driven=want_evidence,
         )
     except (RuntimeError, ValueError) as exc:
         print(f"Provisioning failed: {exc}", file=sys.stderr)
@@ -214,6 +290,7 @@ def main() -> int:
                 profile=args.profile,
                 from_session=args.from_session,
                 residential=args.residential_proxy,
+                browser_driven=args.browser_driven,
             )
         except (OSError, ValueError) as exc:
             print(

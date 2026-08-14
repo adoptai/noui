@@ -16,7 +16,7 @@ import urllib.parse
 
 from noui_core import tabby_client
 from noui_core.capture.bundle import count_sensitive_unredacted, validate_bundle
-from noui_core.capture.classify import classify_bundle
+from noui_core.capture.classify import COMBINED, WORKFLOW, classify_bundle
 from noui_core.config import settings
 
 _MISSING_CREDS = (
@@ -139,6 +139,7 @@ def start(
     profile: str = "",
     from_session: str = "",
     residential: bool = False,
+    browser_driven: bool = False,
 ) -> dict:
     """Provision a Tabby VNC recording session.
 
@@ -152,6 +153,11 @@ def start(
         from_session: (workflow) seed cookies from a prior login recording (its
             session id) just captured in this same flow — session reuse, no
             stored credentials. Use --profile instead when a profile already exists.
+        browser_driven: this recording will be compiled into a browser-driven
+            skill, so Tabby reduces the HAR to metadata. Independent of ``mode``
+            — a workflow recording of an ordinary REST app still compiles by HAR
+            replay and needs the full HAR. Leave False unless the kind is already
+            known; ``detect_unreplayable`` decides it at compile time otherwise.
         residential: route the recorded browser's egress through Tabby's
             residential proxy (US residential IP) instead of datacenter egress.
             Use for sites that block datacenter IPs (e.g. bank portals).
@@ -168,6 +174,7 @@ def start(
         profile,
         source_session_id=from_session,
         residential_proxy=residential,
+        browser_driven=browser_driven,
     )
 
 
@@ -228,6 +235,7 @@ def provision_live_link(
     profile: str = "",
     from_session: str = "",
     residential: bool = False,
+    browser_driven: bool = False,
 ) -> dict:
     """Provision a recording session and return its payload with a ``login_url``
     that is **verified live** — never a stale/dead link, and never handed over
@@ -252,7 +260,14 @@ def provision_live_link(
     ``"restart"`` | ``"reprovision"`` when a refresh was needed).
     """
     token = resolve_agent_token()
-    result = start(mode, url, profile=profile, from_session=from_session, residential=residential)
+    result = start(
+        mode,
+        url,
+        profile=profile,
+        from_session=from_session,
+        residential=residential,
+        browser_driven=browser_driven,
+    )
 
     stream_token = _stream_token(result.get("vnc_url", ""))
     sid = result.get("session_id", "")
@@ -307,4 +322,44 @@ def fetch_bundle(session_id: str) -> tuple[str, dict]:
         raise RuntimeError(
             f"Refusing to import: {leaks} password/OTP value(s) were not redacted in the bundle."
         )
-    return classify_bundle(bundle), bundle
+    classification = classify_bundle(bundle)
+    warn_if_capture_was_downgraded(bundle, classification)
+    return classification, bundle
+
+
+def warn_if_capture_was_downgraded(bundle: dict, classification: str) -> None:
+    """Warn when a workflow capture came back with login-shaped capture.
+
+    Tabby gates its workflow-only capture on the pod's recording mode: locator
+    candidates with match counts, element state, interaction outcomes, downloads
+    and popup attachment. A pooled spare boots as a login recording and adopts
+    its real mode at bind — if that ever regresses, the recording still succeeds
+    and still compiles, just from far poorer evidence, and the resulting skill
+    misbehaves in ways that look like a bad recording rather than a bug.
+
+    Checked from CONTENT, not from the mode stamp: the classifier already decided
+    the human kept driving after signing in, so a bundle that then carries no
+    workflow-shaped capture is the signature of that regression.
+
+    A warning, never an error. A poor bundle is still worth compiling, and this
+    also fires harmlessly for bundles recorded before the rich capture existed.
+    """
+    if classification not in (WORKFLOW, COMBINED):
+        return
+    version = bundle.get("schema_version")
+    # Rich capture is schema_version 5 (the recorder's RECORDING_SCHEMA_VERSION,
+    # and what SKILL.md/pillar-1 document). Anything older, or absent, predates it
+    # and carries nothing to expect -- treating < 4 as the cutoff would demand rich
+    # fields of a bundle that never had them and warn spuriously.
+    if not isinstance(version, int) or version < 5:
+        return  # recorded before rich capture existed — nothing to expect
+    if "download_events" in bundle:
+        return  # workflow-shaped: the pod knew what it was
+    print(
+        "WARNING: this looks like a workflow capture, but the bundle carries no "
+        "workflow-only capture (no download_events). The recording pod most likely "
+        "ran in 'login' mode, so locator candidates, element state and interaction "
+        "outcomes were never recorded. The skill will still compile, from weaker "
+        "evidence. Check that the recording session was provisioned with "
+        "recording_mode=workflow and that Tabby applied it at bind."
+    )

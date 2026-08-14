@@ -40,7 +40,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from noui_core.capture.split import CREDENTIAL_FIELD_ROLES, find_login_boundary, split_bundle
+from noui_core.capture.split import (
+    CREDENTIAL_FIELD_ROLES,
+    SplitError,
+    find_login_boundary,
+    split_bundle,
+)
 from noui_core.compile.login_assets import _is_redirect_hop
 
 # The three shapes a capture can have. "combined" holds both halves and is split
@@ -81,7 +86,13 @@ def bundle_signals(bundle: dict[str, Any]) -> dict[str, Any]:
     if boundary is None:
         return signals
 
-    parts = split_bundle(bundle)
+    try:
+        parts = split_bundle(bundle)
+    except SplitError:
+        # Classification only reports what it can see. A split that cannot be
+        # used yields no post-login signal, which is exactly what the caller
+        # should weigh -- it is not a reason to fail mode detection.
+        return signals
     if parts is None:  # pragma: no cover — boundary implies a split
         return signals
     _, workflow_slice = parts

@@ -80,7 +80,11 @@ LOGIN = f"{_H}/login-page"
 
 def test_derive_pages_keeps_only_readable_app_pages():
     pages = derive_browser_pages(ICICI_EVENTS, ICICI_CLICKS, login_url=LOGIN)
-    assert [p["name"] for p in pages] == ["read_overview", "read_credit_card"]
+    # read_pay is kept now rather than dropped: its driving click could not be
+    # recovered, and discarding such pages is what cost an entire bank workflow.
+    # It carries nav_partial and must prove arrival before it reads anything.
+    assert [p["name"] for p in pages] == ["read_overview", "read_credit_card", "read_pay"]
+    assert next(p for p in pages if p["name"] == "read_pay")["nav_partial"] is True
     assert pages[1]["url"] == "https://retailnetbanking.icici.bank.in/credit-card"
 
 
@@ -278,7 +282,11 @@ def test_generate_browser_skill_writes_installable_dir(tmp_path):
     assert manifest["runtime"]["operation_style"] == "browser"
     assert manifest["runtime"]["type"] == "agent-harness-skill"
     assert manifest["auth"]["execution_strategy"] == "harness_call_web_browser"
-    assert [o["name"] for o in manifest["operations"]] == ["read_overview", "read_credit_card"]
+    assert [o["name"] for o in manifest["operations"]] == [
+        "read_overview",
+        "read_credit_card",
+        "read_pay",
+    ]
     assert all(o["tool"] == "call_web_browser" for o in manifest["operations"])
 
 
@@ -338,7 +346,7 @@ def test_compile_workflow_bundle_browser_driven(tmp_path):
     )
     m = res["skill"]
     assert m["runtime"]["operation_style"] == "browser"
-    assert [o["name"] for o in m["operations"]] == ["read_overview", "read_credit_card"]
+    assert [o["name"] for o in m["operations"]] == ["read_overview", "read_credit_card", "read_pay"]
     assert all(o["tool"] == "call_web_browser" for o in m["operations"])
 
 
@@ -419,11 +427,20 @@ def test_multi_hop_page_gets_the_whole_chain_from_the_landing_page():
     assert [c["text"] for c in by_name["read_statements"]["nav"]] == ["Accounts", "Statements"]
 
 
-def test_page_whose_driving_click_is_untextual_is_dropped_not_read_as_landing():
-    """`nav = [] or None` made an unreachable page look like the landing page: its
-    recipe became a bare get_page_summary, so the operation claimed to read
-    /accounts and actually returned the landing DOM. Icon/SVG nav buttons (no
-    text) are common in bank portals, so this was silently wrong data."""
+def test_a_page_whose_driving_click_is_untextual_is_kept_and_must_prove_arrival():
+    """Icon/SVG nav buttons carry no text, and bank portals are full of them.
+
+    Dropping the page avoided a worse bug -- `nav = [] or None` made it look like
+    the LANDING page, so the recipe became a bare get_page_summary and the
+    operation claimed to read /accounts while returning the landing DOM. But
+    dropping cost the whole workflow: an ICICI recording captured 15 clicks
+    through to the statement download, one unlabelled hop on the Finacle host
+    made the chain unresolvable, and the compile emitted a single overview
+    operation. Three re-recordings could not fix data that was already correct.
+
+    So keep the page with what was resolved, mark it partial, and make it prove
+    it arrived -- which is the honest failure the drop was protecting against.
+    """
     pages = derive_browser_pages(
         [
             _url_ev(f"{_B}/login", f"{_B}/home", "2026-01-01T00:00:01+00:00"),
@@ -432,7 +449,30 @@ def test_page_whose_driving_click_is_untextual_is_dropped_not_read_as_landing():
         [_click(f"{_B}/home", "", "2026-01-01T00:00:04+00:00")],  # icon button
         login_url=f"{_B}/login",
     )
-    assert [p["name"] for p in pages] == ["read_home"]
+    assert [p["name"] for p in pages] == ["read_home", "read_accounts"]
+
+    accounts = next(p for p in pages if p["name"] == "read_accounts")
+    assert accounts["nav_partial"] is True
+
+    # It must never be mistaken for the landing page: the recipe asserts the url.
+    from noui_core.compile.browser_skill import _steps_for_page
+
+    steps = _steps_for_page(accounts)
+    checks = [s for s in steps if s.get("expect", {}).get("url")]
+    assert checks and checks[0]["expect"]["url"] == accounts["url"]
+
+
+def test_a_fully_resolved_page_carries_no_partial_marker():
+    pages = derive_browser_pages(
+        [
+            _url_ev(f"{_B}/login", f"{_B}/home", "2026-01-01T00:00:01+00:00"),
+            _url_ev(f"{_B}/home", f"{_B}/accounts", "2026-01-01T00:00:05+00:00"),
+        ],
+        [_click(f"{_B}/home", "Accounts", "2026-01-01T00:00:04+00:00")],
+        login_url=f"{_B}/login",
+    )
+    accounts = next(p for p in pages if p["name"] == "read_accounts")
+    assert "nav_partial" not in accounts
 
 
 def test_hash_router_screens_are_separate_pages():
@@ -568,3 +608,1024 @@ def test_unnumbered_bundle_still_uses_timestamps():
     )
     by_name = {p["name"]: p for p in pages}
     assert [c["text"] for c in by_name["read_accounts"]["nav"]] == ["Banking", "Accounts"]
+
+
+# --- schema_version >= 4/5 recordings: candidates + outcomes -------------------
+#
+# The recorder no longer guesses a single selector. It emits several candidates
+# with match counts, and what happened after each click. These pin that the
+# compiler actually USES them — previously `selector` was captured on every nav
+# click and then silently discarded, so every step compiled to click_by_text on
+# visible text alone.
+
+_RICH_EVENTS = [
+    {
+        "from_url": f"{_H}/login-page",
+        "to_url": f"{_H}/overview",
+        "timestamp": "2026-08-07T10:00:00Z",
+    },
+    {
+        "from_url": f"{_H}/overview",
+        "to_url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:05Z",
+    },
+]
+
+
+def _rich_click(**over):
+    base = {
+        "event_type": "click",
+        "text_content": "Credit Cards",
+        "selector": "div.submenu-text",
+        "url": f"{_H}/overview",
+        "timestamp": "2026-08-07T10:00:04.900Z",
+        "event_time": "2026-08-07T10:00:04.900Z",
+        "candidates": [
+            {"kind": "testid", "value": '[data-testid="nav-cards"]', "match_count": 1},
+            {"kind": "text", "value": "Credit Cards", "match_count": 1},
+        ],
+        "outcome": {
+            "navigated": True,
+            "to_url": f"{_H}/credit-card",
+            "request_count": 3,
+            "settled_ms": 420,
+            "download": False,
+        },
+    }
+    base.update(over)
+    return base
+
+
+def _ops(pages, clicks=None):
+    """operations.json — pass the click list to include terminal operations."""
+    from noui_core.compile.browser_skill import derive_terminal_operations  # noqa: PLC0415
+
+    terminal = derive_terminal_operations(pages, clicks or [], login_url=LOGIN)
+    return json.loads(
+        render_browser_operations_json(pages, profile_slug="icici-bank", terminal_ops=terminal)
+    )
+
+
+def test_step_uses_the_unique_candidate_instead_of_visible_text():
+    pages = derive_browser_pages(_RICH_EVENTS, [_rich_click()], login_url=LOGIN)
+    steps = _ops(pages)["operations"][1]["steps"]
+
+    assert steps[0]["command"] == "click_element"
+    assert steps[0]["params"]["selector"] == '[data-testid="nav-cards"]'
+    assert steps[0]["locator"]["confidence"] == "unique"
+
+
+def test_text_steps_are_exact_so_they_cannot_widen_back_into_ambiguity():
+    # The recorder established the text matched ONE control. A substring match
+    # would reintroduce exactly the ambiguity that made HSBCnet misclick.
+    click = _rich_click(
+        candidates=[{"kind": "text", "value": "Statements", "match_count": 1}],
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    steps = _ops(pages)["operations"][1]["steps"]
+
+    assert steps[0]["command"] == "click_by_text"
+    assert steps[0]["params"] == {"text": "Statements", "exact": True}
+
+
+def test_step_carries_the_observed_postcondition():
+    # A linear script cannot tell it has gone wrong; it keeps clicking. The URL
+    # the recorder OBSERVED after this click is checkable in one step.
+    pages = derive_browser_pages(_RICH_EVENTS, [_rich_click()], login_url=LOGIN)
+    step = _ops(pages)["operations"][1]["steps"][0]
+
+    assert step["expect"]["url"] == f"{_H}/credit-card"
+    # A recorded settle is one sample from one network, so it is doubled for
+    # headroom — but never below a second, which is not a wait worth having on a
+    # bank SPA. 420ms doubles to 840 and lands on the floor.
+    assert step["expect"]["settle_ms"] == 1000
+
+
+def test_a_slow_observed_settle_is_doubled_rather_than_floored():
+    click = _rich_click(
+        outcome={
+            "navigated": True,
+            "to_url": f"{_H}/credit-card",
+            "request_count": 2,
+            "settled_ms": 2600,
+            "download": False,
+        }
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    step = _ops(pages)["operations"][1]["steps"][0]
+
+    assert step["expect"]["settle_ms"] == 5200
+
+
+def test_a_click_that_downloaded_records_it_as_the_success_condition():
+    click = _rich_click(
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 1,
+            "settled_ms": None,
+            "download": True,
+        }
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    step = _ops(pages)["operations"][1]["steps"][0]
+
+    assert step["expect"] == {"download": True}
+
+
+def test_an_icon_button_is_compiled_instead_of_dropped():
+    # A click with no visible text used to be discarded outright, which threw away
+    # every icon control — the hamburger and the chevrons that open a bank nav's
+    # accordions, so the page they lead to became unreachable and was dropped.
+    icon = _rich_click(
+        text_content="",
+        candidates=[
+            {"kind": "aria_label", "value": 'button[aria-label="Open menu"]', "match_count": 1}
+        ],
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [icon], login_url=LOGIN)
+
+    assert [p["name"] for p in pages] == ["read_overview", "read_credit_card"]
+    step = _ops(pages)["operations"][1]["steps"][0]
+    assert step["params"]["selector"] == 'button[aria-label="Open menu"]'
+
+
+def test_ambiguous_locators_are_surfaced_rather_than_hidden():
+    from noui_core.compile.browser_skill import ambiguous_steps  # noqa: PLC0415
+
+    click = _rich_click(
+        candidates=[{"kind": "text", "value": "Credit Cards", "match_count": 4}],
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    flagged = ambiguous_steps(pages)
+
+    assert len(flagged) == 1
+    assert flagged[0]["page"] == "read_credit_card"
+    assert flagged[0]["locator"]["match_count"] == 4
+
+
+def test_recordings_without_candidates_still_compile_the_old_way():
+    # Every recording made before schema_version 4 has no candidates. Those must
+    # keep compiling exactly as they did, not start failing.
+    legacy = {
+        "event_type": "click",
+        "text_content": "Credit Cards",
+        "selector": "div.submenu-text",
+        "url": f"{_H}/overview",
+        "timestamp": "2026-08-07T10:00:04.900Z",
+    }
+    pages = derive_browser_pages(_RICH_EVENTS, [legacy], login_url=LOGIN)
+    steps = _ops(pages)["operations"][1]["steps"]
+
+    # Compared on what the step DOES. Underscore keys are compile-time
+    # provenance (which interaction, and the page it ran on) — they never change
+    # behaviour, and `_behaviour` is what the compiler itself uses to decide
+    # whether two steps are the same action.
+    from noui_core.compile.browser_skill import _behaviour
+
+    assert _behaviour(steps[0]) == {
+        "command": "click_by_text",
+        "params": {"text": "Credit Cards"},
+    }
+    assert steps[-1] == {"command": "get_page_summary"}
+
+
+def test_skill_md_tells_the_agent_to_stop_when_an_expectation_fails():
+    # With an LLM runtime the prose IS the enforcement for `expect` — nothing
+    # else reads it.
+    pages = derive_browser_pages(_RICH_EVENTS, [_rich_click()], login_url=LOGIN)
+    md = render_browser_skill_md(
+        skill_id="icici-bank",
+        app_name="ICICI",
+        workflow_name="Credit card",
+        pages=pages,
+        profile_slug="icici-bank",
+    )
+    assert "stop and report it" in md
+    assert "settle_ms" in md
+    assert "Known ambiguous steps" not in md  # nothing ambiguous in this recording
+
+
+def test_skill_md_names_the_ambiguous_steps():
+    click = _rich_click(candidates=[{"kind": "text", "value": "Credit Cards", "match_count": 4}])
+    pages = derive_browser_pages(_RICH_EVENTS, [click], login_url=LOGIN)
+    md = render_browser_skill_md(
+        skill_id="icici-bank",
+        app_name="ICICI",
+        workflow_name="Credit card",
+        pages=pages,
+        profile_slug="icici-bank",
+    )
+    assert "Known ambiguous steps" in md
+    assert "matched 4 elements" in md
+
+
+def test_skill_md_describes_an_icon_click_without_an_empty_quote():
+    icon = _rich_click(
+        text_content="",
+        candidates=[{"kind": "aria_label", "value": 'button[aria-label="Menu"]', "match_count": 1}],
+    )
+    pages = derive_browser_pages(_RICH_EVENTS, [icon], login_url=LOGIN)
+    md = render_browser_skill_md(
+        skill_id="icici-bank",
+        app_name="ICICI",
+        workflow_name="Credit card",
+        pages=pages,
+        profile_slug="icici-bank",
+    )
+    assert 'click ""' not in md
+    assert "aria_label" in md
+
+
+# --- terminal operations ------------------------------------------------------
+#
+# An operation used to mean "a page the human visited", so anything whose result
+# is not a new URL could not become an operation at all. On ICICI the compiler
+# produced two read operations and the statement download had to be hand-written
+# afterwards — not reproducible, not verifiable. Downloads are one KIND of
+# terminal outcome here, not a special case.
+
+
+def _terminal_click(**over):
+    base = {
+        "event_type": "click",
+        "text_content": "Download statement",
+        "url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:20.000Z",
+        "event_time": "2026-08-07T10:00:20.000Z",
+        "candidates": [{"kind": "testid", "value": '[data-testid="stmt-dl"]', "match_count": 1}],
+        "outcome": {
+            "navigated": False,
+            "to_url": None,
+            "request_count": 1,
+            "settled_ms": 300,
+            "download": True,
+        },
+    }
+    base.update(over)
+    return base
+
+
+def test_a_download_becomes_a_real_operation():
+    # The gap that forced a hand-written operation on ICICI.
+    clicks = [_rich_click(), _terminal_click()]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = _ops(pages, clicks)["operations"]
+
+    dl = [o for o in ops if o.get("kind") == "download"]
+    assert len(dl) == 1
+    assert dl[0]["name"] == "download_statement"
+
+
+def test_the_download_operation_reaches_the_page_first():
+    # A step that cannot be reached is worse than a missing one: the operation
+    # replays the same click chain the read operation for that page uses.
+    clicks = [_rich_click(), _terminal_click()]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    # nav click to the credit-card page, then the download control itself.
+    assert dl["steps"][0]["params"]["selector"] == '[data-testid="nav-cards"]'
+    assert dl["steps"][1]["params"]["selector"] == '[data-testid="stmt-dl"]'
+
+
+def test_the_download_operation_ends_by_naming_the_artifact():
+    # The file IS the result, so it closes with list_downloads rather than
+    # reading whatever page it left behind.
+    clicks = [_rich_click(), _terminal_click()]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    assert dl["steps"][-1] == {"command": "list_downloads"}
+    assert dl["steps"][1]["expect"]["download"] is True
+
+
+def test_a_form_submission_becomes_an_operation_too():
+    # Not download-specific: any goal that finishes without a new URL.
+    submit = _terminal_click(
+        event_type="submit",
+        text_content="Search transactions",
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 2,
+            "settled_ms": 500,
+            "download": False,
+        },
+    )
+    clicks = [_rich_click(), submit]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "submit"]
+
+    assert len(ops) == 1
+    # A submission leaves a page worth reading, unlike a download.
+    assert ops[0]["steps"][-1] == {"command": "get_page_summary"}
+
+
+def test_an_ordinary_click_does_not_become_an_operation():
+    # "Fired some XHRs" describes half the clicks on a bank portal — filters,
+    # toggles, accordions. Emitting one each would bury the two the user wants.
+    noisy = _terminal_click(
+        text_content="Filter",
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 3,
+            "settled_ms": 200,
+            "download": False,
+        },
+    )
+    clicks = [_rich_click(), noisy]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = _ops(pages, clicks)["operations"]
+
+    assert all("kind" not in o for o in ops)
+
+
+def test_a_terminal_click_on_an_unreachable_page_is_dropped():
+    # Its page was never resolved, so the skill has no way to get there.
+    orphan = _terminal_click(url=f"{_H}/some-page-never-visited")
+    clicks = [_rich_click(), orphan]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+
+    assert all("kind" not in o for o in _ops(pages, clicks)["operations"])
+
+
+def test_recordings_without_outcomes_emit_no_terminal_operations():
+    # Everything captured before schema_version 5 — must compile as it did.
+    legacy = {
+        "event_type": "click",
+        "text_content": "Download statement",
+        "url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:20.000Z",
+    }
+    clicks = [_rich_click(), legacy]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+
+    assert all("kind" not in o for o in _ops(pages, clicks)["operations"])
+
+
+def test_a_legacy_submit_without_an_outcome_emits_no_terminal_operation():
+    # The backward-compat hole the download branch didn't have: `event_type ==
+    # "submit"` predates schema 5 (login_assets reads it for login detection), so
+    # gating the terminal on event_type alone made a pre-schema-5 non-login submit
+    # (a "Save Note" form) compile a brand-new operation, breaking "older captures
+    # compile exactly as they did". A submit with no outcome must stay inert.
+    legacy_submit = {
+        "event_type": "submit",
+        "text_content": "Save Note",
+        "url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:20.000Z",
+        "event_time": "2026-08-07T10:00:20.000Z",
+    }
+    clicks = [_rich_click(), legacy_submit]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+
+    assert all("kind" not in o for o in _ops(pages, clicks)["operations"])
+
+
+def test_a_flaky_download_submit_compiles_as_a_download_not_a_submit():
+    # ICICI's PDF server is slow, so the download click fired a `submit` event but
+    # outcome.download never landed inside the recorder's window. The control still
+    # plainly downloads (#DOWNLOAD_ESTATEMENT_PDF), so it must compile as a
+    # DOWNLOAD -- judged by a FRESH file (goal_reached + the download baseline),
+    # not by a visibility-gated click a not-yet-rendered PDF panel blocks. As a
+    # `submit` the op failed on that blocked step; as a download it is judged by
+    # the file that actually arrived.
+    flaky = _terminal_click(
+        event_type="submit",
+        text_content="",
+        candidates=[{"kind": "id", "value": "#DOWNLOAD_ESTATEMENT_PDF", "match_count": 1}],
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 3,
+            "settled_ms": 500,
+            "download": False,
+        },
+    )
+    clicks = [_rich_click(), flaky]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"]
+    assert len(ops) == 1
+    # It ends by naming the file, so the goal is a fresh download, not a click.
+    assert ops[0]["steps"][-1] == {"command": "list_downloads"}
+
+
+def test_a_submit_without_download_words_stays_a_submit():
+    # The upgrade is targeted: a submit whose control says nothing about
+    # downloading (a search) is still a submit, judged by its steps.
+    submit = _terminal_click(
+        event_type="submit",
+        text_content="Search transactions",
+        candidates=[{"kind": "id", "value": "#search", "match_count": 1}],
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 2,
+            "settled_ms": 400,
+            "download": False,
+        },
+    )
+    clicks = [_rich_click(), submit]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = _ops(pages, clicks)["operations"]
+    assert any(o.get("kind") == "submit" for o in ops)
+    assert not any(o.get("kind") == "download" for o in ops)
+
+
+def test_skill_md_names_the_operations_that_produce_a_result():
+    clicks = [_rich_click(), _terminal_click()]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    from noui_core.compile.browser_skill import derive_terminal_operations  # noqa: PLC0415
+
+    terminal = derive_terminal_operations(pages, clicks, login_url=LOGIN)
+    md = render_browser_skill_md(
+        skill_id="icici-cc-statement",
+        app_name="ICICI",
+        workflow_name="Credit card statement",
+        pages=pages,
+        profile_slug="icici-cc-statement",
+        terminal_ops=terminal,
+    )
+
+    assert "Operations that produce a result" in md
+    assert "download_statement" in md
+
+
+def test_a_download_operation_accepts_the_period_the_human_typed():
+    # THE ICICI failure: asked for "last year", the operation had nothing to
+    # vary, so the agent hunted the page for a period selector instead.
+    period = {
+        "event_type": "input",
+        "tag_name": "INPUT",
+        "input_type": "text",
+        "field_name": "fromDate",
+        "value": "2026-01-01",
+        "url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:10.000Z",
+        "event_time": "2026-08-07T10:00:10.000Z",
+        "seq": 5,
+        "candidates": [{"kind": "id", "value": "#from-date", "match_count": 1}],
+    }
+    clicks = [_rich_click(), period, _terminal_click(seq=9)]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    assert dl["parameters"][0]["name"] == "from_date"
+    assert dl["parameters"][0]["default"] == "2026-01-01"
+    # The fill lands between reaching the page and the download click.
+    fills = [s for s in dl["steps"] if s["command"] == "type_text"]
+    assert fills[0]["params"]["text"] == "{{from_date}}"
+    assert dl["steps"].index(fills[0]) < dl["steps"].index(dl["steps"][-2])
+
+
+def test_inputs_from_another_page_do_not_leak_into_an_operation():
+    other = {
+        "event_type": "input",
+        "tag_name": "INPUT",
+        "field_name": "search",
+        "value": "groceries",
+        "url": f"{_H}/overview",
+        "seq": 4,
+        "timestamp": "2026-08-07T10:00:09.000Z",
+    }
+    clicks = [_rich_click(), other, _terminal_click(seq=9)]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    assert dl["parameters"] == []
+
+
+def test_values_entered_after_the_action_are_not_parameters_of_it():
+    late = {
+        "event_type": "input",
+        "tag_name": "INPUT",
+        "field_name": "feedback",
+        "value": "great",
+        "url": f"{_H}/credit-card",
+        "seq": 20,
+        "timestamp": "2026-08-07T10:00:40.000Z",
+    }
+    clicks = [_rich_click(), _terminal_click(seq=9), late]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    dl = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"][0]
+
+    assert dl["parameters"] == []
+
+
+def test_skill_md_tells_the_agent_what_it_can_vary():
+    period = {
+        "event_type": "input",
+        "tag_name": "INPUT",
+        "field_name": "fromDate",
+        "value": "2026-01-01",
+        "url": f"{_H}/credit-card",
+        "seq": 5,
+        "timestamp": "2026-08-07T10:00:10.000Z",
+        "candidates": [{"kind": "id", "value": "#from-date", "match_count": 1}],
+    }
+    clicks = [_rich_click(), period, _terminal_click(seq=9)]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    from noui_core.compile.browser_skill import derive_terminal_operations  # noqa: PLC0415
+
+    md = render_browser_skill_md(
+        skill_id="icici-cc-statement",
+        app_name="ICICI",
+        workflow_name="Credit card statement",
+        pages=pages,
+        profile_slug="icici-cc-statement",
+        terminal_ops=derive_terminal_operations(pages, clicks, login_url=LOGIN),
+    )
+
+    assert "accepts:" in md
+    assert "from_date" in md
+    assert "{{placeholders}}" in md
+
+
+# --- multi-origin apps --------------------------------------------------------
+#
+# ICICI serves its portal from retailnetbanking.icici.bank.in and its statement
+# DOWNLOAD from infinity.icici.bank.in. Keeping only the login origin discarded
+# the e-Statements page entirely — the one that actually produces the PDF — so
+# the compiled skill had no way to reach the file, and the agent had to
+# rediscover the whole route by trial and error at run time.
+
+_INFINITY = "https://infinity.icici.bank.in"
+
+_MULTI_ORIGIN_EVENTS = [
+    {
+        "from_url": f"{_H}/login-page",
+        "to_url": f"{_H}/overview",
+        "timestamp": "2026-08-07T10:00:00Z",
+    },
+    {
+        "from_url": f"{_H}/overview",
+        "to_url": f"{_H}/credit-card",
+        "timestamp": "2026-08-07T10:00:05Z",
+    },
+    # The human clicked "Download Previous Statement" and landed on the bank's
+    # OTHER host. This is the hop that used to be thrown away.
+    {
+        "from_url": f"{_H}/credit-card",
+        "to_url": f"{_INFINITY}/corp/AuthenticationController",
+        "timestamp": "2026-08-07T10:00:12Z",
+    },
+    # Third-party telemetry: never reached by a human navigation, still dropped.
+    {
+        "from_url": f"{_H}/credit-card",
+        "to_url": "https://rum.dynatrace.com/beacon",
+        "timestamp": "2026-08-07T10:00:13Z",
+    },
+]
+
+
+def _hop_click(text, url, **over):
+    base = {
+        "event_type": "click",
+        "text_content": text,
+        "url": url,
+        "timestamp": "2026-08-07T10:00:11.000Z",
+        "event_time": "2026-08-07T10:00:11.000Z",
+        "candidates": [{"kind": "id", "value": "#dl-prev", "match_count": 1}],
+    }
+    base.update(over)
+    return base
+
+
+def test_a_page_on_the_apps_other_host_is_kept():
+    clicks = [
+        _rich_click(),
+        _hop_click("Download Previous Statement", f"{_H}/credit-card"),
+        # The human then worked ON that host — picked Annual, pressed download.
+        _hop_click("Annual", f"{_INFINITY}/corp/AuthenticationController"),
+    ]
+    pages = derive_browser_pages(_MULTI_ORIGIN_EVENTS, clicks, login_url=LOGIN)
+
+    urls = [p["url"] for p in pages]
+    assert f"{_INFINITY}/corp/AuthenticationController" in urls
+
+
+def test_third_party_telemetry_is_still_dropped():
+    # The filter exists for a reason — this is the noise that poisoned the
+    # HAR-replay compile. It is never reached by a human navigation.
+    clicks = [
+        _rich_click(),
+        _hop_click("Download Previous Statement", f"{_H}/credit-card"),
+        _hop_click("Annual", f"{_INFINITY}/corp/AuthenticationController"),
+    ]
+    pages = derive_browser_pages(_MULTI_ORIGIN_EVENTS, clicks, login_url=LOGIN)
+
+    assert all("dynatrace" not in p["url"] for p in pages)
+
+
+def test_a_download_on_the_other_host_becomes_an_operation():
+    # The end of the real ICICI path: the PDF is produced on the second host.
+    dl = _terminal_click(url=f"{_INFINITY}/corp/AuthenticationController", seq=20)
+    clicks = [
+        _rich_click(),
+        _hop_click("Download Previous Statement", f"{_H}/credit-card"),
+        _hop_click("Annual", f"{_INFINITY}/corp/AuthenticationController", seq=15),
+        dl,
+    ]
+    pages = derive_browser_pages(_MULTI_ORIGIN_EVENTS, clicks, login_url=LOGIN)
+    ops = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"]
+
+    assert len(ops) == 1
+
+
+def test_origins_are_grown_in_order_not_matched_by_domain():
+    # A registrable-domain heuristic is guesswork: bank.in is a public suffix, so
+    # "share the last two labels" would make every Indian bank the same app. An
+    # unreached sibling host must NOT be treated as part of this app.
+    from noui_core.compile.browser_skill import app_origins_from  # noqa: PLC0415
+
+    clicks = [
+        _rich_click(),
+        _hop_click("Download Previous Statement", f"{_H}/credit-card"),
+        _hop_click("Annual", f"{_INFINITY}/corp/AuthenticationController"),
+    ]
+    origins = app_origins_from(_MULTI_ORIGIN_EVENTS, LOGIN, clicks)
+    assert _INFINITY in origins
+    assert "https://someotherbank.bank.in" not in origins
+    assert "https://rum.dynatrace.com" not in origins
+
+
+def test_a_click_inside_an_iframe_carries_the_frame_to_the_step():
+    """A recorded in-frame click must remain executable.
+
+    The recorder runs in every frame, so the click was always captured. Without
+    the frame on the step the runtime drives the top-level page, the control is
+    not there, and a navigation the human completed becomes one the skill cannot
+    reproduce — the ICICI/Finacle statement download.
+    """
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {
+                "value": "#PDF_Download",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {
+                "in_iframe": True,
+                "frame_url": "https://finacle.bank.test/statements?tok=abc",
+                "frame_name": "finacleFrame",
+            },
+        }
+    )
+    assert step["params"]["frame_url"] == "https://finacle.bank.test/statements?tok=abc"
+    assert step["params"]["frame_name"] == "finacleFrame"
+
+
+def test_a_top_level_click_names_no_frame():
+    # Adding an empty frame to every step would make each one look embedded.
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {
+                "value": "#nav",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {"in_iframe": False},
+        }
+    )
+    assert "frame_url" not in step["params"]
+    assert "frame_name" not in step["params"]
+
+
+def test_a_download_keeps_the_clicks_that_decide_what_is_downloaded():
+    """The tab and the period are part of the download, not scenery.
+
+    Only the terminal click was compiled, so a statement download became "click
+    Download" alone — losing the "Past Statements" tab and the "Annual" period.
+    At replay that click landed on whatever the page happened to show, which is
+    how a run ended up hunting a control that was one tab away.
+    """
+    from noui_core.compile.browser_skill import derive_terminal_operations
+
+    page_url = "https://bank.test/statements"
+    pages = [{"name": "read_statements", "url": page_url, "nav": [], "_from_key": None}]
+    clicks = [
+        {
+            "seq": 1,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Past Statements",
+            "candidates": [{"kind": "text", "value": "Past Statements", "match_count": 1}],
+        },
+        {
+            "seq": 2,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Annual",
+            "candidates": [{"kind": "text", "value": "Annual", "match_count": 1}],
+        },
+        {
+            "seq": 3,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Download",
+            "candidates": [{"kind": "text", "value": "Download", "match_count": 1}],
+            "outcome": {"download": True},
+        },
+    ]
+    ops = derive_terminal_operations(pages, clicks, login_url="https://bank.test/login")
+    assert len(ops) == 1
+    lead = [str(s.get("params", {}).get("text") or "") for s in ops[0]["lead"]]
+    assert lead == ["Past Statements", "Annual"]
+
+
+def test_a_later_screens_clicks_do_not_leak_into_the_download():
+    from noui_core.compile.browser_skill import derive_terminal_operations
+
+    page_url = "https://bank.test/statements"
+    pages = [{"name": "read_statements", "url": page_url, "nav": [], "_from_key": None}]
+    clicks = [
+        {
+            "seq": 1,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Download",
+            "candidates": [{"kind": "text", "value": "Download", "match_count": 1}],
+            "outcome": {"download": True},
+        },
+        # After the file: the human closing a dialog is not part of the download.
+        {
+            "seq": 2,
+            "url": page_url,
+            "event_type": "click",
+            "text_content": "Close",
+            "candidates": [{"kind": "text", "value": "Close", "match_count": 1}],
+        },
+    ]
+    ops = derive_terminal_operations(pages, clicks, login_url="https://bank.test/login")
+    assert ops[0]["lead"] == []
+
+
+def test_a_radio_compiles_to_set_checked_not_a_click():
+    """ICICI's Monthly / Annual period is a styled radio.
+
+    Portals draw these as images or spans over a hidden input, so a click lands
+    on the decoration and the input never changes — a replay that "clicked
+    Annual" was still asking for the monthly statement. set_checked drives the
+    control and verifies the state changed, which a click cannot promise.
+    """
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {
+                "value": "#annual",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {"role": "radio", "tag": "input"},
+        }
+    )
+    assert step["command"] == "set_checked"
+    assert step["params"] == {"selector": "#annual", "checked": True}
+
+
+def test_a_radio_inside_a_frame_keeps_its_frame():
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {
+                "value": "#annual",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {"role": "radio", "in_iframe": True, "frame_url": "https://finacle.test/x"},
+        }
+    )
+    assert step["params"]["frame_url"] == "https://finacle.test/x"
+
+
+def test_an_ordinary_button_still_compiles_to_a_click():
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "locator": {
+                "value": "#go",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {"role": "button"},
+        }
+    )
+    assert step["command"] == "click_element"
+
+
+def test_a_recorded_hover_compiles_to_a_hover_step():
+    """The menu that opens on hover must be opened at replay too.
+
+    ICICI's top nav reveals its items on hover: hover "Cards", click "Credit
+    Cards". With no hover step the compiled path never opens the menu, and the
+    click targets something that does not exist yet.
+    """
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "event_type": "hover",
+            "text": "Cards",
+            "locator": {
+                "value": "#nav-cards",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+        }
+    )
+    assert step["command"] == "hover"
+    assert step["params"]["selector"] == "#nav-cards"
+
+
+def test_a_hover_with_only_a_text_locator_is_not_compiled():
+    # There is no hover-by-text at runtime, and guessing one would hover the
+    # wrong thing — worse than leaving the gesture out.
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "event_type": "hover",
+            "text": "Cards",
+            "locator": {
+                "value": "Cards",
+                "kind": "text",
+                "is_css": False,
+                "confidence": "medium",
+                "match_count": 1,
+            },
+        }
+    )
+    assert step is None
+
+
+def test_a_hover_inside_a_frame_keeps_its_frame():
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "event_type": "hover",
+            "locator": {
+                "value": "#menu",
+                "kind": "css",
+                "is_css": True,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "element": {"in_iframe": True, "frame_url": "https://finacle.test/x"},
+        }
+    )
+    assert step["params"]["frame_url"] == "https://finacle.test/x"
+
+
+def test_a_dropdown_opener_is_addressed_by_selector_not_its_value():
+    """The opener's label is the widget's VALUE, not a control name.
+
+    ICICI's year dropdown displays "FY2024-25"; you click that to open it, then
+    click the year you want. At replay the displayed value differs — next year,
+    or on another account — so click_by_text("FY2024-25") matches nothing.
+    """
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "is_opener": True,
+            "text": "FY2024-25",
+            "locator": {
+                "value": "FY2024-25",
+                "kind": "text",
+                "is_css": False,
+                "confidence": "medium",
+                "match_count": 1,
+            },
+            "candidates": [
+                {"kind": "text", "value": "FY2024-25", "match_count": 1},
+                {"kind": "css_path", "value": "#InfoPanel1 > span > div", "match_count": 1},
+            ],
+        }
+    )
+    assert step["command"] == "click_element"
+    assert step["params"]["selector"] == "#InfoPanel1 > span > div"
+
+
+def test_an_ordinary_nav_item_keeps_its_text_locator():
+    """THE GUARD. "Credit Cards" has the same shape as the dropdown opener —
+    a div with no role, distinguished only by its text — and recovering that
+    text locator is what this session was for. Only an OPENER may lose it."""
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "text": "Credit Cards",
+            "locator": {
+                "value": "Credit Cards",
+                "kind": "text",
+                "is_css": False,
+                "confidence": "high",
+                "match_count": 1,
+            },
+            "candidates": [
+                {"kind": "text", "value": "Credit Cards", "match_count": 1},
+                {"kind": "css_path", "value": "#scroll-container > div", "match_count": 1},
+            ],
+        }
+    )
+    assert step["command"] == "click_by_text"
+    assert step["params"]["text"] == "Credit Cards"
+
+
+def test_an_opener_with_no_stable_selector_keeps_what_it_has():
+    # Better a text locator that may drift than no step at all.
+    from noui_core.compile.browser_skill import _step_for_click
+
+    step = _step_for_click(
+        {
+            "is_opener": True,
+            "text": "FY2024-25",
+            "locator": {
+                "value": "FY2024-25",
+                "kind": "text",
+                "is_css": False,
+                "confidence": "medium",
+                "match_count": 1,
+            },
+            "candidates": [{"kind": "text", "value": "FY2024-25", "match_count": 1}],
+        }
+    )
+    assert step["command"] == "click_by_text"
+
+
+def test_a_click_and_the_submit_it_fires_are_one_step():
+    """ICICI recorded a click and a submit on #DOWNLOAD_ESTATEMENT_PDF four
+    milliseconds apart — one press of one button. The download was attributed to
+    the submit, making it the terminal step, while the click became a lead-in, so
+    a replay would have asked the portal for the file twice."""
+    from noui_core.compile.browser_skill import _collapse_repeats
+
+    steps = _collapse_repeats(
+        [
+            {"command": "click_element", "params": {"selector": "#DOWNLOAD_ESTATEMENT_PDF"}},
+            {
+                "command": "click_element",
+                "params": {"selector": "#DOWNLOAD_ESTATEMENT_PDF"},
+                "expect": {"download": True},
+            },
+        ]
+    )
+    assert len(steps) == 1
+    # the richer of the two survives, so the expectation is not lost
+    assert steps[0].get("expect") == {"download": True}
+
+
+def test_the_same_control_used_again_later_survives():
+    # A paging control or a retry is a real second action.
+    from noui_core.compile.browser_skill import _collapse_repeats
+
+    steps = _collapse_repeats(
+        [
+            {"command": "click_element", "params": {"selector": "#next"}},
+            {"command": "get_page_summary"},
+            {"command": "click_element", "params": {"selector": "#next"}},
+        ]
+    )
+    assert len(steps) == 3
+
+
+def test_a_click_that_resolved_to_the_document_is_not_a_step():
+    from noui_core.compile.browser_skill import _step_for_click
+
+    assert (
+        _step_for_click(
+            {
+                "text": "",
+                "locator": {
+                    "value": "body",
+                    "kind": "css",
+                    "is_css": True,
+                    "confidence": "low",
+                    "match_count": 1,
+                },
+            }
+        )
+        is None
+    )

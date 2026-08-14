@@ -275,6 +275,10 @@ def compile_workflow_bundle(
                 output_dir=str(root / "skills" / slug),
                 session_id=session_id,
                 start_url=start_url,
+                # Without this nothing stamps provenance, and every skill
+                # compiled through this path is refused at install as "not
+                # compiled from a recording" -- which is exactly what happened.
+                bundle=bundle,
             )
         else:
             result["skill"] = compile_workflow_to_skill(

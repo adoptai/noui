@@ -158,6 +158,348 @@ Full playbook: `references/generalize.md`.
 
 ---
 
+## Browser-driven skills: what the recording gives you, and what not to hand-write
+
+Some apps cannot be replayed — they encrypt request bodies in page JavaScript or
+mint per-session headers, so a recorded request is dead the moment the recording
+ends (ICICI is the canonical case: 40 replayed operations that all 403). Those
+compile **browser-driven**: the skill drives the live page and reads what it
+renders. `detect_unreplayable` decides this automatically; `--browser-driven`
+forces it, `--no-auto-browser` disables the detection.
+
+### Declare it at capture time when the user already told you
+
+**If the request says "browser based", "browser-driven", or names an app you
+already know cannot be replayed, pass `--browser-driven` to `capture_record.py`.**
+The user saying so IS the kind being known — there is nothing further to wait
+for, and `detect_unreplayable` will only agree with them later.
+
+This was missed on a request that opened with the words "NOUI BROWSER BASED
+skill", because the guidance below reads as an argument for leaving it off. It is
+not: the caution applies to captures whose kind is genuinely unknown.
+
+What it buys, on a bank especially: Tabby reduces the workflow HAR to metadata,
+keeping balances, account numbers and live tokens out of the bundle entirely.
+That is a privacy property you cannot add afterwards — the bodies are either
+captured or they are not.
+
+Locator evidence is captured either way now (a combined capture always requests
+it), so forgetting the flag no longer makes a recording uncompilable. It did
+once: a capture came back with 718 HAR entries and no click interactions, and the
+whole recording had to be done again.
+
+Leave it off only when the kind is genuinely unknown. It is the skill KIND, not
+the capture phase: a workflow recording of an ordinary REST app compiles by
+replay and needs the full HAR. Record full, let `detect_unreplayable` decide.
+
+### What a workflow recording now carries
+
+Bundles from Tabby `schema_version >= 5` capture far more than a click list:
+
+- **`candidates`** on each interaction — several ways to address the element
+  (test-id, id, name, aria-label, role+name, label, text, css path), each with
+  `match_count`: how many nodes it matched **at record time**. A candidate that
+  matched more than one node cannot identify that element, and the compiler will
+  not silently prefer it.
+- **`element`** — role, accessible name, visibility, and whether something was
+  painted over it (the overlay that swallows a click).
+- **`outcome`** — what the interaction caused: navigation and where to, requests
+  fired, when they settled, whether a download started.
+- **`download_events`** and popup/new-tab capture, with `page_id` per document.
+
+### What the compiler emits from it
+
+- **read** operations — one per data page, reached by replaying the recorded
+  click chain (never a `navigate`; see below).
+- **download** and **submit** operations — goals that finish *without* landing on
+  a new page. A download closes with `list_downloads`, because the file is the
+  result.
+- **parameters** — values the human typed become arguments, with the recorded
+  value as the default. Steps carry `{{placeholders}}`.
+- **expectations** — the URL a step should reach, whether a file should arrive,
+  how long traffic took to settle.
+
+### Do not hand-write what the compiler can emit
+
+If the download operation you expect is missing, that means **the recording did
+not capture the evidence** — not that you should write the operation yourself. A
+hand-written operation has no verified selector, no expectation and no parameter,
+so it is exactly the thing that fails in production while looking fine at build
+time. Re-record the flow so the click that produces the file is captured, then
+recompile.
+
+The same goes for selectors: never substitute your own for a recorded one. The
+recorded one was verified to match a single element on the live page; yours was
+not.
+
+### Replay before installing — this is a GATE, not a report
+
+A browser skill installs only after a member has seen it run. `install_skill`
+REFUSES one that carries no approved replay, so this is not optional:
+
+```bash
+# 1. Replay the compiled draft against a live session. Writes replay_report.json.
+python scripts/verify_replay.py workbench/skills/<app> --profile-slug <slug>
+#    Exit 2 = no signed-in session: show the sign-in card, then run it again.
+#    Nothing is installed, and the report is never self-approving.
+
+# 2. SHOW the member what happened, and get their answer. (see below)
+
+# 3. Only if they approve:
+python scripts/verify_approve.py workbench/skills/<app>
+
+# 4. Now install.
+```
+
+**Step 2 is not optional and does not depend on a card.** Where the
+`skill-replay` card is available the host renders it; where it is not, present
+the report in the conversation yourself. Either way the member must be able to
+see, before they answer:
+
+- **for each operation, whether it reached its GOAL** — not how many steps ran. A
+  download whose every step passed and which produced no file has NOT reached
+  its goal, and a step count would call that a success.
+- **which steps were blocked**, and what the error said.
+- **which steps the agent improvised** rather than replaying from the recording.
+  Those are the ones nobody has ever verified; that is where their attention
+  belongs.
+- **anything held for approval** — a control that moves money, is irreversible,
+  or that the human never touched during the recording.
+
+Then ask plainly whether it looks right, or which step to change. Do not
+summarise it as "the replay passed" and move on: the failures this gate exists
+to catch are the ones that look fine in summary.
+
+If they ask for a change, amend the workflow, recompile, and **replay again** —
+the approval is tied to a fingerprint of the plan, so an amended skill no longer
+matches and the installer refuses. That is what makes their confirmation
+binding rather than advisory.
+
+Replay uses the profile's own Tabby session, which means one sign-in the member
+has to do. That is deliberate: it is exactly how the skill will run once
+installed, so a pass means what it appears to mean, and it also proves the
+profile's login and keepalive can sustain a session on this app at all.
+
+Do not approve on the member's behalf. The file is the record of a human
+decision; writing it because the replay looked fine to you defeats the whole
+gate, and the failures this exists to catch are the ones that look fine.
+
+### Check these before installing
+
+0. **Is the goal in there at all?** Before anything else: does an operation
+   exist that does what the user asked for? A missing `download` operation means
+   the recording missed it — re-record, never hand-write. See "Telling the human
+   what to record".
+1. **Ambiguous steps.** SKILL.md lists any whose locator matched several
+   elements. Those misclick. Re-record them rather than shipping them.
+2. **Missing parameters.** If the user will ask for "last year" and the operation
+   has no parameter, the recording did not include a field the value came from —
+   check whether the app uses a date picker (clicks, not a typed value), which
+   cannot be parameterised from the recording alone.
+3. **Dropped pages.** A page whose click chain could not be recovered is dropped
+   deliberately, because an operation that claims to read one page and reads
+   another is worse than a missing one. Re-record the hop.
+4. **`block_navigate`.** For portals that die on a reload (ICICI, HSBCnet), set
+   `browser_policy.block_navigate` on the App Template. `navigate` is a full page
+   load; on those apps it destroys the session mid-task. With the flag set Tabby
+   refuses the command and tells the agent to click instead.
+
+---
+
+## Telling the human what to record
+
+You are about to hand a person a viewer link and a list of steps. What you write
+there decides what the recording contains, and therefore what the skill can ever
+do. A real ICICI build failed entirely at this step: the agent had never seen the
+app, but wrote
+
+> Click the PDF format toggle → Click the DOWNLOAD button
+> ⚠️ Don't click "View Statement", "E-Statement" …
+
+The actual route to an annual statement is *Past → Download Previous Statement →
+a second host → Annual → PDF*. The instruction prescribed a flow that fetches
+only the current month and **explicitly forbade the one that works**, so the human
+followed it, the capture missed the whole download path, and the compiled skill
+could not do the one thing it existed for. Nobody noticed until run time.
+
+**Describe the GOAL, not the clicks.** You have not seen this app. Any specific
+control you name is inferred, and a wrong guess is worse than no guess because
+the human will follow it. "Download the annual credit-card statement for the last
+financial year" is a complete instruction. "Click the PDF toggle, then DOWNLOAD"
+is a guess wearing the clothes of an instruction.
+
+**Never tell the human to avoid part of the app.** You cannot know which link is
+the dead end and which is the route. A prohibition you got backwards removes the
+only path there is.
+
+**Say to keep going until the thing actually happens** — the file lands, the
+confirmation renders, the value appears on screen. A recording that stops one
+step short compiles into a skill that stops one step short, and that is exactly
+the shape of the failure that is hardest to see afterwards: everything looks
+captured, and the last step is missing.
+
+**Warn about what breaks a capture, not about which buttons to press.** The
+useful warnings are: stay in the same window, do not reload or close it, let slow
+pages finish loading (a bank often hands off to a second host, and that hop must
+be recorded), and click "Finish & export" only once the goal is complete.
+
+**Ask rather than assume.** If you genuinely need the route — because the goal is
+ambiguous, not because you want to script it — ask the human how they normally do
+it, then repeat it back as *their* description. Do not convert it into a click
+list of your own invention.
+
+### After compiling, check the goal is actually in there
+
+Read the compiled operations before installing and ask: **is there an operation
+that does the thing the user asked for?**
+
+If the goal was "download the statement" and no `download` operation was
+emitted, the recording did not capture it — the human stopped early, or was sent
+down the wrong path. **Re-record.** Do not write the operation by hand: a
+hand-written operation has no verified selector, no expectation and no parameter,
+it is never replayed against the live page before shipping, and it fails in
+production while looking correct in review. That is precisely what happened on
+the ICICI build, twice.
+
+---
+
+## Two sessions, two sign-ins — never confuse them
+
+Building a browser skill involves **two different browser sessions**, and mixing
+them up has cost more time on this project than any other single mistake.
+
+| | **Recording session** | **Runtime session** |
+|---|---|---|
+| What it is | a human drives a browser so NoUI can capture what they do | the profile's own authenticated session, the one the installed skill drives |
+| Created by | `capture_record.py` | Tabby, on demand — never by you |
+| Viewer | a VNC link with a **"Finish & export"** button | a sign-in card the platform renders |
+| Exists to | produce a bundle | run operations |
+
+**A live sign-in is never satisfied by a recording session.** When something
+reports `login_required` — replay, a verification call, an installed skill — the
+member needs a RUNTIME sign-in. Handing them a recording link instead gives them
+a viewer with a "Finish & export" button, which is not what they were asked for,
+and the sign-in they perform there does nothing for the session that needed it.
+
+This happened: the member asked for a fresh login, was handed a fresh
+*recording*, signed in, drove the whole flow, and said "I didn't know you gave
+fresh recording session". A full walkthrough for nothing.
+
+### How to get a runtime sign-in
+
+Call the skill's own operation through `call_web_browser`. It returns
+`status=login_required` with a sign-in link; the platform renders the sign-in
+card; the member signs in there. The session then stays warm, so replays after
+the first sign-in are free.
+
+Do NOT run `capture_record.py`. Do NOT open a `?mode=recording` viewer. If you
+find yourself about to say "click Finish & export" when the member asked to sign
+in, you have reached for the wrong session.
+
+### A browser skill must come from a recording — the installer checks
+
+The compiler writes `recording_bundle.json` beside the skill and stamps its
+digest into `manifest.json` as `provenance`. The installer verifies both: that
+the recording is there and still hashes to the stamp, and that **every locator
+the operations drive was actually observed in it**.
+
+So a browser skill cannot be authored by hand, and adding the provenance fields
+by hand does not help — there is no recording behind them. A selector written
+from how a page probably looks reads exactly as plausibly as a real one; only
+the recording knows which ever resolved, which is why this is checked by machine
+rather than left to review.
+
+Never hand-write `operations.json`, `manifest.json`, `recording_bundle.json` or
+`replay_approval.json`. Record, compile, replay, and let the member approve.
+
+### Confirm the KIND at import, before installing
+
+The import prints one of:
+
+```
+KIND: browser-driven — ...
+KIND: replay (call_web_api) — auto-detected: ...
+```
+
+Auto-detection is the default and is usually right, but nobody chose it. When
+the line is followed by CONFIRM THE KIND, say which was chosen and why, and ask
+the member before installing. If they asked for a browser skill — or the app
+signs or encrypts requests in the page, so replay will 403 later — re-import
+with `--browser-driven`.
+
+This is not a formality. A capture asked for as a "BROWSER BASED skill" compiled
+to two replayed Finacle POSTs, and nothing said a decision had been taken.
+Changing the kind afterwards means compiling again, and a replay skill that
+looks fine today fails the first time the app rotates what it signs.
+
+### After compiling, do not "generalize" the operations
+
+Renaming an operation, rewording a description, adding a parameter: fine. Those
+do not change what runs.
+
+Rewriting the steps is not. Locators, step order and which operations exist come
+from the recording, and nothing else can supply them. A rewritten step targets a
+control nobody watched resolve, so at replay the run misses, improvises, and
+wanders — clicking, screenshotting, hunting a nav it will not find. Both the
+replay gate and the installer now refuse operations whose steps were never
+observed, so a rewrite costs a whole live session and installs nothing.
+
+**A URL containing a session token is NOT a bug to fix.** A browser skill never
+navigates to the URL in an operation — the URL only names the page, and the page
+is reached by replaying the recorded click chain. One build saw a `UX_TOKEN` in a
+compiled URL, concluded the operation was broken, rewrote all three operations
+into four (inventing two that were never recorded), and lost the click chains
+that were the only thing that worked. It fixed a non-bug and broke the skill.
+
+If a compiled operation really is wrong, the fix is to re-record that part. It is
+never to write the steps you think it should have had.
+
+### Migrating a browser skill compiled before provenance
+
+A browser skill built before the installer started checking provenance has no
+`recording_bundle.json` and no `manifest.provenance`, so its next install is
+refused. It was compiled from a real recording, and capture always saves the
+bundle, so re-attach that recording rather than re-recording:
+
+```
+python scripts/migrate_provenance.py workbench/skills/<app>
+```
+
+It finds the bundle by the session id in the manifest, verifies every locator the
+operations drive appears in it, and only then stamps. The operations do not
+change, so an existing approval stays valid.
+
+If it refuses, believe it. Either that is the wrong recording (try `--bundle`),
+or the steps were never observed in any recording — and attaching one would only
+disguise that. This tool verifies; it does not bless.
+
+### A missing session is a WAIT, not a failure to work around
+
+When replay reports `login_required`, the correct next action is to **tell the
+member you are waiting for their sign-in, and then stop**.
+
+Do not approve. Do not install. Do not re-run the replay on a timer. None of
+those can succeed without a session — the installer refuses an unapproved
+browser skill and the approver refuses a replay that never ran — so every
+attempt fails, and the failures bury the one line the member actually needs to
+read: that you are waiting for them.
+
+Observed: a build attempted "marking skill approved and installing" and
+"installing approved skill into org catalog" repeatedly while replay was still
+returning `login_required`. Nothing shipped, because the gates held, but the
+member could not tell that the whole thing was blocked on them.
+
+One clear sentence — "I need you to sign in via the card above; I will replay
+and install once you have" — is the entire correct behaviour.
+
+### How to tell which one you are looking at
+
+A recording viewer URL carries `?mode=recording` and shows "Finish & export". A
+runtime sign-in has neither. If the link you are about to hand over has them and
+you are not asking the member to record something, stop.
+
+---
+
 ## Script reference
 
 | Script | Pillar | Purpose |
@@ -170,6 +512,8 @@ Full playbook: `references/generalize.md`.
 | `compile_login.py` | 2 | Compile a saved login bundle → App/ServiceProfile drafts |
 | `activate_register.py` | 3 | Register a compiled login result with Tabby as a tenant-wide App Template |
 | `activate_verify.py` | 3 | Deterministic auth dry-run on a generated MCP server |
+| `verify_replay.py` | 2→3 | Replay a compiled browser draft against a live session; writes `replay_report.json` |
+| `verify_approve.py` | 3 | Record the member's approval of a replay, so the skill may be installed |
 | `activate_install.py` | 3 | Install a generated skill into an agent (agnostic) |
 
 ---
@@ -199,7 +543,7 @@ capture's content. It prints which source won.
 
 ## Capture bundles are always saved (keep them)
 
-Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the raw bundle** — `{har, click_events, url_events}` — to `workbench/bundles/<name>.json`. **Do not discard it.** The bundle, not the compiled asset, is the source of truth for *generalizing* and *regenerating* the asset later: renaming tools, parameterizing request bodies (e.g. recovering a GraphQL query body), dropping telemetry/ad calls, or fixing anti-bot issues. A compiled MCP/Skill cannot be re-generalized; its bundle can — recompile with `compile_workflow.py <bundle.json>`. Recording bundles also expire server-side (Tabby TTL), so the local copy is the only durable one.
+Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the raw bundle** — `{har, click_events, url_events, download_events}` — to `workbench/bundles/<name>.json`. **Do not discard it.** The bundle, not the compiled asset, is the source of truth for *generalizing* and *regenerating* the asset later: renaming tools, parameterizing request bodies (e.g. recovering a GraphQL query body), dropping telemetry/ad calls, or fixing anti-bot issues. A compiled MCP/Skill cannot be re-generalized; its bundle can — recompile with `compile_workflow.py <bundle.json>`. Recording bundles also expire server-side (Tabby TTL), so the local copy is the only durable one.
 
 ---
 

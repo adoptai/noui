@@ -65,6 +65,88 @@ def _placed(events: list[dict[str, Any]], key: _PositionKey) -> list[tuple[Any, 
     return out
 
 
+#: Path words that mean "still proving who you are".
+LOGIN_FLOW_WORDS = (
+    "login",
+    "log-in",
+    "password",
+    "passcode",
+    "credential",
+    "signin",
+    "sign-in",
+    "logon",
+    "auth",
+    "sso",
+    "saml",
+    "oauth",
+    "otp",
+    "mfa",
+    "2fa",
+    "verify",
+    "challenge",
+)
+
+
+def _is_login_flow_url(url: str) -> bool:
+    """Is this URL part of the sign-in flow rather than the app proper?"""
+    low = str(url or "").lower()
+    if not low:
+        return False
+    path = low.split("://", 1)[-1]
+    path = path[path.find("/") :] if "/" in path else ""
+    return any(w in path for w in LOGIN_FLOW_WORDS)
+
+
+def _origin_of(url: str) -> str:
+    low = str(url or "")
+    if "://" not in low:
+        return ""
+    rest = low.split("://", 1)[1]
+    return rest.split("/", 1)[0].lower()
+
+
+def _boundary_from_login_exit(
+    url_events: list[dict[str, Any]], key: Any, by_seq: bool
+) -> dict[str, Any] | None:
+    """The last hop OUT of the sign-in flow, for logins that type nothing.
+
+    The LAST such hop, not the first: a sign-in commonly bounces through an OTP
+    or consent screen and back, and only the final exit leaves the human inside
+    the app.
+
+    Bounded to the origin the recording STARTED on. ICICI's statement portal
+    lives at infinity.icici.bank.in/corp/AuthenticationController -- a deep app
+    route whose path contains "auth", so it read as a sign-in page, and the last
+    "exit" from it fell at the end of the workflow. The whole statement journey
+    was then sliced into the login half and the workflow half came out empty.
+    A sign-in bounces within its own host; a different host reached by clicking
+    around inside the app is the app.
+    """
+    placed = _placed(url_events, key)
+    start_origin = ""
+    for _pos, u in placed:
+        start_origin = _origin_of(u.get("to_url", "") or u.get("from_url", "") or "")
+        if start_origin:
+            break
+
+    exits = [
+        (pos, u)
+        for pos, u in placed
+        if u.get("to_url")
+        and _is_login_flow_url(u.get("from_url", "") or "")
+        and not _is_login_flow_url(u.get("to_url", "") or "")
+        and not _is_redirect_hop(u.get("from_url", "") or "", u.get("to_url", "") or "")
+        and (not start_origin or _origin_of(u.get("from_url", "") or "") == start_origin)
+    ]
+    if not exits:
+        return None
+    boundary = max(exits, key=lambda placed: placed[0])[1]
+    return {
+        "seq": event_seq(boundary) if by_seq else None,
+        "timestamp": boundary.get("timestamp") or None,
+    }
+
+
 def _boundary_event(bundle: dict[str, Any]) -> dict[str, Any] | None:
     """The recorded event at which the login ends, or None if there is no login.
 
@@ -91,7 +173,20 @@ def _boundary_event(bundle: dict[str, Any]) -> dict[str, Any] | None:
 
     creds = _placed([c for c in clicks if c.get("field_role") in CREDENTIAL_FIELD_ROLES], key)
     if not creds:
-        return None
+        # No credentials were typed -- which is not the same as no login.
+        #
+        # ICICI offers a QR sign-in: the human scans it with the bank's mobile
+        # app and the web session becomes authenticated without a single field
+        # being filled. SSO redirects, magic links and biometric approval are
+        # the same shape. Defining "a login happened" as "credentials were
+        # typed" made those recordings permanently unsplittable, and the member
+        # was asked to record a login they had already recorded and could never
+        # record in the expected way.
+        #
+        # What every one of them DOES leave is the transition out of the sign-in
+        # page into the app. That is the boundary, and it is observable without
+        # knowing how the human proved who they were.
+        return _boundary_from_login_exit(url_events, key, by_seq)
     last_cred_pos, last_cred = max(creds, key=lambda placed: placed[0])
 
     navs = [
@@ -123,6 +218,62 @@ def find_login_boundary(bundle: dict[str, Any]) -> str | None:
     return boundary["timestamp"] if boundary else None
 
 
+def split_diagnosis(bundle: dict[str, Any]) -> str:
+    """One line explaining what the splitter saw, and what it concluded.
+
+    The split turns on ONE thing -- whether any interaction was tagged as a
+    credential field -- and when that tagging fails the bundle is declared
+    login-free however plainly its URL timeline shows a sign-in. The member is
+    then asked to record a login they already recorded, and nothing anywhere
+    says why. This is the sentence that says why.
+    """
+    clicks = [c for c in (bundle.get("click_events") or []) if isinstance(c, dict)]
+    urls = [u for u in (bundle.get("url_events") or []) if isinstance(u, dict)]
+    creds = [c for c in clicks if c.get("field_role") in CREDENTIAL_FIELD_ROLES]
+    roles = sorted({str(c.get("field_role")) for c in clicks if c.get("field_role")})
+    login_urls = [
+        u
+        for u in urls
+        if any(
+            w in str(u.get("to_url") or "").lower() for w in ("login", "signin", "sign-in", "logon")
+        )
+    ]
+
+    boundary = _boundary_event(bundle)
+    if boundary is not None:
+        return (
+            f"split: login ends at seq={boundary.get('seq')} "
+            f"({boundary.get('timestamp')}); {len(creds)} credential interaction(s) "
+            f"of {len(clicks)} clicks, {len(urls)} url transitions."
+        )
+
+    detail = (
+        f"split: NO login segment. {len(clicks)} clicks, {len(urls)} url transitions, "
+        f"0 tagged as credential fields"
+    )
+    if roles:
+        detail += f" (field roles seen: {', '.join(roles)})"
+    if login_urls:
+        detail += (
+            f"; but {len(login_urls)} url(s) look like a sign-in "
+            f"(e.g. {str(login_urls[0].get('to_url'))[:70]}). The recorder did not tag the "
+            f"credential inputs -- a virtual keyboard, a masked custom control, or fields "
+            f"inside a frame will do that -- so the login cannot be sliced off even though "
+            f"it was recorded."
+        )
+    return detail
+
+
+class SplitError(RuntimeError):
+    """The split ran and produced a result that cannot be compiled.
+
+    Distinct from `split_bundle` returning None, which means "there is no login
+    segment here" -- an ordinary answer the caller handles by compiling the
+    bundle workflow-only. This is the other case: a boundary was found, and
+    applying it destroyed the workflow half.
+    """
+
+
 def split_bundle(bundle: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Split a merged bundle into (login_bundle, workflow_bundle) at the boundary.
 
@@ -141,7 +292,34 @@ def split_bundle(bundle: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]
     boundary = _boundary_event(bundle)
     if boundary is None:
         return None
-    return _slice(bundle, boundary, "login"), _slice(bundle, boundary, "workflow")
+
+    login, workflow = _slice(bundle, boundary, "login"), _slice(bundle, boundary, "workflow")
+
+    # A workflow slice with NOTHING in it is a failed split, not a split.
+    #
+    # Not "no clicks": a workflow half can legitimately be navigations only.
+    # What cannot happen is a half with neither.
+    #
+    # `_keep` sends anything it cannot PLACE to the login side, deliberately, so
+    # a login request never leaks into the workflow. But a boundary carrying a
+    # null position places nothing -- every event goes left, the workflow slice
+    # comes out empty, and the compiler is handed a capture of a journey that
+    # was never sliced off. It compiled to nothing and said nothing, and the
+    # agent reading that concluded the RECORDING was wrong: it asked a member to
+    # sign in and drive the whole journey again, twice, to route around a bug
+    # that had already thrown their capture away.
+    #
+    # The recording is intact in these cases -- only the slicing lost it -- so
+    # refusing here costs a re-run of the import, not a re-run of the human.
+    placed = (workflow.get("click_events") or []) or (workflow.get("url_events") or [])
+    if not placed:
+        raise SplitError(
+            "the login/workflow split produced an empty workflow half: the boundary "
+            f"({boundary!r}) placed every interaction on the login side. The recording "
+            "itself is intact -- this is the split, not the capture. Import it as "
+            "workflow-only, or record the halves explicitly with --mode."
+        )
+    return login, workflow
 
 
 def _keep(value: Any, boundary: Any, side: str) -> bool:

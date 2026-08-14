@@ -1,6 +1,19 @@
 # Pillar 1 — Capture
 
-Record a login or workflow as a **bundle** = `{har, click_events, url_events}` (HAR with response bodies). Capture runs **server-side inside Tabby's worker** — NoUI never touches the page.
+Record a login or workflow as a **bundle** = `{har, click_events, url_events, cookies}`. Capture runs **server-side inside Tabby's worker** — NoUI never touches the page.
+
+Workflow recordings from Tabby `schema_version >= 5` carry considerably more, and the browser compiler depends on all of it:
+
+| Field | What it is | Why it matters |
+|---|---|---|
+| `click_events[].candidates` | Ranked ways to address the element, each with `match_count` — how many nodes it matched **at record time** | A candidate matching several nodes cannot identify that element. This is what turns ambiguity into a compile-time fact instead of a production misclick. |
+| `click_events[].element` | Role, accessible name, visibility, occlusion, bounding box | Occlusion is the overlay-swallows-the-click problem, answered at the only moment it is knowable. |
+| `click_events[].outcome` | What the interaction caused: navigation and where, requests fired, settle time, download started | Causality is recorded rather than inferred from timestamps, and it becomes each step's postcondition. |
+| `download_events` | Files that arrived, with name and origin page | A `blob:` download never touches the network, so HAR cannot see it. For most browser skills this is the success condition. |
+| `url_events[].page_id` | Which document a transition happened in (`0` = the page the human started on) | Bank portals open statements in a new tab; without this the human's clicks there are invisible. |
+| `schema_version` | Capture-format revision | Absent means a pre-`seq` bundle. Detect fields per event rather than dispatching on this — a bundle can lose fields in transit. |
+
+**HAR content depends on the skill kind.** A `browser_driven` workflow recording reduces the HAR to metadata — method, path, status, timing; no bodies, headers or query strings — because a browser skill never replays a request and a bank portal's payloads have no business sitting in a bundle. Login recordings and non-browser workflow recordings keep the full HAR, which is what the replay compiler needs.
 
 ## Two modes
 

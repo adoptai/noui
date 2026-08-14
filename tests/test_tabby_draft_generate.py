@@ -489,11 +489,12 @@ class TestAnalyzeHar:
 class TestBuildAppTemplatePayload:
     """The App Template emitter payload derived from the generated drafts."""
 
-    def _drafts(self) -> tuple[dict, dict]:
+    def _drafts(self, **kwargs) -> tuple[dict, dict]:
         result = generate(
             _session(app_name="My App", login_url="https://app.example.com/login"),
             [_click(field_role="username"), _click(field_role="password", input_type="password")],
             [_url_event("https://app.example.com/home")],
+            **kwargs,
         )
         return result["application_draft"], result["service_profile_draft"]
 
@@ -605,8 +606,26 @@ class TestBuildAppTemplatePayload:
         app, prof = self._drafts()
         payload = build_app_template_payload(app, prof)
         # app draft has no browser_policy → safe default, not None.
+        # block_navigate is False here: this is a replay-style app, and refusing
+        # navigate would take away a command it may legitimately need.
         assert payload["browser_policy"] == {
             "clipboard": False,
             "downloads": False,
             "file_chooser": False,
+            "block_navigate": False,
         }
+
+    def test_a_browser_driven_app_refuses_navigate(self) -> None:
+        # A full-page navigation is a reload, and refresh-sensitive portals
+        # destroy the session on one — ICICI lands on /session-expire and the
+        # member is asked to sign in again mid-task. The compiled skill never
+        # emits navigate (it replays the recorded click chain), so nothing
+        # legitimate is lost; what this stops is an agent that gets stuck and
+        # reaches for it anyway.
+        #
+        # Set at compile time because every recording mints a NEW profile:
+        # setting it by hand protects the app you just fixed and none of the
+        # ones you build next.
+        app, prof = self._drafts(keepalive_style="activity")
+        payload = build_app_template_payload(app, prof)
+        assert payload["browser_policy"]["block_navigate"] is True

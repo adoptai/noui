@@ -297,6 +297,73 @@ def _first_path_segment(url: str) -> str:
     return path.split("/")[0].lower() if path else ""
 
 
+def _before_first_click(
+    transitions: list[tuple[str, str]],
+    url_events: list[dict],
+    click_events: list[dict] | None,
+) -> list[tuple[str, str]]:
+    """The URL transitions belonging to the LOGIN, not to what the human did next.
+
+    A login lands you somewhere by REDIRECT; everything after that is the human
+    clicking. So the login segment ends at the first click, and that boundary
+    holds however the app is built.
+
+    The rule it replaces stopped at the first ORIGIN CHANGE, which was written
+    for a multi-host portal (ICICI corporate on a different host than retail).
+    On a SINGLE-origin app there is never an origin change, so it walked to the
+    end of a combined recording and took wherever the human finished: ICICI
+    retail compiled `https://retailnetbanking.icici.bank.in/credit-card**` as
+    its post-login check, a page reached four clicks into the workflow, when the
+    login actually lands on /overview.
+
+    Falls back to every transition when the ordering cannot be established (no
+    seq, or a click before any navigation), because a login with no landing
+    page at all is worse than one derived the old way.
+    """
+    clicks = [c for c in (click_events or []) if isinstance(c, dict)]
+    if not clicks or len(transitions) != len(url_events):
+        return transitions
+
+    def seq_of(ev: dict) -> int | None:
+        v = ev.get("seq")
+        return v if isinstance(v, int) else None
+
+    click_seqs = [s for s in (seq_of(c) for c in clicks) if s is not None]
+    url_seqs = [seq_of(u) for u in url_events]
+    if not click_seqs or any(s is None for s in url_seqs):
+        return transitions
+
+    first_click = min(click_seqs)
+    kept = [
+        t for t, s in zip(transitions, url_seqs, strict=False) if s is not None and s < first_click
+    ]
+    # A login lands you by REDIRECT, and for SSO / auto-submit that redirect
+    # precedes the first click, so `s < first_click` captures it. But the classic
+    # form login lands via the "Log In" click ITSELF: its redirect fires just
+    # after that recorded click, and `s < first_click` then drops the one
+    # transition that matters -- e.g. url_events=[seq0 ''->/login, seq3
+    # /login->/overview], click=[seq2 "Log In"] keeps only ''->/login, and the
+    # compiler emits no_post_login_url for the most ordinary login shape there is.
+    # So when nothing before the first click has actually left the login page --
+    # the login has not landed yet -- extend the segment to the redirect the first
+    # click caused, stopping at the SECOND click: the earliest interaction that
+    # can belong to the workflow rather than to the login.
+    login_page = transitions[0][1] if transitions else ""
+    landed_before = any(
+        t[1] and t[1] != login_page and not _is_login_flow_segment_url(t[1]) for t in kept
+    )
+    if not landed_before:
+        ordered = sorted(click_seqs)
+        second_click = ordered[1] if len(ordered) > 1 else None
+        kept = [
+            t
+            for t, s in zip(transitions, url_seqs, strict=False)
+            if s is not None and (second_click is None or s < second_click)
+        ]
+    # A click before any navigation (a cookie banner, say) would leave nothing.
+    return kept or transitions
+
+
 def _derive_post_login_pattern(login_url: str, landing_url: str) -> str:
     """A glob the LOGGED-IN url matches but the login page does not, or ``""``.
 
@@ -986,11 +1053,32 @@ def generate(
 
     # Determine post-login success condition
     # Find the last stable URL after the login sequence
-    stable_urls = [
-        to_url
-        for from_url, to_url in url_transitions
-        if not _is_redirect_hop(from_url, to_url) and to_url != first_url
-    ]
+    def _landings(transitions: list[tuple[str, str]]) -> list[str]:
+        return [
+            to_url
+            for from_url, to_url in transitions
+            if not _is_redirect_hop(from_url, to_url) and to_url != first_url
+        ]
+
+    stable_urls = _landings(_before_first_click(url_transitions, url_events, click_events))
+    if not stable_urls and manual_takeover:
+        # "The login segment ends at the first click" assumes the login lands you
+        # by REDIRECT. A manual takeover is the opposite: the human IS the login,
+        # so every click belongs to it and the landing necessarily comes after
+        # them. Narrowing then keeps only the login page, which the filter above
+        # drops as first_url -- leaving no landing page at all.
+        #
+        # ICICI recorded login-page -> (human signs in) -> /overview and compiled
+        # a takeover with no wait_for_url, so every session asked a human to
+        # confirm a login they had already completed. The auto-resolve mechanism
+        # was working; it had no pattern to resolve against.
+        #
+        # Only for a takeover, and only when the narrow rule found nothing: the
+        # automated path keeps its bound, and this branch replaces "no pattern"
+        # rather than a good one. Its wait_for_url carries on_failure: skip, so a
+        # pattern that turns out not to match costs one timeout, not a stuck
+        # session.
+        stable_urls = _landings(url_transitions)
     if stable_urls:
         # The landing page is the end of the FIRST same-origin run of stable URLs,
         # not the last URL of the recording.
@@ -1397,6 +1485,21 @@ def generate(
                 enable_downloads if enable_downloads is not None else keepalive_style == "activity"
             ),
             "file_chooser": False,
+            # Refuse `navigate` on browser-driven apps.
+            #
+            # A full-page navigation is a RELOAD, and refresh-sensitive portals
+            # destroy the session on one: ICICI lands on /session-expire and the
+            # member is asked to sign in again mid-task. The compiled skill never
+            # emits navigate — it reaches every page by replaying the recorded
+            # click chain — so nothing legitimate is lost. What this stops is an
+            # agent that gets stuck and reaches for it anyway, which is exactly
+            # how a freshly built ICICI skill killed a live session 20 seconds
+            # after the member signed in.
+            #
+            # Set HERE rather than by hand on each profile, because every
+            # recording mints a NEW profile: setting it manually protects the app
+            # you just fixed and none of the ones you build next.
+            "block_navigate": keepalive_style == "activity",
         },
         "notification_config": {"channels": ["slack:#local-dev"]},
         "desired_session_count": 0,
