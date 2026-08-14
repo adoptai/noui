@@ -150,17 +150,19 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
         # The GOAL is what the member asked for, not one badge per operation. An
         # explicit ask wins; when they stated nothing, this is the endpoint to
         # confirm before installing. And warn (never block) if the recording
-        # produced no result at all.
+        # produced no result at all. Both go to stdout, the SAME stream as the
+        # `Skill:` line above -- SKILL.md tells the agent to relay them, so they
+        # must land where the agent reads the rest of this report, not split onto
+        # stderr where a stdout-only reader would drop them.
         goal = infer_primary_goal(ops)
         if goal and goal.get("name"):
             print(
                 "Goal (the recording's endpoint — confirm with the member if they "
-                f"did not state one): {goal['name']} [{goal['kind']}]",
-                file=sys.stderr,
+                f"did not state one): {goal['name']} [{goal['kind']}]"
             )
         coverage = goal_coverage_warning(ops)
         if coverage:
-            print(coverage, file=sys.stderr)
+            print(coverage)
     # Tell the operator when the app was auto-routed to browser mode, and why —
     # this is the recommendation surfaced to a user authoring a skill in the
     # harness, so browser mode is never picked silently.

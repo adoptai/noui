@@ -37,7 +37,7 @@ import re
 import time
 from typing import Any
 
-from noui_core.compile.goals import infer_primary_goal
+from noui_core.compile.goals import primary_goal_index
 
 
 class SessionNotReadyError(RuntimeError):
@@ -739,17 +739,21 @@ def build_report(
     # step even when the download arrived. One goal for now (the endpoint the
     # recording built toward); explicit multi-goal asks are threaded through later.
     goals: list[dict] = []
-    primary = infer_primary_goal(operations)
-    if primary and primary.get("name"):
-        endpoint = next((o for o in ops_out if o.get("name") == primary["name"]), None)
-        goals.append(
-            {
-                "name": primary["name"],
-                "kind": primary["kind"],
-                "description": primary.get("description") or "",
-                "reached": bool(endpoint and endpoint.get("goal_reached")),
-            }
-        )
+    # ops_out is positional-1:1 with operations, so index the endpoint directly
+    # rather than matching by name -- two operations sharing a name would resolve
+    # the reached-status to the wrong one.
+    idx = primary_goal_index(operations)
+    if idx is not None and idx < len(ops_out):
+        endpoint = ops_out[idx]
+        if endpoint.get("name"):
+            goals.append(
+                {
+                    "name": endpoint["name"],
+                    "kind": endpoint.get("kind") or "read",
+                    "description": endpoint.get("description") or "",
+                    "reached": bool(endpoint.get("goal_reached")),
+                }
+            )
 
     return {
         "operations": ops_out,

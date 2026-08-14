@@ -13,11 +13,28 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "skills" / "noui"))
 
-from noui_core.compile.goals import goal_coverage_warning, infer_primary_goal  # noqa: E402
+from noui_core.compile.goals import (  # noqa: E402
+    goal_coverage_warning,
+    infer_primary_goal,
+    primary_goal_index,
+)
 
 
 def op(name: str, kind: str | None = None) -> dict:
     return {"name": name, "kind": kind, "description": f"{name} desc"}
+
+
+def test_primary_goal_index_points_at_the_same_op_infer_selects():
+    # The index and the descriptor must agree: the report indexes ops_out by this
+    # to read reached-status off the right op even when two share a name.
+    ops = [op("submit_period", "submit"), op("download_annual", "download")]
+    assert primary_goal_index(ops) == 1
+    assert infer_primary_goal(ops)["name"] == ops[primary_goal_index(ops)]["name"]
+    # Duplicate names -> the LAST terminal's index, not the first match.
+    dup = [op("download_x", "download"), op("download_x", "download")]
+    assert primary_goal_index(dup) == 1
+    assert primary_goal_index([]) is None
+    assert primary_goal_index(None) is None
 
 
 def test_the_endpoint_download_is_the_goal_not_the_intermediate_submits():

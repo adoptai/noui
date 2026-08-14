@@ -40,8 +40,8 @@ def _goal_of(op: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def infer_primary_goal(operations: list[dict[str, Any]] | None) -> dict[str, Any] | None:
-    """The ONE goal a silent recording implies, read off its endpoint.
+def primary_goal_index(operations: list[dict[str, Any]] | None) -> int | None:
+    """Index of the endpoint operation the goal is read from, or None.
 
     Preference, strongest signal first:
 
@@ -51,18 +51,32 @@ def infer_primary_goal(operations: list[dict[str, Any]] | None) -> dict[str, Any
       3. else the LAST operation reached — a navigation-only workflow still has a
          destination ("open the dashboard").
 
-    Returns a ``{name, kind, description}`` descriptor, or None for a recording
-    with no operations at all. An explicit ask ALWAYS overrides this — it is only
-    the floor for a recording the member said nothing about.
+    Returning the INDEX (not the op) is deliberate: the replay report's operations
+    are positional-1:1 with this list, so a caller reads the endpoint's
+    reached-status off the RIGHT operation even when two operations share a name —
+    matching by name would resolve to whichever came first.
     """
     ops = list(operations or [])
     for kinds in (_ARTIFACT_KINDS, _SUBMIT_KINDS):
-        matches = [op for op in ops if (op.get("kind") or "") in kinds]
+        matches = [i for i, op in enumerate(ops) if (op.get("kind") or "") in kinds]
         if matches:
-            return _goal_of(matches[-1])
+            return matches[-1]
     if ops:
-        return _goal_of(ops[-1])
+        return len(ops) - 1
     return None
+
+
+def infer_primary_goal(operations: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    """The ONE goal a silent recording implies, read off its endpoint.
+
+    A ``{name, kind, description}`` descriptor for the operation
+    ``primary_goal_index`` selects, or None for a recording with no operations at
+    all. An explicit ask ALWAYS overrides this — it is only the floor for a
+    recording the member said nothing about.
+    """
+    ops = list(operations or [])
+    idx = primary_goal_index(ops)
+    return _goal_of(ops[idx]) if idx is not None else None
 
 
 def goal_coverage_warning(operations: list[dict[str, Any]] | None) -> str | None:
