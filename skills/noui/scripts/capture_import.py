@@ -28,6 +28,7 @@ from noui_core.capture import ledger, recording
 from noui_core.capture.bundle import save_bundle
 from noui_core.capture.classify import COMBINED, LOGIN, WORKFLOW
 from noui_core.capture.split import SplitError, split_bundle, split_diagnosis
+from noui_core.compile.goals import goal_coverage_warning, infer_primary_goal
 from noui_core.compile.login import compile_login_bundle
 from noui_core.compile.workflow import compile_workflow_bundle
 
@@ -144,7 +145,22 @@ def _report_workflow(result: dict, args: argparse.Namespace) -> int:
     if mcp:
         print(f"MCP server: {mcp.get('server_id', '?')} ({len(mcp.get('tools', []))} tool(s))")
     if skill:
-        print(f"Skill: {skill.get('skill_id', '?')} ({len(skill.get('operations', []))} op(s))")
+        ops = skill.get("operations") or []
+        print(f"Skill: {skill.get('skill_id', '?')} ({len(ops)} op(s))")
+        # The GOAL is what the member asked for, not one badge per operation. An
+        # explicit ask wins; when they stated nothing, this is the endpoint to
+        # confirm before installing. And warn (never block) if the recording
+        # produced no result at all.
+        goal = infer_primary_goal(ops)
+        if goal and goal.get("name"):
+            print(
+                "Goal (the recording's endpoint — confirm with the member if they "
+                f"did not state one): {goal['name']} [{goal['kind']}]",
+                file=sys.stderr,
+            )
+        coverage = goal_coverage_warning(ops)
+        if coverage:
+            print(coverage, file=sys.stderr)
     # Tell the operator when the app was auto-routed to browser mode, and why —
     # this is the recommendation surfaced to a user authoring a skill in the
     # harness, so browser mode is never picked silently.
