@@ -55,15 +55,20 @@ def primary_goal_index(operations: list[dict[str, Any]] | None) -> int | None:
     are positional-1:1 with this list, so a caller reads the endpoint's
     reached-status off the RIGHT operation even when two operations share a name —
     matching by name would resolve to whichever came first.
+
+    Only dict operations are considered; a non-dict entry (a placeholder count, a
+    malformed op) can never be an endpoint, and the returned index always points
+    at a dict so ``infer_primary_goal`` can read a descriptor off it.
     """
     ops = list(operations or [])
     for kinds in (_ARTIFACT_KINDS, _SUBMIT_KINDS):
-        matches = [i for i, op in enumerate(ops) if (op.get("kind") or "") in kinds]
+        matches = [
+            i for i, op in enumerate(ops) if isinstance(op, dict) and (op.get("kind") or "") in kinds
+        ]
         if matches:
             return matches[-1]
-    if ops:
-        return len(ops) - 1
-    return None
+    dict_indices = [i for i, op in enumerate(ops) if isinstance(op, dict)]
+    return dict_indices[-1] if dict_indices else None
 
 
 def infer_primary_goal(operations: list[dict[str, Any]] | None) -> dict[str, Any] | None:
@@ -88,7 +93,10 @@ def goal_coverage_warning(operations: list[dict[str, Any]] | None) -> str | None
     "passed" every check. The skill still compiles and the member still decides,
     so this warns rather than refusing.
     """
-    if not any((op.get("kind") or "") in _TERMINAL_KINDS for op in operations or []):
+    if not any(
+        isinstance(op, dict) and (op.get("kind") or "") in _TERMINAL_KINDS
+        for op in operations or []
+    ):
         return (
             "This recording demonstrated no goal: it captured no download and no "
             "submit, so nothing produced a result. It still compiles as read-only, "

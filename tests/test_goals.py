@@ -37,6 +37,18 @@ def test_primary_goal_index_points_at_the_same_op_infer_selects():
     assert primary_goal_index(None) is None
 
 
+def test_the_goal_helpers_tolerate_non_dict_operations():
+    # capture_import can hand these a placeholder/malformed operations list (e.g. a
+    # count-only stand-in). They must not AttributeError on a non-dict entry.
+    assert primary_goal_index([1, 2]) is None
+    assert infer_primary_goal([1, 2]) is None
+    assert goal_coverage_warning([1, 2]) is not None  # no dict terminal -> warns
+    # A real dict alongside a non-dict still resolves to the dict.
+    mixed = [1, op("download_x", "download")]
+    assert primary_goal_index(mixed) == 1
+    assert infer_primary_goal(mixed)["name"] == "download_x"
+
+
 def test_the_endpoint_download_is_the_goal_not_the_intermediate_submits():
     # ICICI's shape: select period (submit), GO (submit), then download. The goal
     # is the download, and the submits are the path to it.
