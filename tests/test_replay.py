@@ -268,6 +268,48 @@ def test_the_report_names_the_goal_that_failed_not_just_a_step_count():
     assert op["name"] == "download_statement"
 
 
+def test_the_report_headlines_the_goal_the_recording_built_toward():
+    # The card is headed by the GOAL, not per-operation. A statement workflow's
+    # goal is its download endpoint.
+    steps = [
+        [
+            {"status": OK, "command": "click_element"},
+            {"status": OK, "command": "list_downloads", "data": {"downloads": [{"id": "dl-9"}]}},
+        ]
+    ]
+    report = build_report([DOWNLOAD_OP], steps)
+    assert len(report["goals"]) == 1
+    goal = report["goals"][0]
+    assert goal["name"] == "download_statement"
+    assert goal["kind"] == "download"
+    assert goal["reached"] is True
+
+
+def test_the_goal_verdict_is_the_endpoints_not_all_goals_reached():
+    # THE distinction the goal model buys: two submits then a download is ONE goal
+    # (the download). Its verdict is the download's — reached even when an
+    # intermediate submit op is judged not-reached, which all_goals_reached is not.
+    submit_op = {"name": "submit_period", "kind": "submit", "steps": []}
+    report = build_report(
+        [submit_op, DOWNLOAD_OP],
+        [
+            [{"status": BLOCKED, "command": "click_element"}],
+            [
+                {"status": OK, "command": "click_element"},
+                {
+                    "status": OK,
+                    "command": "list_downloads",
+                    "data": {"downloads": [{"id": "dl-1"}]},
+                },
+            ],
+        ],
+    )
+    assert len(report["goals"]) == 1
+    assert report["goals"][0]["name"] == "download_statement"
+    assert report["goals"][0]["reached"] is True
+    assert report["all_goals_reached"] is False
+
+
 # --- scope --------------------------------------------------------------------
 
 
