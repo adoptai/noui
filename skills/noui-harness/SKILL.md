@@ -57,6 +57,23 @@ instructions.** In the harness:
 Ask the user up front for: the **site** (login URL + the workflow to capture) and a short
 **skill/app name**.
 
+## Agree on the goal first — one line, then record
+
+A skill's goal is what the member asked for ("download the annual statement"), NOT one
+badge per operation. Establish it **before** recording:
+
+- **Clear ask** → state it in ONE line together with the recording link and go — no
+  separate wait: *"Recording a skill to **download the annual statement**. In that window,
+  do this…"* Don't over-ask; a clear ask needs a single confirming sentence.
+- **Vague ask** ("onboard ICICI") → ask first, then record: *"What should this skill
+  produce — a downloaded file, a value read off a page?"* Wait for the answer. Don't guess.
+- **Multiple goals are fine** — they can name several ("download the statement **and** the
+  last 3 months' transactions"); record to cover them all.
+
+When you give the recording link, tell the member to **demonstrate reaching each goal** —
+actually download the file, actually submit the form — so the recording carries evidence
+the goal was met.
+
 ## Part A — capture login + workflow in ONE session (the default)
 
 ```bash
@@ -116,6 +133,22 @@ App/ServiceProfile. Tabby auto-provisions a private, per-user App+Profile (strai
 ACTIVE) on each member's first `call_web_api`, so there is no `--promote` step and the
 credential model defaults to `manual:` (the member signs in via VNC; nothing is stored).
 The drained bundle is saved under `workbench/bundles/`.
+
+### Confirm the goal, and heed the coverage warning
+
+`capture_import` prints the recording's **endpoint goal** and, when the recording produced
+no download and no submit, a **coverage warning**. Act on both — all one-liners, never hard
+gates:
+
+- **Member never stated a goal** → confirm the inferred one in ONE line before installing:
+  *"I read your goal from the recording as **download annual statement** — correct?"* Then
+  proceed. An explicit ask always wins; this is only the floor.
+- **Stated goal and the endpoint disagree** — they asked for the annual statement but the
+  recording ended on the monthly one → **say so** and let them decide. The stated goal is
+  the intent; the mismatch is worth a sentence.
+- **Coverage warning** (nothing produced a result — a flaky server, a walkthrough that
+  stopped short) → **relay it, don't block.** The skill still compiles; the member decides
+  whether to re-record or proceed.
 
 ### The sign-in comes next — let it happen
 
@@ -205,7 +238,22 @@ with the compiled directory:
 install_skill(skill_dir="/workspace/noui/workbench/skills/<app>")
 ```
 
-It writes the skill to the org catalog (listable on a new turn, ~30s). A skill whose
+**Claim "installed" ONLY when `install_skill` actually returned success — and call it once.**
+
+- If the call came back an **error**, for any reason, the skill is **not** in the catalog.
+  Do **not** write "installed", "fully built and installed", or any success summary; state
+  what the error said and stop. Telling the member a skill is installed when it is not is
+  the worst outcome — they believe they have a tool they do not.
+- **Do not retry `install_skill` in a loop.** The same refusal repeats, and a wall of
+  identical failures buries the one line the member needs. Call it once; if refused,
+  surface the reason and hand back.
+- **"not approved by a member" is not your cue to approve.** That decision is made by the
+  member on the **replay card** and arrives as their own message. **Never run
+  `verify_approve.py` yourself to clear it, and never narrate the approval on their
+  behalf** — that is exactly what the gate refuses. The card is shown mechanically after
+  the replay; wait for the member's approval, then install.
+
+On success, it writes the skill to the org catalog (listable on a new turn, ~30s). A skill whose
 auth is the signed-in user's **session** (the usual login-recording case — e.g. a
 Tabby `profile_slug` was bound) needs **nothing more**: it is runnable as soon as it's
 listed. Do **not** invent a secret-registration step for these.

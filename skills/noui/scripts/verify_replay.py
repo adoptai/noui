@@ -166,6 +166,34 @@ def main() -> int:
             print(f"Cannot read {bundle_path}: {exc}", file=sys.stderr)
             return 1
 
+        # The dir's bundle MUST be the one these operations were sealed from.
+        # A re-import, or a recompile against a different capture, can leave
+        # operations.json and recording_bundle.json in the dir out of sync -- and
+        # then unobserved_locators below reads the WRONG bundle and reports the
+        # operations' real locators as "controls the recording never saw", which
+        # reads as a bad recording and sends the build off to re-record. Catch the
+        # mismatch here, first, and name it for what it is.
+        if not provenance.bundle_matches_manifest(bundle, manifest):
+            stamped = str((manifest.get("provenance") or {}).get("bundle_sha256") or "")
+            print(
+                "SKILL DIRECTORY IS INCONSISTENT -- a COMPILE/IMPORT problem, NOT a "
+                "recording problem and NOT hand-editing.\n"
+                "\n"
+                "The recording_bundle.json in this skill dir is not the one these "
+                "operations were compiled from: its checksum does not match the "
+                f"manifest's bundle_sha256 ({stamped[:12]}...). operations.json and "
+                "recording_bundle.json came from different compile/import runs.\n"
+                "\n"
+                "DO NOT re-record -- the recording is fine; the wrong bundle is in the "
+                "dir. Restore the recording_bundle.json whose checksum matches the "
+                "manifest, or re-import ONCE so operations.json + recording_bundle.json "
+                "+ manifest.json all come from a single compile. (The 'controls the "
+                "recording never saw' error you would hit next is a symptom of this, "
+                "not a real fabrication.)",
+                file=sys.stderr,
+            )
+            return 1
+
         unbacked = provenance.unbacked_control_steps(operations)
         if unbacked:
             shown = ", ".join(repr(u) for u in unbacked[:5])
@@ -188,10 +216,12 @@ def main() -> int:
             print(
                 f"These steps target controls the recording never saw: {shown}{more}.\n"
                 "\n"
-                "The operations no longer match what was compiled from the recording, "
-                "which almost always means they were edited by hand after compiling. "
-                "Replaying now would drive a live session through steps nobody has "
-                "seen work, and when they miss, the run improvises and wanders.\n"
+                "The bundle checksum already matched the manifest, so this is NOT a "
+                "swapped bundle -- these operations genuinely diverge from THIS "
+                "recording. That almost always means they were edited by hand after "
+                "compiling. Replaying now would drive a live session through steps "
+                "nobody has seen work, and when they miss, the run improvises and "
+                "wanders.\n"
                 "\n"
                 "You may rename an operation, reword its description, or add a "
                 "parameter. You may NOT change what a step targets, reorder steps, "

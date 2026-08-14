@@ -37,6 +37,8 @@ import re
 import time
 from typing import Any
 
+from noui_core.compile.goals import primary_goal_index
+
 
 class SessionNotReadyError(RuntimeError):
     """Tabby has no healthy session for this profile — the human must sign in.
@@ -731,8 +733,32 @@ def build_report(
                 "needs_approval_count": sum(1 for s in steps if s.get("status") == NEEDS_APPROVAL),
             }
         )
+    # The GOAL is the endpoint the member asked for, not one badge per operation.
+    # Its replayed outcome is the verdict that matters — and it differs from
+    # all_goals_reached, which also trips on an intermediate submit that blocked a
+    # step even when the download arrived. One goal for now (the endpoint the
+    # recording built toward); explicit multi-goal asks are threaded through later.
+    goals: list[dict] = []
+    # ops_out is positional-1:1 with operations, so index the endpoint directly
+    # rather than matching by name -- two operations sharing a name would resolve
+    # the reached-status to the wrong one.
+    idx = primary_goal_index(operations)
+    if idx is not None and idx < len(ops_out):
+        endpoint = ops_out[idx]
+        if endpoint.get("name"):
+            goals.append(
+                {
+                    "name": endpoint["name"],
+                    "kind": endpoint.get("kind") or "read",
+                    "description": endpoint.get("description") or "",
+                    "reached": bool(endpoint.get("goal_reached")),
+                }
+            )
+
     return {
         "operations": ops_out,
+        # The verdict the card headlines, keyed to what the member asked for.
+        "goals": goals,
         "all_goals_reached": bool(ops_out) and all(o["goal_reached"] for o in ops_out),
         "needs_approval": any(o["needs_approval_count"] for o in ops_out),
         # Ties the approval to the exact plan that was replayed.

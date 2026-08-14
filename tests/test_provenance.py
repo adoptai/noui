@@ -205,3 +205,32 @@ def test_a_role_addressed_control_the_recording_never_saw_is_still_caught():
     ]
     bundle = {"click_events": [{"candidates": [{"kind": "role_name", "value": "radio|Annual"}]}]}
     assert unobserved_locators(ops, bundle) == ["Ghost"]
+
+
+def test_bundle_matches_manifest_catches_a_swapped_bundle():
+    """The desync verify_replay must catch BEFORE blaming the recording.
+
+    A re-import/recompile can leave a recording_bundle.json in the dir that is
+    not the one operations.json was sealed from. unobserved_locators then reads
+    the wrong bundle and reports real locators as unseen -- pointing at a bad
+    recording. bundle_matches_manifest names it for what it is: a dir mismatch.
+    """
+    from noui_core.compile.provenance import bundle_digest, bundle_matches_manifest
+
+    sealed = {"click_events": [{"candidates": [{"kind": "id", "value": "#dl"}]}]}
+    manifest = {"provenance": {"bundle_sha256": bundle_digest(sealed)}}
+
+    # The bundle that actually sealed the operations -> matches.
+    assert bundle_matches_manifest(sealed, manifest) is True
+    # A different capture left in the dir by a second import -> mismatch.
+    other = {"click_events": [{"candidates": [{"kind": "id", "value": "#other"}]}]}
+    assert bundle_matches_manifest(other, manifest) is False
+
+
+def test_bundle_matches_manifest_is_lenient_without_a_stamp():
+    # An older skill whose manifest carries no bundle_sha256 cannot be checked;
+    # absence of a stamp is not evidence of a mismatch.
+    from noui_core.compile.provenance import bundle_matches_manifest
+
+    assert bundle_matches_manifest({"click_events": []}, {}) is True
+    assert bundle_matches_manifest({"click_events": []}, {"provenance": {}}) is True
