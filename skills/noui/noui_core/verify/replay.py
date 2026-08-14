@@ -126,6 +126,10 @@ def _text_of(step: dict) -> str:
         params.get("text") or "",
         params.get("label") or "",
         params.get("selector") or "",
+        # A role-addressed control carries its words in `name`, not `text`/`label`
+        # (set_checked {role: "radio", name: "Transfer"}); read it too so a risky
+        # role-named control still trips ground 1.
+        params.get("name") or "",
         (step.get("locator") or {}).get("recorded_text") or "",
     ]
     return " ".join(str(p) for p in parts).lower()
@@ -189,6 +193,15 @@ def _control_identity(step: dict) -> str:
         value = params.get(key)
         if isinstance(value, str) and value.strip():
             return f"{key}:{value.strip().lower()}"
+    # A control addressed by ROLE + accessible NAME (set_checked {role, name}) --
+    # a radio/checkbox with no unique CSS selector -- is still a named control the
+    # recording saw. Give it an identity so it lands in recorded_controls and is
+    # not mistaken (ground 2 / the fail-closed check) for an anchorless step the
+    # recording could not vouch for.
+    role = params.get("role")
+    name = params.get("name")
+    if isinstance(role, str) and role.strip() and isinstance(name, str) and name.strip():
+        return f"role:{role.strip().lower()}|{name.strip().lower()}"
     return ""
 
 

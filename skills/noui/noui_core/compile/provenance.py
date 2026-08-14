@@ -178,6 +178,17 @@ def _locator_of_step(step: dict[str, Any]) -> str | None:
         v = params.get(key)
         if isinstance(v, str) and v.strip():
             return v.strip()
+    # A control addressed by ROLE + accessible NAME -- a radio/checkbox with no
+    # unique CSS selector, which the compiler deliberately emits as
+    # set_checked {role: "radio", name: "Annual"} (the recorder's `role_name`
+    # candidate). observed_selectors keeps both "role|name" and the bare name, so
+    # the name is exactly what ties this step back to the recording. Without it a
+    # legitimately-recorded role-addressed control reads as anchorless and the
+    # provenance guard rejects a skill it should bless.
+    role = params.get("role")
+    name = params.get("name")
+    if isinstance(role, str) and role.strip() and isinstance(name, str) and name.strip():
+        return name.strip()
     return None
 
 

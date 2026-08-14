@@ -159,3 +159,49 @@ def test_a_control_action_with_a_locator_and_a_read_are_not_flagged():
         }
     ]
     assert unbacked_control_steps(ops) == []
+
+
+def test_a_role_addressed_control_is_backed_when_the_recording_saw_it():
+    """The regression a role+name step must not trip.
+
+    The compiler emits set_checked {role: "radio", name: "Annual"} for a control
+    with no unique CSS selector. It names a real control the recorder saw (as a
+    role_name candidate), so it must NOT read as unbacked, and it must verify
+    against a bundle that carries that candidate.
+    """
+    from noui_core.compile.provenance import unbacked_control_steps, unobserved_locators
+
+    ops = [
+        {
+            "name": "download_annual",
+            "steps": [
+                {"command": "set_checked", "params": {"role": "radio", "name": "Annual"}},
+            ],
+        }
+    ]
+    # Not anchorless: it names a control.
+    assert unbacked_control_steps(ops) == []
+
+    bundle = {
+        "click_events": [
+            {"candidates": [{"kind": "role_name", "value": "radio|Annual"}]},
+        ]
+    }
+    # And the recording that carries the role_name candidate backs it.
+    assert unobserved_locators(ops, bundle) == []
+
+
+def test_a_role_addressed_control_the_recording_never_saw_is_still_caught():
+    # A hand-written role+name whose control the recording never saw is still
+    # flagged -- the fix backs recorded role controls, it does not wave through
+    # invented ones.
+    from noui_core.compile.provenance import unobserved_locators
+
+    ops = [
+        {
+            "name": "x",
+            "steps": [{"command": "set_checked", "params": {"role": "radio", "name": "Ghost"}}],
+        }
+    ]
+    bundle = {"click_events": [{"candidates": [{"kind": "role_name", "value": "radio|Annual"}]}]}
+    assert unobserved_locators(ops, bundle) == ["Ghost"]

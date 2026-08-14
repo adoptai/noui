@@ -116,6 +116,31 @@ def test_a_page_or_browser_command_with_no_control_is_not_risky():
     )
 
 
+def test_a_recorded_role_addressed_control_is_not_mistaken_for_anchorless():
+    # set_checked {role, name} (a radio with no unique CSS selector — the ICICI
+    # "Annual" statement radio) IS a named control the recording saw. It must land
+    # in recorded_controls and replay freely, not be stopped as a control the
+    # recording cannot identify.
+    annual = step("set_checked", role="radio", name="Annual")
+    recorded = recorded_controls([{"steps": [annual]}])
+    assert recorded == {"role:radio|annual"}
+    assert classify_risk(annual, recorded_controls=recorded) is None
+
+
+def test_a_role_named_control_the_human_never_touched_is_still_stopped():
+    # The fix backs RECORDED role controls; an improvised one the recording never
+    # saw still trips ground 2.
+    ghost = step("set_checked", role="radio", name="Something else")
+    assert classify_risk(ghost, recorded_controls={"role:radio|annual"}) is not None
+
+
+def test_a_risky_role_named_control_is_stopped_by_its_name():
+    # A money-moving control addressed by role+name carries its words in `name`;
+    # ground 1 must read it there too.
+    risky = step("set_checked", role="radio", name="Transfer funds")
+    assert classify_risk(risky, recorded_controls={"role:radio|transfer funds"}) is not None
+
+
 def test_money_moving_words_the_original_list_missed_are_stopped():
     # Widened after review: add-beneficiary / withdraw / buy-sell-redeem are the
     # same irreversible, money-moving class the gate exists to catch.
