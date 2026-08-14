@@ -63,7 +63,9 @@ def primary_goal_index(operations: list[dict[str, Any]] | None) -> int | None:
     ops = list(operations or [])
     for kinds in (_ARTIFACT_KINDS, _SUBMIT_KINDS):
         matches = [
-            i for i, op in enumerate(ops) if isinstance(op, dict) and (op.get("kind") or "") in kinds
+            i
+            for i, op in enumerate(ops)
+            if isinstance(op, dict) and (op.get("kind") or "") in kinds
         ]
         if matches:
             return matches[-1]
