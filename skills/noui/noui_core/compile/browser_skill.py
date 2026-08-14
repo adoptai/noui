@@ -2003,6 +2003,30 @@ def generate_browser_skill(
 _TERMINAL_KINDS = ("download", "submit")
 
 
+#: A control whose own label or selector says it fetches a file. Mirrors the
+#: recorder's download-word heuristic (tabby recording-outcomes.ts).
+_DOWNLOAD_WORDS = re.compile(r"download|\bpdf\b|\.pdf|\bexport\b", re.IGNORECASE)
+
+
+def _looks_like_download_control(ev: dict) -> bool:
+    """Does this control plainly download a file, whatever the outcome recorded?
+
+    A flaky or slow file server -- ICICI's e-statement PDF routinely needs a
+    retry and often does not finish inside the recorder's attribution window --
+    leaves ``outcome.download`` unset even though the control IS a download. Read
+    the control's own words (label, chosen locator, candidate selectors) so such
+    a terminal is still judged as a download.
+    """
+    parts = [str(ev.get("text_content") or "")]
+    loc = ev.get("locator")
+    if isinstance(loc, dict) and loc.get("value"):
+        parts.append(str(loc["value"]))
+    for c in ev.get("candidates") or []:
+        if isinstance(c, dict) and c.get("value"):
+            parts.append(str(c["value"]))
+    return bool(_DOWNLOAD_WORDS.search(" ".join(parts)))
+
+
 def _terminal_kind(ev: dict) -> str | None:
     """What goal, if any, this interaction completed.
 
@@ -2023,6 +2047,16 @@ def _terminal_kind(ev: dict) -> str | None:
     # outcome-gated). An outcome means the recorder was schema 5, i.e. a capture
     # from this PR onward.
     if isinstance(outcome, dict) and (ev.get("event_type") or "") == "submit":
+        # A submit whose control plainly downloads a file (its label/selector says
+        # "download"/"PDF") is a download whose server was too slow/flaky for
+        # outcome.download to land. Judge it as a download -- goal_reached then
+        # asks for a FRESH file (see the download-freshness baseline), not for a
+        # visibility-gated click that a not-yet-rendered PDF panel blocks. This is
+        # exactly the ICICI #PDF_Download / #DOWNLOAD_ESTATEMENT_PDF case: the
+        # file arrives, but the terminal button is hidden while the panel loads,
+        # so as a `submit` the op failed on a blocked step it did not need.
+        if _looks_like_download_control(ev):
+            return "download"
         return "submit"
     return None
 

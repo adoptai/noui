@@ -174,8 +174,8 @@
   ]
  },
  {
-  "name": "submit_corp_finacle",
-  "kind": "submit",
+  "name": "download_corp_finacle",
+  "kind": "download",
   "steps": [
    {
     "command": "click_element",
@@ -214,7 +214,7 @@
     "hover_first": null
    },
    {
-    "command": "get_page_summary",
+    "command": "list_downloads",
     "target": null,
     "value": null,
     "hover_first": null

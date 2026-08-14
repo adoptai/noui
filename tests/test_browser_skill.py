@@ -984,6 +984,56 @@ def test_a_legacy_submit_without_an_outcome_emits_no_terminal_operation():
     assert all("kind" not in o for o in _ops(pages, clicks)["operations"])
 
 
+def test_a_flaky_download_submit_compiles_as_a_download_not_a_submit():
+    # ICICI's PDF server is slow, so the download click fired a `submit` event but
+    # outcome.download never landed inside the recorder's window. The control still
+    # plainly downloads (#DOWNLOAD_ESTATEMENT_PDF), so it must compile as a
+    # DOWNLOAD -- judged by a FRESH file (goal_reached + the download baseline),
+    # not by a visibility-gated click a not-yet-rendered PDF panel blocks. As a
+    # `submit` the op failed on that blocked step; as a download it is judged by
+    # the file that actually arrived.
+    flaky = _terminal_click(
+        event_type="submit",
+        text_content="",
+        candidates=[{"kind": "id", "value": "#DOWNLOAD_ESTATEMENT_PDF", "match_count": 1}],
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 3,
+            "settled_ms": 500,
+            "download": False,
+        },
+    )
+    clicks = [_rich_click(), flaky]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = [o for o in _ops(pages, clicks)["operations"] if o.get("kind") == "download"]
+    assert len(ops) == 1
+    # It ends by naming the file, so the goal is a fresh download, not a click.
+    assert ops[0]["steps"][-1] == {"command": "list_downloads"}
+
+
+def test_a_submit_without_download_words_stays_a_submit():
+    # The upgrade is targeted: a submit whose control says nothing about
+    # downloading (a search) is still a submit, judged by its steps.
+    submit = _terminal_click(
+        event_type="submit",
+        text_content="Search transactions",
+        candidates=[{"kind": "id", "value": "#search", "match_count": 1}],
+        outcome={
+            "navigated": False,
+            "to_url": None,
+            "request_count": 2,
+            "settled_ms": 400,
+            "download": False,
+        },
+    )
+    clicks = [_rich_click(), submit]
+    pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
+    ops = _ops(pages, clicks)["operations"]
+    assert any(o.get("kind") == "submit" for o in ops)
+    assert not any(o.get("kind") == "download" for o in ops)
+
+
 def test_skill_md_names_the_operations_that_produce_a_result():
     clicks = [_rich_click(), _terminal_click()]
     pages = derive_browser_pages(_RICH_EVENTS, clicks, login_url=LOGIN)
