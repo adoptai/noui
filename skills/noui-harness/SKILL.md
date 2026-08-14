@@ -238,7 +238,22 @@ with the compiled directory:
 install_skill(skill_dir="/workspace/noui/workbench/skills/<app>")
 ```
 
-It writes the skill to the org catalog (listable on a new turn, ~30s). A skill whose
+**Claim "installed" ONLY when `install_skill` actually returned success — and call it once.**
+
+- If the call came back an **error**, for any reason, the skill is **not** in the catalog.
+  Do **not** write "installed", "fully built and installed", or any success summary; state
+  what the error said and stop. Telling the member a skill is installed when it is not is
+  the worst outcome — they believe they have a tool they do not.
+- **Do not retry `install_skill` in a loop.** The same refusal repeats, and a wall of
+  identical failures buries the one line the member needs. Call it once; if refused,
+  surface the reason and hand back.
+- **"not approved by a member" is not your cue to approve.** That decision is made by the
+  member on the **replay card** and arrives as their own message. **Never run
+  `verify_approve.py` yourself to clear it, and never narrate the approval on their
+  behalf** — that is exactly what the gate refuses. The card is shown mechanically after
+  the replay; wait for the member's approval, then install.
+
+On success, it writes the skill to the org catalog (listable on a new turn, ~30s). A skill whose
 auth is the signed-in user's **session** (the usual login-recording case — e.g. a
 Tabby `profile_slug` was bound) needs **nothing more**: it is runnable as soon as it's
 listed. Do **not** invent a secret-registration step for these.
