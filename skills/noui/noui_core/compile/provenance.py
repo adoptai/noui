@@ -46,6 +46,25 @@ def bundle_digest(bundle: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def bundle_matches_manifest(bundle: dict[str, Any], manifest: dict[str, Any]) -> bool:
+    """Is the recording bundle in the dir the one these operations were sealed from?
+
+    The manifest stamps ``bundle_sha256`` at compile time. If the dir's bundle
+    hashes to something else, ``operations.json`` and ``recording_bundle.json``
+    came from DIFFERENT compile/import runs -- a skill-directory consistency
+    problem, not a bad recording and not hand-editing. Checking this BEFORE
+    ``unobserved_locators`` matters: that check reads the dir's bundle, so a
+    swapped bundle makes it report the operations' real locators as "controls the
+    recording never saw" -- pointing the blame at the recording (and at a pointless
+    re-record) when the true fault is that the wrong bundle is sitting in the dir.
+
+    Returns True when they agree, or when the manifest carries no stamp to check
+    against (an older skill) -- absence of a stamp is not evidence of a mismatch.
+    """
+    stamped = str((manifest.get("provenance") or {}).get("bundle_sha256") or "")
+    return not stamped or bundle_digest(bundle) == stamped
+
+
 def observed_selectors(bundle: dict[str, Any]) -> set[str]:
     """Every locator value the recorder actually saw, in any form.
 
