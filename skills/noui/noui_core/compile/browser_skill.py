@@ -2000,7 +2000,13 @@ def generate_browser_skill(
 # Downloads are one kind of terminal outcome here, not a special case.
 
 #: Interactions that end a goal, and what to call the operation that reaches them.
-_TERMINAL_KINDS = ("download", "submit")
+#: Split so goal inference can prefer a completed artifact over a bare submit;
+#: this is the SINGLE definition of the terminal-kind set — goals.py imports it
+#: rather than re-declaring, so adding a kind here can never leave goal inference
+#: or the coverage warning working from a stale copy.
+_ARTIFACT_KINDS = ("download",)
+_SUBMIT_KINDS = ("submit",)
+_TERMINAL_KINDS = _ARTIFACT_KINDS + _SUBMIT_KINDS
 
 
 #: A control whose own label or selector says it fetches a file. Mirrors the

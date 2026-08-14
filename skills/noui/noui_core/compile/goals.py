@@ -25,11 +25,16 @@ from __future__ import annotations
 
 from typing import Any
 
-#: Terminal kinds, strongest goal-signal first. A completed download is a file the
-#: user asked for; a submit is a form driven to a result; a read is only a step.
-_ARTIFACT_KINDS = ("download",)
-_SUBMIT_KINDS = ("submit",)
-_TERMINAL_KINDS = _ARTIFACT_KINDS + _SUBMIT_KINDS
+# Terminal kinds, strongest goal-signal first (a completed download is a file the
+# user asked for; a submit is a form driven to a result; a read is only a step).
+# Imported from the compiler's terminal detection, NOT re-declared here, so the two
+# can never drift: a new terminal kind added there is picked up by goal inference
+# and the coverage warning automatically.
+from noui_core.compile.browser_skill import (
+    _ARTIFACT_KINDS,
+    _SUBMIT_KINDS,
+    _TERMINAL_KINDS,
+)
 
 
 def _goal_of(op: dict[str, Any]) -> dict[str, Any]:
