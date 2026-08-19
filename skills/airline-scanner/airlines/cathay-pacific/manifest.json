@@ -1,0 +1,27 @@
+{
+  "skill_id": "cathay-pacific-search",
+  "app": {
+    "name": "Cathay Pacific",
+    "slug": "cathay-pacific-search"
+  },
+  "workflow": {
+    "session_id": "eaa707e0-3acf-4b77-9e4a-502befa1316f",
+    "start_url": "https://www.cathaypacific.com"
+  },
+  "tabby": {
+    "profile_slug": "cathay-pacific-search",
+    "profile_db_id": "dfebb745-228b-4660-b56e-9e851a741465"
+  },
+  "operations": [
+    {
+      "name": "search_flights",
+      "description": "Search Cathay Pacific for available one-way flights on a given route and date. Returns flights with departure times, durations, and a 7-day fare calendar.",
+      "args": [
+        {"name": "origin", "type": "string", "required": true, "description": "Departure IATA airport code (e.g. HKG, LHR, JFK)"},
+        {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA airport code (e.g. LHR, HKG, SYD)"},
+        {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+        {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY", "description": "Cabin class: ECONOMY, PREMIUM ECONOMY, BUSINESS, or FIRST"}
+      ]
+    }
+  ]
+}

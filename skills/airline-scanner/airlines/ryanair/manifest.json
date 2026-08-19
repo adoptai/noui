@@ -1,0 +1,94 @@
+{
+  "schema_version": "1",
+  "skill_id": "ryanair-search",
+  "app": {
+    "name": "Ryanair Search",
+    "slug": "ryanair-search"
+  },
+  "workflow": {
+    "id": "ryanair-search",
+    "name": "Ryanair Search",
+    "workflow_session_id": "ryanair-search-bc036431",
+    "start_url": "https://www.ryanair.com"
+  },
+  "auth": {
+    "requires_auth": false,
+    "profile_slug": null,
+    "profile_db_id": null,
+    "strategy": "none",
+    "execution_strategy": "none",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "get_v4_en_us_availability",
+      "description": "Search Ryanair flights for a given route, date, and passenger count. Returns available flights with fares.",
+      "module": "operations/get_v4_en_us_availability.py",
+      "entry": "execute",
+      "method": "GET",
+      "path": "/api/booking/v4/en-us/availability",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Origin IATA airport code, e.g. \"DUB\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Destination IATA airport code, e.g. \"STN\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Outbound date in YYYY-MM-DD format."
+        },
+        {
+          "name": "adults",
+          "type": "integer",
+          "required": false,
+          "description": "Number of adult travelers (default: 1)."
+        },
+        {
+          "name": "teens",
+          "type": "integer",
+          "required": false,
+          "description": "Number of teen travelers (default: 0)."
+        },
+        {
+          "name": "children",
+          "type": "integer",
+          "required": false,
+          "description": "Number of child travelers (default: 0)."
+        },
+        {
+          "name": "infants",
+          "type": "integer",
+          "required": false,
+          "description": "Number of infant travelers (default: 0)."
+        },
+        {
+          "name": "round-trip",
+          "type": "boolean",
+          "required": false,
+          "description": "Search for a return flight (flag, default: false)."
+        },
+        {
+          "name": "date-in",
+          "type": "string",
+          "required": false,
+          "description": "Return date in YYYY-MM-DD format (used with --round-trip)."
+        }
+      ]
+    }
+  ]
+}

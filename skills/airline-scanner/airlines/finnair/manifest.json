@@ -1,0 +1,76 @@
+{
+  "schema_version": "1",
+  "skill_id": "finnair-search",
+  "app": {
+    "name": "Finnair Search",
+    "slug": "finnair-search"
+  },
+  "workflow": {
+    "id": "finnair-search",
+    "name": "Finnair Search",
+    "workflow_session_id": "9def0aa7-e0bc-4aa4-b61a-bfabfc3e6dc5",
+    "start_url": "https://www.finnair.com"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "finnair-search",
+    "profile_db_id": null,
+    "strategy": "tabby_credentials",
+    "execution_strategy": "cdp_browser_session",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "create_current_api_airbounds",
+      "description": "Search Finnair flights for a given route and date. Returns flights with fares, departure/arrival times, aircraft, and flight numbers.",
+      "module": "operations/create_current_api_airbounds.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/d/fcom/offers-prod/current/api/airBounds",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Departure IATA airport or city code, e.g. \"HEL\", \"NYC\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Arrival IATA airport or city code, e.g. \"LON\", \"BKK\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Departure date in YYYY-MM-DD format."
+        },
+        {
+          "name": "adults",
+          "type": "integer",
+          "required": false,
+          "description": "Number of adult travelers (default: 1)."
+        },
+        {
+          "name": "children",
+          "type": "integer",
+          "required": false,
+          "description": "Number of child travelers (default: 0)."
+        },
+        {
+          "name": "infants",
+          "type": "integer",
+          "required": false,
+          "description": "Number of infant travelers (default: 0)."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "skill_id": "american-airlines-search",
+  "app": {"name": "American Airlines", "slug": "american-airlines-search"},
+  "workflow": {"session_id": "bcc1eb3d-cc21-4f3b-b6df-32e8aae9ad31", "start_url": "https://www.aa.com"},
+  "tabby": {"profile_slug": "american-airlines-search", "profile_db_id": "d6535027-b127-47c2-991e-8f68f60c0cb7"},
+  "operations": [{
+    "name": "search_flights",
+    "description": "Search American Airlines for available one-way flights. Navigates Tabby browser to search URL and parses React DOM.",
+    "args": [
+      {"name": "origin", "type": "string", "required": true, "description": "Departure IATA code (e.g. JFK, LAX, ORD)"},
+      {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA code (e.g. LAX, JFK, MIA)"},
+      {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+      {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY", "description": "ECONOMY, BUSINESS, or FIRST"},
+      {"name": "adults", "type": "integer", "required": false, "default": 1}
+    ]
+  }]
+}
