@@ -456,9 +456,8 @@ def _render_operation_tabby(td: dict, *, auth_plan: dict) -> str:
         lines.append("    url = url + ('?' + urllib.parse.urlencode(_query) if _query else '')")
 
     if has_body:
-        body_dict = ", ".join(_body_dict_entry(p) for p in body_params)
         _ = content_type
-        lines.append(f"    body = {{{body_dict}}}")
+        lines.append(_render_body_assignment(body_params))
 
     if needs_header_injection and static_headers:
         lines.append(f"    _recorded = {static_headers!r}")
@@ -559,11 +558,8 @@ def _render_operation_http(td: dict, *, auth_plan: dict) -> str:
 
     # Body / query
     if body_params and method in ("post", "put", "patch"):
-        body_dict = ", ".join(_body_dict_entry(p) for p in body_params)
-        if "json" in content_type:
-            lines.append(f"    body = {{{body_dict}}}")
-        else:
-            lines.append(f"    data = {{{body_dict}}}")
+        var = "body" if "json" in content_type else "data"
+        lines.append(_render_body_assignment(body_params, var))
 
     if query_params:
         q_dict = ", ".join(f"{repr(p['name'])}: {p['name']}" for p in query_params)
@@ -608,6 +604,24 @@ def _render_operation_http(td: dict, *, auth_plan: dict) -> str:
 # ---------------------------------------------------------------------------
 # Python code helpers
 # ---------------------------------------------------------------------------
+
+
+def _render_body_assignment(body_params: list[dict], var: str = "body") -> str:
+    """Render the `body = …` / `data = …` line for an MCP operation.
+
+    Mirrors operation_generator._render_body_assignment. A `whole_body` param
+    IS the entire request body — a top-level JSON array, which has no field
+    names to key a dict on. Wrapping it would put `{"body": [...]}` on the wire
+    instead of `[...]`, which the server reads as a different (and empty)
+    request. Kept defensive in the same way as _body_dict_entry: an MCP client
+    may hand the arg in already parsed.
+    """
+    whole = next((p for p in body_params if p.get("whole_body")), None)
+    if whole:
+        n = whole["name"]
+        return f"    {var} = json.loads({n}) if isinstance({n}, str) else {n}"
+    entries = ", ".join(_body_dict_entry(p) for p in body_params)
+    return f"    {var} = {{{entries}}}"
 
 
 def _body_dict_entry(p: dict) -> str:
