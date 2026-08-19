@@ -12,7 +12,8 @@ Tool-def schema (all fields):
     path              str       Path template with {param} placeholders
     base_url          str       Scheme + host
     request_headers   list[dict]  [{name, value}, …] — no auth values
-    request_body      dict|None   Parsed JSON body; None for GET/form
+    request_body      dict|list|None  Parsed JSON body (object or top-level
+                                  array); None for GET/form
     request_content_type  str     MIME type of request body
     response_status   int       HTTP status code seen during recording
     params            list[dict]  [{name, description, type, required, source}, …]
@@ -384,7 +385,7 @@ def _entry_to_tool_def(
     # ── Request body ──────────────────────────────────────────────────────────
     post_data: dict = req.get("postData") or {}
     content_type = post_data.get("mimeType", "").split(";")[0].strip()
-    request_body: dict | None = None
+    request_body: dict | list | None = None
     body_params: list[dict] = []
 
     if post_data:
@@ -478,8 +479,32 @@ def _entry_to_tool_def(
 # ---------------------------------------------------------------------------
 
 
-def _body_to_params(body: dict | None) -> list[dict]:
-    if not body or not isinstance(body, dict):
+def _body_to_params(body: dict | list | None) -> list[dict]:
+    if not body:
+        return []
+    if isinstance(body, list):
+        # A top-level JSON ARRAY body has no named fields to split into
+        # separate parameters, so the whole array becomes ONE passthrough
+        # parameter (supplied as a JSON string, like "object"/"array" fields
+        # below). Without this branch the isinstance(dict) guard returned []
+        # for such bodies, which silently produced a POST operation with no
+        # body at all -- confirmed 2026-08-17 on TP Catalyst's
+        # `application/bvdjson` search payload,
+        # [{"Key":…,"Value":[…]}, …], where the search criteria ARE the body,
+        # so every generated operation was inert.
+        # `whole_body` tells operation_generator to emit `body = json.loads(x)`
+        # rather than wrapping it in a dict, which would send {"body": [...]}.
+        return [
+            {
+                "name": "body",
+                "description": "Full JSON array request body",
+                "type": "array",
+                "required": True,
+                "source": "body",
+                "whole_body": True,
+            }
+        ]
+    if not isinstance(body, dict):
         return []
     params: list[dict] = []
     for key, val in body.items():

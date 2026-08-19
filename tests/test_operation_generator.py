@@ -54,3 +54,56 @@ class TestObjectBodyParamCodegen:
         )
         src = render_skill_operation(td, auth_plan={})
         assert "json.loads" not in src
+
+
+def _whole_body_tool_def(**overrides) -> dict:
+    base = {
+        "name": "create_refreshstepcount",
+        "method": "POST",
+        "path": "/companies/SearchExpert/RefreshStepCount",
+        "base_url": "https://tpcatalyst-r1.bvdinfo.com",
+        "description": "Refresh step count",
+        "request_content_type": "application/bvdjson",
+        "request_headers": [],
+        "params": [
+            {
+                "name": "body",
+                "type": "array",
+                "required": True,
+                "source": "body",
+                "whole_body": True,
+            },
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+class TestWholeBodyArrayCodegen:
+    """A top-level JSON array IS the body — it must not be wrapped in a dict.
+
+    Wrapping would put `{"body": [...]}` on the wire where the server expects
+    `[...]`, which it reads as a different (and empty) request. TP Catalyst's
+    `application/bvdjson` search payload is the case this was found on; see
+    har_to_tools.py::_body_to_params.
+    """
+
+    def test_body_is_assigned_directly_not_wrapped_in_a_dict(self) -> None:
+        src = render_skill_operation(_whole_body_tool_def(), auth_plan={})
+        assert "body = json.loads(body)" in src
+        # The regression: a dict wrapper puts the array under a "body" key.
+        assert "{'body': json.loads(body)}" not in src
+
+    def test_body_is_passed_to_execute_fetch(self) -> None:
+        # Without this the operation posts nothing at all.
+        src = render_skill_operation(_whole_body_tool_def(), auth_plan={})
+        assert "body=body" in src
+
+    def test_generated_source_compiles(self) -> None:
+        src = render_skill_operation(_whole_body_tool_def(), auth_plan={})
+        compile(src, "<generated>", "exec")
+
+    def test_named_body_params_still_build_a_dict(self) -> None:
+        # The ordinary path must be untouched by the whole_body branch.
+        src = render_skill_operation(_tool_def(), auth_plan={})
+        assert "body = {" in src
