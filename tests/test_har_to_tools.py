@@ -382,3 +382,62 @@ class TestBodyToParams:
     def test_source_is_body(self) -> None:
         params = _body_to_params({"field": "value"})
         assert params[0]["source"] == "body"
+
+
+class TestTopLevelArrayBody:
+    """A top-level JSON ARRAY body used to vanish.
+
+    `_body_to_params` guarded on isinstance(body, dict) and returned [] for a
+    list, so `has_body` was False and the generated POST went out with no body
+    at all -- silently. Found 2026-08-17 compiling TP Catalyst (Bureau van
+    Dijk), whose search step posts `application/bvdjson`:
+
+        [{"Key":"requestIndex","Value":["0"]},
+         {"Key":"Status.ChangeDate.picklist","Value":["C"]}]
+
+    The search criteria ARE that body, so every compiled operation was inert.
+    Note the mime type still matches the `"json" in content_type` branch --
+    "bvdjson" contains "json" -- so the body parsed fine and was then dropped
+    one line later.
+    """
+
+    def test_array_body_yields_one_whole_body_param(self) -> None:
+        params = _body_to_params([{"Key": "requestIndex", "Value": ["0"]}])
+        assert len(params) == 1
+        assert params[0]["whole_body"] is True
+        assert params[0]["source"] == "body"
+        assert params[0]["type"] == "array"
+
+    def test_array_body_is_not_silently_dropped(self) -> None:
+        # The regression itself: [] here means a POST with no body.
+        assert _body_to_params([{"Key": "a", "Value": ["1"]}]) != []
+
+    def test_empty_array_stays_empty(self) -> None:
+        # Nothing was recorded, so there is no body to parameterize.
+        assert _body_to_params([]) == []
+
+    def test_dict_body_is_unaffected(self) -> None:
+        params = _body_to_params({"a": "x", "b": "y"})
+        assert {p["name"] for p in params} == {"a", "b"}
+        assert not any(p.get("whole_body") for p in params)
+
+    def test_bvdjson_mime_reaches_the_json_branch(self) -> None:
+        # Guards the coincidence this relies on: BvD's proprietary content type
+        # is matched by the substring test for "json".
+        defs = _htd(
+            _har(
+                [
+                    _entry(
+                        url="https://tpcatalyst-r1.bvdinfo.com/x/companies/SearchExpert/RefreshStepCount",
+                        method="POST",
+                        post_data={
+                            "mimeType": "application/bvdjson",
+                            "text": json.dumps([{"Key": "requestIndex", "Value": ["0"]}]),
+                        },
+                    )
+                ]
+            )
+        )
+        body_params = [p for p in defs[0]["params"] if p.get("source") == "body"]
+        assert len(body_params) == 1
+        assert body_params[0]["whole_body"] is True
