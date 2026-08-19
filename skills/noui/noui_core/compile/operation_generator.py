@@ -16,6 +16,41 @@ payloads: exits 2 (still prints the JSON). On success: exits 0.
 
 from __future__ import annotations
 
+import keyword
+import re
+
+
+def _assign_py_names(params: list[dict]) -> None:
+    """Give every param a valid, UNIQUE Python identifier in ``py_name``.
+
+    A wire parameter name is not necessarily a Python identifier. Form-encoded
+    bodies carry dots and percent-encoded brackets -- TP Catalyst's
+    AnalysisSummary/Export posts
+    ``component.AttachmentTypes%5BReviewSummaryProofs%5D.Selected`` -- and the
+    codegen used the wire name verbatim for BOTH the dict key and the Python
+    symbol, so the emitted module could not be parsed at all (found 2026-08-18).
+    The wire name stays the dict key; only the Python symbol is sanitized, and
+    collisions get a numeric suffix so two wire names can never collapse into
+    one duplicate parameter.
+    """
+    seen: set[str] = set()
+    for p in params:
+        ident = re.sub(r"\W", "_", p.get("name", "")) or "param"
+        if ident[0].isdigit():
+            ident = "p_" + ident
+        if keyword.iskeyword(ident):
+            ident += "_"
+        base, n = ident, 2
+        while ident in seen:
+            ident, n = f"{base}_{n}", n + 1
+        seen.add(ident)
+        p["py_name"] = ident
+
+
+def _pn(p: dict) -> str:
+    """The Python-side symbol for a param (falls back to the wire name)."""
+    return p.get("py_name") or p["name"]
+
 
 def _body_dict_entry(p: dict) -> str:
     """Render one `body = {...}` entry for a skill CLI operation.
@@ -27,10 +62,10 @@ def _body_dict_entry(p: dict) -> str:
     reject. See har_to_tools.py::_body_to_params for how "object"/"array" get
     assigned.
     """
-    name = p["name"]
+    wire, sym = p["name"], _pn(p)
     if p.get("type", "").lower() in ("object", "array"):
-        return f"{name!r}: json.loads({name})"
-    return f"{name!r}: {name}"
+        return f"{wire!r}: json.loads({sym})"
+    return f"{wire!r}: {sym}"
 
 
 def _render_body_assignment(body_params: list[dict], var: str = "body") -> str:
@@ -44,7 +79,12 @@ def _render_body_assignment(body_params: list[dict], var: str = "body") -> str:
     """
     whole = next((p for p in body_params if p.get("whole_body")), None)
     if whole:
-        return f"    {var} = json.loads({whole['name']})"
+        # _pn(), not the wire name. Today a whole_body param is always literally
+        # "body" so the two agree, but if another param's wire name also
+        # sanitises to "body" the collision suffix moves this one to "body_2" --
+        # and referencing the wire name would then silently bind json.loads() to
+        # the OTHER param's value. Caught in review on #145.
+        return f"    {var} = json.loads({_pn(whole)})"
     entries = ", ".join(_body_dict_entry(p) for p in body_params)
     return f"    {var} = {{{entries}}}"
 
@@ -59,6 +99,7 @@ def render_skill_operation(td: dict, *, auth_plan: dict, execution_mode: str = "
       - "tabby" (default): execute inside Tabby's browser via the /execute/fetch endpoint
       - "http" (legacy): execute via httpx + resolve_auth()
     """
+    _assign_py_names(td.get("params") or [])
     if execution_mode == "tabby":
         return _render_skill_operation_tabby(td, auth_plan=auth_plan)
     return _render_skill_operation_http(td, auth_plan=auth_plan)
@@ -149,7 +190,7 @@ def _render_skill_operation_tabby(td: dict, *, auth_plan: dict) -> str:
     lines.append(f"    url = {url_expr}")
 
     if query_params:
-        q_dict = ", ".join(f"{p['name']!r}: {p['name']}" for p in query_params)
+        q_dict = ", ".join(f"{p['name']!r}: {_pn(p)}" for p in query_params)
         lines.append(f"    _query = {{{q_dict}}}")
         lines.append("    url = url + ('?' + urllib.parse.urlencode(_query) if _query else '')")
 
@@ -186,6 +227,7 @@ def _render_skill_operation_tabby(td: dict, *, auth_plan: dict) -> str:
 
 def _render_skill_operation_http(td: dict, *, auth_plan: dict) -> str:
     """Render a skill op using httpx + resolve_auth (legacy mode)."""
+    _assign_py_names(td.get("params") or [])
     name = td["name"]
     method = td["method"].lower()
     path_template = td["path"]
@@ -267,7 +309,7 @@ def _render_skill_operation_http(td: dict, *, auth_plan: dict) -> str:
         lines.append(_render_body_assignment(body_params, var))
 
     if query_params:
-        q_dict = ", ".join(f"{p['name']!r}: {p['name']}" for p in query_params)
+        q_dict = ", ".join(f"{p['name']!r}: {_pn(p)}" for p in query_params)
         lines.append(f"    params = {{{q_dict}}}")
 
     if needs_auth:
@@ -323,7 +365,7 @@ def _render_cli_wrapper(name: str, description: str, params: list[dict]) -> list
     optional = [p for p in params if not p.get("required", True)]
 
     for p in [*required, *optional]:
-        pname = p["name"]
+        pname = _pn(p)
         flag = f"--{pname.replace('_', '-')}"
         ptype = p.get("type", "string").lower()
         help_text = (p.get("description") or "").replace('"', "'") or pname
@@ -364,7 +406,7 @@ def _render_cli_wrapper(name: str, description: str, params: list[dict]) -> list
     ]
 
     if params:
-        kwargs = ", ".join(f"{p['name']}=args.{p['name']}" for p in params)
+        kwargs = ", ".join(f"{_pn(p)}=args.{_pn(p)}" for p in params)
         lines.append(f"        result = asyncio.run(execute({kwargs}))")
     else:
         lines.append("        result = asyncio.run(execute())")
@@ -398,10 +440,10 @@ def _py_signature(params: list[dict]) -> list[str]:
     required = [p for p in params if p.get("required", True)]
     optional = [p for p in params if not p.get("required", True)]
     for p in required:
-        parts.append(f"{p['name']}: {_py_type(p.get('type', 'string'))}")
+        parts.append(f"{_pn(p)}: {_py_type(p.get('type', 'string'))}")
     for p in optional:
         ptype = p.get("type", "string")
-        parts.append(f"{p['name']}: {_py_type(ptype)} = {_py_default(ptype)}")
+        parts.append(f"{_pn(p)}: {_py_type(ptype)} = {_py_default(ptype)}")
     return parts
 
 
