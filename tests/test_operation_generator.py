@@ -107,3 +107,83 @@ class TestWholeBodyArrayCodegen:
         # The ordinary path must be untouched by the whole_body branch.
         src = render_skill_operation(_tool_def(), auth_plan={})
         assert "body = {" in src
+
+
+def _wire_name_tool_def(**overrides) -> dict:
+    """A form-encoded body whose field names are not Python identifiers."""
+    base = {
+        "name": "create_export",
+        "method": "POST",
+        "path": "/companies/AnalysisSummary/Export",
+        "base_url": "https://tpcatalyst-r1.bvdinfo.com",
+        "description": "Post Export",
+        "request_content_type": "application/x-www-form-urlencoded",
+        "request_headers": [],
+        "params": [
+            {"name": "component.FileName", "type": "string", "required": True, "source": "body"},
+            {
+                "name": "component.AttachmentTypes%5BReviewSummaryProofs%5D.Selected",
+                "type": "string",
+                "required": True,
+                "source": "body",
+            },
+            {"name": "2ndTry", "type": "string", "required": False, "source": "query"},
+            {"name": "class", "type": "string", "required": False, "source": "query"},
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+class TestWireNameIsNotAPythonIdentifier:
+    """Wire parameter names are not necessarily Python identifiers.
+
+    TP Catalyst's AnalysisSummary/Export posts form fields carrying dots and
+    percent-encoded brackets. The codegen used the wire name for BOTH the dict
+    key and the Python symbol, so the emitted module did not parse at all —
+    the operation could never run. Found 2026-08-18.
+    """
+
+    def test_generated_source_parses(self) -> None:
+        # The regression itself: the file used to be a SyntaxError.
+        src = render_skill_operation(_wire_name_tool_def(), auth_plan={})
+        compile(src, "<generated>", "exec")
+
+    def test_wire_name_is_kept_as_the_dict_key(self) -> None:
+        # Sanitising the key too would send the server a field it does not know.
+        src = render_skill_operation(_wire_name_tool_def(), auth_plan={})
+        assert "'component.AttachmentTypes%5BReviewSummaryProofs%5D.Selected':" in src
+
+    def test_python_symbol_is_sanitised(self) -> None:
+        src = render_skill_operation(_wire_name_tool_def(), auth_plan={})
+        assert "component_FileName" in src
+        assert "component.FileName:" not in src  # never as a parameter
+
+    def test_leading_digit_and_keyword_are_handled(self) -> None:
+        src = render_skill_operation(_wire_name_tool_def(), auth_plan={})
+        compile(src, "<generated>", "exec")
+        assert "p_2ndTry" in src  # identifiers may not start with a digit
+        assert "class_" in src  # nor be a reserved word
+
+    def test_colliding_wire_names_do_not_produce_duplicate_parameters(self) -> None:
+        # "a.b" and "a-b" both sanitise to "a_b"; without a suffix that is a
+        # duplicate-argument SyntaxError, which is worse than the original bug.
+        td = _wire_name_tool_def(
+            params=[
+                {"name": "a.b", "type": "string", "required": True, "source": "body"},
+                {"name": "a-b", "type": "string", "required": True, "source": "body"},
+            ]
+        )
+        src = render_skill_operation(td, auth_plan={})
+        compile(src, "<generated>", "exec")
+        assert "a_b_2" in src
+
+    def test_ordinary_names_are_untouched(self) -> None:
+        td = _wire_name_tool_def(
+            params=[
+                {"name": "query", "type": "string", "required": True, "source": "body"},
+            ]
+        )
+        src = render_skill_operation(td, auth_plan={})
+        assert "query: str" in src
+        assert "p_query" not in src
