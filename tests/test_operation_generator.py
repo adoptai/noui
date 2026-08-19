@@ -187,3 +187,33 @@ class TestWireNameIsNotAPythonIdentifier:
         src = render_skill_operation(td, auth_plan={})
         assert "query: str" in src
         assert "p_query" not in src
+
+
+class TestWholeBodyUsesTheSanitisedSymbol:
+    """The whole-body branch must reference `_pn()`, not the wire name.
+
+    Today a whole_body param is always literally named "body", so the two
+    agree and the bug is invisible. But `_assign_py_names` suffixes collisions:
+    if another param's wire name also sanitises to "body", the whole_body one
+    becomes "body_2" while the wire name stays "body". Referencing the wire name
+    would then bind json.loads() to the OTHER param's value. Raised in review.
+    """
+
+    def test_collision_moves_the_whole_body_symbol_and_the_render_follows(self) -> None:
+        td = _whole_body_tool_def(
+            params=[
+                # listed first, so this one takes the plain "body" symbol
+                {"name": "body", "type": "string", "required": False, "source": "query"},
+                {
+                    "name": "body",
+                    "type": "array",
+                    "required": True,
+                    "source": "body",
+                    "whole_body": True,
+                },
+            ]
+        )
+        src = render_skill_operation(td, auth_plan={})
+        compile(src, "<generated>", "exec")
+        # The whole-body param was suffixed, so the assignment must use it.
+        assert "body = json.loads(body_2)" in src

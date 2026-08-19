@@ -79,7 +79,12 @@ def _render_body_assignment(body_params: list[dict], var: str = "body") -> str:
     """
     whole = next((p for p in body_params if p.get("whole_body")), None)
     if whole:
-        return f"    {var} = json.loads({whole['name']})"
+        # _pn(), not the wire name. Today a whole_body param is always literally
+        # "body" so the two agree, but if another param's wire name also
+        # sanitises to "body" the collision suffix moves this one to "body_2" --
+        # and referencing the wire name would then silently bind json.loads() to
+        # the OTHER param's value. Caught in review on #145.
+        return f"    {var} = json.loads({_pn(whole)})"
     entries = ", ".join(_body_dict_entry(p) for p in body_params)
     return f"    {var} = {{{entries}}}"
 

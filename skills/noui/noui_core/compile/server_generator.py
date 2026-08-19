@@ -28,6 +28,8 @@ from noui_core.compile.api_doc_generator import generate_api_markdown
 from noui_core.compile.auth_plan import generate_auth_plan
 from noui_core.compile.har_to_tools import har_to_tool_defs
 
+from .operation_generator import _assign_py_names, _pn
+
 _VALID_EXECUTION_MODES = ("tabby", "http")
 
 # ---------------------------------------------------------------------------
@@ -322,8 +324,9 @@ def _render_server(*, app_name: str, tool_defs: list[dict]) -> str:
     for td in tool_defs:
         n = td["name"]
         params = td.get("params", [])
+        _assign_py_names(params)
         sig_parts = _py_signature(params)
-        call_parts = ", ".join(f"{p['name']}={p['name']}" for p in params)
+        call_parts = ", ".join(f"{_pn(p)}={_pn(p)}" for p in params)
         desc = td.get("description", "").replace('"""', "'''")
 
         lines.append("")
@@ -367,6 +370,7 @@ def _render_operation(td: dict, *, auth_plan: dict, execution_mode: str = "tabby
         Recorded non-auth headers (Accept, Content-Type, etc.) are merged with
         live auth headers so they are not dropped.
     """
+    _assign_py_names(td.get("params") or [])
     if execution_mode == "tabby":
         return _render_operation_tabby(td, auth_plan=auth_plan)
     return _render_operation_http(td, auth_plan=auth_plan)
@@ -451,7 +455,7 @@ def _render_operation_tabby(td: dict, *, auth_plan: dict) -> str:
     lines.append(f"    url = {url_expr}")
 
     if query_params:
-        q_dict = ", ".join(f"{p['name']!r}: {p['name']}" for p in query_params)
+        q_dict = ", ".join(f"{p['name']!r}: {_pn(p)}" for p in query_params)
         lines.append(f"    _query = {{{q_dict}}}")
         lines.append("    url = url + ('?' + urllib.parse.urlencode(_query) if _query else '')")
 
@@ -562,7 +566,7 @@ def _render_operation_http(td: dict, *, auth_plan: dict) -> str:
         lines.append(_render_body_assignment(body_params, var))
 
     if query_params:
-        q_dict = ", ".join(f"{repr(p['name'])}: {p['name']}" for p in query_params)
+        q_dict = ", ".join(f"{repr(p['name'])}: {_pn(p)}" for p in query_params)
         lines.append(f"    params = {{{q_dict}}}")
 
     # Header construction
@@ -618,7 +622,7 @@ def _render_body_assignment(body_params: list[dict], var: str = "body") -> str:
     """
     whole = next((p for p in body_params if p.get("whole_body")), None)
     if whole:
-        n = whole["name"]
+        n = _pn(whole)
         return f"    {var} = json.loads({n}) if isinstance({n}, str) else {n}"
     entries = ", ".join(_body_dict_entry(p) for p in body_params)
     return f"    {var} = {{{entries}}}"
@@ -633,10 +637,10 @@ def _body_dict_entry(p: dict) -> str:
     client integrations — json.loads() it defensively so a GraphQL-style
     `variables` field can't get double-encoded on the wire.
     """
-    name = p["name"]
+    wire, sym = p["name"], _pn(p)
     if p.get("type", "").lower() in ("object", "array"):
-        return f"{name!r}: json.loads({name}) if isinstance({name}, str) else {name}"
-    return f"{name!r}: {name}"
+        return f"{wire!r}: json.loads({sym}) if isinstance({sym}, str) else {sym}"
+    return f"{wire!r}: {sym}"
 
 
 def _py_signature(params: list[dict]) -> list[str]:
@@ -646,11 +650,11 @@ def _py_signature(params: list[dict]) -> list[str]:
     optional = [p for p in params if not p.get("required", True)]
     for p in required:
         ptype = _py_type(p.get("type", "string"))
-        parts.append(f"{p['name']}: {ptype}")
+        parts.append(f"{_pn(p)}: {ptype}")
     for p in optional:
         ptype = _py_type(p.get("type", "string"))
         default = _py_default(p.get("type", "string"))
-        parts.append(f"{p['name']}: {ptype} = {default}")
+        parts.append(f"{_pn(p)}: {ptype} = {default}")
     return parts
 
 
