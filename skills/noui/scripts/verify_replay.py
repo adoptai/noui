@@ -45,6 +45,99 @@ def _read_text(path: Path) -> str:
         return ""
 
 
+def _summarize(report: dict, report_path: Path) -> str:
+    """A short, complete-enough account of the replay for the caller to act on.
+
+    This used to print the whole report -- every operation, every step -- as
+    indented JSON, while ALSO writing it to replay_report.json. For a two
+    operation skill that is already 8KB of duplicate output, so an agent caller
+    reading it as context did the rational thing and piped it (`| tail -5`,
+    `| python3 -c ...`), which truncated away the per-operation results it then
+    had to reason about.
+
+    Printing the outcome instead removes the reason to pipe. What it must carry
+    is set by what the caller does next, and by what the CARD shows the member:
+
+    * The headline is ``goals`` -- the endpoint the member asked for, which is
+      what the card headlines. ``all_goals_reached`` is a stricter AND across
+      every operation and also trips on an intermediate submit that blocked
+      after the download arrived, so leading with it would print INCOMPLETE over
+      a card saying the goal was reached.
+    * A report-level ``status``/``detail`` (e.g. ``not_replayable``) is the whole
+      answer when present -- without it a segment-mixture report summarised to
+      "0/0 operations" and exit 0, with the actionable line only in the file.
+    * ``skipped`` and ``recovered`` are not failures. Counting them made a clean
+      replay print "first failure at step 1".
+    * ``needs_approval`` is a hold with a remedy (``--approve-step``), not a
+      breakage; SKILL.md requires the caller to surface it. Rendering it
+      identically to a broken locator hides the fix.
+
+    Pass --json for the whole report.
+    """
+    lines: list[str] = []
+
+    # A short-circuit report is the WHOLE answer. Trigger on `detail` too, not
+    # just `status`: run_replay's empty-ops branch (session.py, `if not ops`)
+    # sets detail and NO status, so a browser/non-browser skill replayed with
+    # --only <non-browser-op> fell through to the generic "0/0 operation(s)"
+    # line and silently dropped "no browser operations to replay". That is the
+    # same class this function exists to fix, and losing it was a regression
+    # against the old always-dump behaviour. Step-level detail lives on steps
+    # (_replay_step_inner), never here, so this cannot fire on a normal replay.
+    status = str(report.get("status") or "")
+    detail = str(report.get("detail") or "")
+    if detail or (status and status != "ok"):
+        head = f"Replay {status.upper()}." if status and status != "ok" else "Replay did not run."
+        lines.append(f"{head}" + (f" {detail}" if detail else ""))
+        lines.append(f"Full report: {report_path}")
+        return "\n".join(lines)
+
+    ops = report.get("operations") or []
+    goals = report.get("goals") or []
+    if goals:
+        reached = sum(1 for g in goals if g.get("reached"))
+        head = "Replay OK" if reached == len(goals) else "Replay INCOMPLETE"
+        lines.append(f"{head} -- {reached}/{len(goals)} goal(s) reached.")
+    else:
+        reached = sum(1 for o in ops if o.get("goal_reached"))
+        head = "Replay OK" if report.get("all_goals_reached") else "Replay INCOMPLETE"
+        lines.append(f"{head} -- {reached}/{len(ops)} operation(s) reached their goal.")
+
+    for o in ops:
+        name = o.get("name") or "?"
+        steps = o.get("steps") or []
+        # skipped/recovered are not failures; blocked and needs_approval are
+        # reported by name below rather than folded into a step index.
+        broken = [
+            i for i, st in enumerate(steps) if str(st.get("status") or "") in ("error", "failed")
+        ]
+        mark = "PASS" if o.get("goal_reached") else "FAIL"
+        detail_bits = [f"{len(steps)} step(s)"]
+        if broken:
+            detail_bits.append(f"first error at step {broken[0]}")
+        if o.get("blocked_count"):
+            detail_bits.append(f"{o['blocked_count']} blocked")
+        if o.get("needs_approval_count"):
+            detail_bits.append(f"{o['needs_approval_count']} awaiting approval")
+        lines.append(f"  [{mark}] {name} -- {', '.join(detail_bits)}")
+
+    if report.get("needs_approval"):
+        lines.append(
+            "  Some steps are HELD for approval, not broken: verify_approve.py "
+            "--approve-step, or re-record if the step should not be there."
+        )
+    if report.get("partial"):
+        lines.append(
+            f"  PARTIAL: only {', '.join(report['partial'])} ran; this is not a full replay."
+        )
+    lines.append(f"Full report: {report_path}")
+    lines.append(
+        "The member sees this on the replay card -- do not summarise it back to "
+        "them as approved, and do not approve it yourself."
+    )
+    return "\n".join(lines)
+
+
 def _step_ran_ok(report: dict, operation: str, step_index: int) -> bool:
     """Did this exact step run, and run cleanly, in the replay just performed?
 
@@ -92,6 +185,12 @@ def main() -> int:
         "operations.json -- editing it destroys the provenance that makes the whole "
         "skill installable, and an amendment recorded here survives review as what it "
         "is: a step observed working once, which the member approves separately.",
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="print the full report JSON instead of the summary (the report is "
+        "written to replay_report.json either way)",
     )
     p.add_argument(
         "--only",
@@ -403,12 +502,21 @@ def main() -> int:
     out = skill_dir / REPORT_FILE
     try:
         out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        wrote_report = True
     except OSError as exc:
         # The report still goes to stdout; losing the file is not worth failing a
         # replay that already ran against a live session.
+        wrote_report = False
         print(f"(warning: could not write {out}: {exc})", file=sys.stderr)
 
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    # Summary by default. The full report goes to stdout when asked for, and
+    # ALWAYS when the file could not be written -- otherwise a failed write would
+    # silently take the report with it, which is the one case the fallback above
+    # exists for.
+    if args.json or not wrote_report:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(_summarize(report, out))
 
     if report.get("status") == "login_required":
         print(
