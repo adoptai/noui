@@ -45,6 +45,51 @@ def _read_text(path: Path) -> str:
         return ""
 
 
+def _summarize(report: dict, report_path) -> str:
+    """A short, complete-enough account of the replay for the caller to act on.
+
+    This used to print the whole report -- every operation, every step -- as
+    indented JSON, while ALSO writing it to replay_report.json. For a two
+    operation skill that is already 8KB of duplicate output, so an agent caller
+    reading it as context did the rational thing and piped it (`| tail -5`,
+    `| python3 -c ...`), which truncated away the per-operation results it then
+    had to reason about.
+
+    Printing the outcome instead removes the reason to pipe: which operations
+    reached their goal, which did not, and where the full detail lives. Pass
+    --json for the whole report.
+    """
+    ops = report.get("operations") or []
+    lines: list[str] = []
+    reached = sum(1 for o in ops if o.get("goal_reached"))
+    if report.get("all_goals_reached"):
+        lines.append(f"Replay OK -- {reached}/{len(ops)} operation(s) reached their goal.")
+    else:
+        lines.append(f"Replay INCOMPLETE -- {reached}/{len(ops)} operation(s) reached their goal.")
+    for o in ops:
+        name = o.get("name") or "?"
+        steps = o.get("steps") or []
+        failed = [
+            i for i, st in enumerate(steps)
+            if str(st.get("status") or "") not in ("ok", "")
+        ]
+        mark = "PASS" if o.get("goal_reached") else "FAIL"
+        detail = f"{len(steps)} step(s)"
+        if failed:
+            detail += f", first failure at step {failed[0]}"
+        lines.append(f"  [{mark}] {name} -- {detail}")
+    if report.get("partial"):
+        lines.append(
+            f"  PARTIAL: only {', '.join(report['partial'])} ran; this is not a full replay."
+        )
+    lines.append(f"Full report: {report_path}")
+    lines.append(
+        "The member sees this on the replay card -- do not summarise it back to "
+        "them as approved, and do not approve it yourself."
+    )
+    return "\n".join(lines)
+
+
 def _step_ran_ok(report: dict, operation: str, step_index: int) -> bool:
     """Did this exact step run, and run cleanly, in the replay just performed?
 
@@ -92,6 +137,12 @@ def main() -> int:
         "operations.json -- editing it destroys the provenance that makes the whole "
         "skill installable, and an amendment recorded here survives review as what it "
         "is: a step observed working once, which the member approves separately.",
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="print the full report JSON instead of the summary (the report is "
+        "written to replay_report.json either way)",
     )
     p.add_argument(
         "--only",
@@ -403,12 +454,21 @@ def main() -> int:
     out = skill_dir / REPORT_FILE
     try:
         out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        wrote_report = True
     except OSError as exc:
         # The report still goes to stdout; losing the file is not worth failing a
         # replay that already ran against a live session.
+        wrote_report = False
         print(f"(warning: could not write {out}: {exc})", file=sys.stderr)
 
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    # Summary by default. The full report goes to stdout when asked for, and
+    # ALWAYS when the file could not be written -- otherwise a failed write would
+    # silently take the report with it, which is the one case the fallback above
+    # exists for.
+    if args.json or not wrote_report:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(_summarize(report, out))
 
     if report.get("status") == "login_required":
         print(
