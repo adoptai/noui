@@ -45,7 +45,7 @@ def _read_text(path: Path) -> str:
         return ""
 
 
-def _summarize(report: dict, report_path) -> str:
+def _summarize(report: dict, report_path: Path) -> str:
     """A short, complete-enough account of the replay for the caller to act on.
 
     This used to print the whole report -- every operation, every step -- as
@@ -55,29 +55,69 @@ def _summarize(report: dict, report_path) -> str:
     `| python3 -c ...`), which truncated away the per-operation results it then
     had to reason about.
 
-    Printing the outcome instead removes the reason to pipe: which operations
-    reached their goal, which did not, and where the full detail lives. Pass
-    --json for the whole report.
+    Printing the outcome instead removes the reason to pipe. What it must carry
+    is set by what the caller does next, and by what the CARD shows the member:
+
+    * The headline is ``goals`` -- the endpoint the member asked for, which is
+      what the card headlines. ``all_goals_reached`` is a stricter AND across
+      every operation and also trips on an intermediate submit that blocked
+      after the download arrived, so leading with it would print INCOMPLETE over
+      a card saying the goal was reached.
+    * A report-level ``status``/``detail`` (e.g. ``not_replayable``) is the whole
+      answer when present -- without it a segment-mixture report summarised to
+      "0/0 operations" and exit 0, with the actionable line only in the file.
+    * ``skipped`` and ``recovered`` are not failures. Counting them made a clean
+      replay print "first failure at step 1".
+    * ``needs_approval`` is a hold with a remedy (``--approve-step``), not a
+      breakage; SKILL.md requires the caller to surface it. Rendering it
+      identically to a broken locator hides the fix.
+
+    Pass --json for the whole report.
     """
-    ops = report.get("operations") or []
     lines: list[str] = []
-    reached = sum(1 for o in ops if o.get("goal_reached"))
-    if report.get("all_goals_reached"):
-        lines.append(f"Replay OK -- {reached}/{len(ops)} operation(s) reached their goal.")
+
+    status = str(report.get("status") or "")
+    detail = str(report.get("detail") or "")
+    if status and status != "ok":
+        lines.append(f"Replay {status.upper()}." + (f" {detail}" if detail else ""))
+        lines.append(f"Full report: {report_path}")
+        return "\n".join(lines)
+
+    ops = report.get("operations") or []
+    goals = report.get("goals") or []
+    if goals:
+        reached = sum(1 for g in goals if g.get("reached"))
+        head = "Replay OK" if reached == len(goals) else "Replay INCOMPLETE"
+        lines.append(f"{head} -- {reached}/{len(goals)} goal(s) reached.")
     else:
-        lines.append(f"Replay INCOMPLETE -- {reached}/{len(ops)} operation(s) reached their goal.")
+        reached = sum(1 for o in ops if o.get("goal_reached"))
+        head = "Replay OK" if report.get("all_goals_reached") else "Replay INCOMPLETE"
+        lines.append(f"{head} -- {reached}/{len(ops)} operation(s) reached their goal.")
+
     for o in ops:
         name = o.get("name") or "?"
         steps = o.get("steps") or []
-        failed = [
+        # skipped/recovered are not failures; blocked and needs_approval are
+        # reported by name below rather than folded into a step index.
+        broken = [
             i for i, st in enumerate(steps)
-            if str(st.get("status") or "") not in ("ok", "")
+            if str(st.get("status") or "") in ("error", "failed")
         ]
         mark = "PASS" if o.get("goal_reached") else "FAIL"
-        detail = f"{len(steps)} step(s)"
-        if failed:
-            detail += f", first failure at step {failed[0]}"
-        lines.append(f"  [{mark}] {name} -- {detail}")
+        detail_bits = [f"{len(steps)} step(s)"]
+        if broken:
+            detail_bits.append(f"first error at step {broken[0]}")
+        if o.get("blocked_count"):
+            detail_bits.append(f"{o['blocked_count']} blocked")
+        if o.get("needs_approval_count"):
+            detail_bits.append(f"{o['needs_approval_count']} awaiting approval")
+        lines.append(f"  [{mark}] {name} -- {', '.join(detail_bits)}")
+
+    if report.get("needs_approval"):
+        lines.append(
+            "  Some steps are HELD for approval, not broken: verify_approve.py "
+            "--approve-step, or re-record if the step should not be there."
+        )
     if report.get("partial"):
         lines.append(
             f"  PARTIAL: only {', '.join(report['partial'])} ran; this is not a full replay."
