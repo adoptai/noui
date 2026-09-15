@@ -23,7 +23,7 @@ def _summarize():
     """Load just the renderer, without the script's runtime imports."""
     src = _SRC.read_text()
     m = re.search(
-        r"def _summarize\(report: dict, report_path: Path\) -> str:.*?(?=\ndef )", src, re.S
+        r"def _summarize\(report: dict, report_path[^)]*\) -> str:.*?(?=\ndef )", src, re.S
     )
     assert m, "_summarize not found"
     ns: dict = {"Path": Path}
@@ -122,7 +122,7 @@ def test_full_json_is_still_reachable_and_still_the_fallback(tmp_path, monkeypat
     assert '"--json"' in src, "the flag must exist"
 
     tail = re.search(
-        r"    out = skill_dir / REPORT_FILE.*?print\(_summarize\(report, out\)\)", src, re.S
+        r"    out = skill_dir / REPORT_FILE.*?print\(_summarize\(report, out[^)]*\)\)", src, re.S
     )
     assert tail, "report-writing tail not found"
 
@@ -146,11 +146,25 @@ def test_full_json_is_still_reachable_and_still_the_fallback(tmp_path, monkeypat
         exec("if True:\n" + "\n".join(" " + line for line in code.splitlines()), ns)
         return capsys.readouterr().out
 
-    assert '"goals"' in _run(writable=False, want_json=False), (
-        "a failed write must still print the full report"
-    )
-    assert '"goals"' in _run(writable=True, want_json=True), "--json must print the full report"
-    assert "Replay OK" in _run(writable=True, want_json=False), "default is the summary"
+    # A failed write must still print the full report -- it is then the only copy.
+    failed = _run(writable=False, want_json=False)
+    assert '"goals"' in failed, "a failed write must still print the full report"
+    assert "Replay OK" in failed, "and still end with the summary"
+    assert "only copy" in failed, "and say the file could not be written"
+
+    # --json prints the report, then the summary. The summary is LAST so that a
+    # caller piping through `tail -N` keeps the verdict rather than the tail of
+    # a JSON blob -- the exact loss seen in production.
+    j = _run(writable=True, want_json=True)
+    assert '"goals"' in j, "--json must print the full report"
+    assert j.rstrip().endswith(
+        "do not summarise it back to them as approved, and do not approve it yourself."
+    ), "the summary must be the LAST thing on stdout in --json mode"
+    assert j.index("Replay OK") > j.index('"goals"'), "summary comes after the JSON"
+
+    # Default is the summary alone.
+    d = _run(writable=True, want_json=False)
+    assert "Replay OK" in d and '"goals"' not in d, "default is the summary, no JSON"
 
 
 def test_skipped_and_recovered_are_not_failures():

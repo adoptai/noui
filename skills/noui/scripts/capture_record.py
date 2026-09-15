@@ -333,7 +333,12 @@ def main() -> int:
         )
         # No --combined flag needed: the provision ledger already recorded this
         # session as combined, so capture_import routes it without being told.
-        print(f"  python scripts/capture_import.py {session_id} --as skill --name <app>")
+        # Carry --force forward. It bypassed the pre-recording reuse check; the
+        # import has its own "already exists, keep it" policy, and a fresh
+        # recording that collides on --name is exactly the case it must not
+        # keep silently.
+        force = " --force" if getattr(args, "force", False) else ""
+        print(f"  python scripts/capture_import.py {session_id} --as skill --name <app>{force}")
     else:
         print("Open the login_url, sign in, drive the flow, click 'Finish & export', then run:")
         print(f"  python scripts/capture_import.py {session_id}")

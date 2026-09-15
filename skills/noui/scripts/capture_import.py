@@ -222,6 +222,91 @@ def _resolve_keepalive_style(args: argparse.Namespace, workflow_bundle: dict) ->
     return "goto"
 
 
+# The browser_policy flags a fresh browser-driven compile turns on. Merged
+# ADDITIVELY onto an existing template under --force: a flag is only ever
+# switched on, never off, so an operator's deliberate setting is never undone.
+_POLICY_FLAGS_TO_MERGE = ("downloads", "block_navigate")
+
+
+def _on_template_exists(profile_slug: str, compiled: dict, *, force: bool) -> str:
+    """What to say, and do, when the login App Template already exists.
+
+    Tabby answered 409 to register_login. The old behaviour kept the existing
+    template and said so once, in stderr, and moved on. That was written for
+    the SECOND import of the SAME recording. It cannot tell that apart from a
+    DIFFERENT recording that happens to collide on --name -- which is what a
+    member asking for a "fresh" profile produces when the agent reuses a slug.
+
+    In a real build that silence cost both halves of the task: the fresh
+    recording would have registered a template with browser_policy.downloads
+    and block_navigate on; the kept template had neither, so every `navigate`
+    reloaded the bank and signed the member out, and every download was
+    discarded by the browser. The agent then told the member the profile was
+    fresh.
+
+    So: always say plainly that THIS recording's login was not registered, and
+    under --force merge the fresh compile's policy flags onto the existing
+    template (additive) so the template at least carries what the recording
+    proved it needs. The template itself is still not replaced -- it may be
+    serving sessions -- and that is stated too.
+    """
+    lines = [
+        f"Login App Template '{profile_slug}' already exists — keeping it and "
+        "compiling the workflow half. The login was recorded once; re-registering "
+        "it would only overwrite a profile that is already serving sessions.",
+        "NOTE: the login half of THIS recording was NOT registered. The profile in "
+        "use is the pre-existing one, not a fresh one.",
+    ]
+    fresh_policy = (compiled.get("application_draft") or {}).get("browser_policy") or {}
+    wanted = {k: True for k in _POLICY_FLAGS_TO_MERGE if fresh_policy.get(k) is True}
+
+    if not force:
+        if wanted:
+            lines.append(
+                "This recording compiled with "
+                + ", ".join(f"browser_policy.{k}=true" for k in wanted)
+                + ". The existing template may not have them. Re-run with --force to "
+                "merge them onto it, or use a different --name to register a new profile."
+            )
+        return "\n".join(lines)
+
+    if not wanted:
+        lines.append("--force: this recording turns on no policy flags; nothing to merge.")
+        return "\n".join(lines)
+
+    try:
+        from noui_core import tabby_client
+
+        token = register.resolve_admin_token()
+        template = tabby_client.get_app_template_by_profile_slug(profile_slug, token)
+        if not template:
+            lines.append(
+                f"--force: no App Template found with profile_name_pattern {profile_slug!r}; "
+                "nothing merged."
+            )
+            return "\n".join(lines)
+        existing = dict(template.get("browser_policy") or {})
+        merged = {**existing, **{k: True for k in wanted if existing.get(k) is not True}}
+        if merged == existing:
+            lines.append(
+                "--force: the existing template already has "
+                + ", ".join(f"browser_policy.{k}=true" for k in wanted)
+                + "; nothing to merge."
+            )
+            return "\n".join(lines)
+        tabby_client.update_app_template(template.get("id", ""), {"browser_policy": merged}, token)
+        turned_on = [k for k in wanted if existing.get(k) is not True]
+        lines.append(
+            "--force: merged "
+            + ", ".join(f"browser_policy.{k}=true" for k in turned_on)
+            + f" onto the existing template ({template.get('id', '')}). Already-provisioned "
+            "sessions keep their old policy until re-provisioned."
+        )
+    except Exception as exc:  # noqa: BLE001 -- best-effort; the import itself must not fail here
+        lines.append(f"--force: could not merge policy onto the existing template: {exc}")
+    return "\n".join(lines)
+
+
 def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
     """One capture → both a registered login App Template and a workflow asset.
 
@@ -313,9 +398,7 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             args.profile_slug or ""
         )
         print(
-            f"Login App Template '{profile_slug}' already exists — keeping it and "
-            "compiling the workflow half. The login was recorded once; re-registering "
-            "it would only overwrite a profile that is already serving sessions.",
+            _on_template_exists(profile_slug, compiled, force=bool(getattr(args, "force", False))),
             file=sys.stderr,
         )
 
@@ -582,6 +665,14 @@ def main() -> int:
         help="(login/takeover) glob the LOGGED-IN url matches but the login page does NOT "
         "(e.g. '**/lightning/**'). Enables auto-resolve: reaching it completes login with no "
         "'Mark as Resolved' click. Needed for same-origin apps where it can't be auto-derived.",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="when the login App Template already exists, merge this recording's "
+        "browser_policy flags (downloads, block_navigate) onto it instead of keeping "
+        "it untouched. Pass this when the member asked for a fresh profile and the "
+        "--name collides with an existing template. The template is never replaced.",
     )
     p.add_argument(
         "--fold",

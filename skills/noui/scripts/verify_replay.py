@@ -45,7 +45,7 @@ def _read_text(path: Path) -> str:
         return ""
 
 
-def _summarize(report: dict, report_path: Path) -> str:
+def _summarize(report: dict, report_path: Path | None) -> str:
     """A short, complete-enough account of the replay for the caller to act on.
 
     This used to print the whole report -- every operation, every step -- as
@@ -89,7 +89,11 @@ def _summarize(report: dict, report_path: Path) -> str:
     if detail or (status and status != "ok"):
         head = f"Replay {status.upper()}." if status and status != "ok" else "Replay did not run."
         lines.append(f"{head}" + (f" {detail}" if detail else ""))
-        lines.append(f"Full report: {report_path}")
+        lines.append(
+            f"Full report: {report_path}"
+            if report_path is not None
+            else "Full report: could not be written to disk; the JSON above is the only copy."
+        )
         return "\n".join(lines)
 
     ops = report.get("operations") or []
@@ -130,7 +134,11 @@ def _summarize(report: dict, report_path: Path) -> str:
         lines.append(
             f"  PARTIAL: only {', '.join(report['partial'])} ran; this is not a full replay."
         )
-    lines.append(f"Full report: {report_path}")
+    lines.append(
+        f"Full report: {report_path}"
+        if report_path is not None
+        else "Full report: could not be written to disk; the JSON above is the only copy."
+    )
     lines.append(
         "The member sees this on the replay card -- do not summarise it back to "
         "them as approved, and do not approve it yourself."
@@ -189,8 +197,9 @@ def main() -> int:
     p.add_argument(
         "--json",
         action="store_true",
-        help="print the full report JSON instead of the summary (the report is "
-        "written to replay_report.json either way)",
+        help="print the full report JSON before the summary (the report is "
+        "written to replay_report.json either way; the summary is always last so "
+        "it survives a `| tail`)",
     )
     p.add_argument(
         "--only",
@@ -509,14 +518,17 @@ def main() -> int:
         wrote_report = False
         print(f"(warning: could not write {out}: {exc})", file=sys.stderr)
 
-    # Summary by default. The full report goes to stdout when asked for, and
-    # ALWAYS when the file could not be written -- otherwise a failed write would
-    # silently take the report with it, which is the one case the fallback above
-    # exists for.
+    # The full report goes to stdout when asked for, and ALWAYS when the file
+    # could not be written -- otherwise a failed write would silently take the
+    # report with it, which is the one case the fallback above exists for.
     if args.json or not wrote_report:
         print(json.dumps(report, indent=2, ensure_ascii=False))
-    else:
-        print(_summarize(report, out))
+    # The summary is printed LAST, in every mode. An agent caller ran
+    # `--json 2>&1 | tail -N` on every replay and, in two of three runs, the
+    # tail cut off the blocked download step and its reason. Anything that must
+    # survive a tail has to be at the end; a summary printed first would be the
+    # first thing discarded.
+    print(_summarize(report, out if wrote_report else None))
 
     if report.get("status") == "login_required":
         print(
