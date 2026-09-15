@@ -47,7 +47,9 @@ def test_with_force_it_merges_the_flags_onto_the_existing_template(monkeypatch):
     class _Client:
         @staticmethod
         def get_app_template_by_profile_slug(slug, token):
-            return {"id": "tpl-1", "browser_policy": {"clipboard": False, "downloads": False}}
+            # block_navigate ABSENT (a gap: this template predates the flag),
+            # clipboard explicitly False (unrelated, must survive).
+            return {"id": "tpl-1", "browser_policy": {"clipboard": False}}
 
         @staticmethod
         def update_app_template(tid, payload, token):
@@ -63,10 +65,10 @@ def test_with_force_it_merges_the_flags_onto_the_existing_template(monkeypatch):
     out = m._on_template_exists("icici-credit-card-statement", COMPILED, force=True)
     assert calls["id"] == "tpl-1"
     bp = calls["payload"]["browser_policy"]
-    # Additive: turns flags ON, never off, and never drops a field it did not set.
+    # Fills the gaps; never drops a field it did not set.
     assert bp["downloads"] is True and bp["block_navigate"] is True
     assert bp["clipboard"] is False, "an unrelated flag must survive the merge"
-    assert "merged" in out
+    assert "filled" in out
 
 
 def test_force_never_turns_a_flag_off(monkeypatch):
@@ -100,3 +102,63 @@ def test_a_failure_to_merge_is_reported_not_raised(monkeypatch):
     out = m._on_template_exists("x", COMPILED, force=True)
     assert "could not merge" in out
     assert "was NOT registered" in out, "the reuse notice survives a merge failure"
+
+
+def test_a_flag_the_template_has_explicitly_off_is_not_flipped(monkeypatch):
+    """Review (rahulbh1510): "only ever switch on, never off" is not protective.
+
+    A template carrying downloads=False because someone set it that way for a
+    compliance-sensitive app would be flipped on by ANY later recording that
+    collided on --name. Absent and explicitly-false are different states: the
+    first is a gap, the second is a decision. Only the gap is filled.
+    """
+    m = _mod()
+    calls = {}
+
+    class _Client:
+        @staticmethod
+        def get_app_template_by_profile_slug(slug, token):
+            # downloads deliberately OFF; block_navigate merely absent.
+            return {"id": "tpl-2", "browser_policy": {"downloads": False}}
+
+        @staticmethod
+        def update_app_template(tid, payload, token):
+            calls["payload"] = payload
+
+    import noui_core
+
+    monkeypatch.setattr(noui_core, "tabby_client", _Client, raising=False)
+    monkeypatch.setitem(sys.modules, "noui_core.tabby_client", _Client)
+    monkeypatch.setattr(m.register, "resolve_admin_token", lambda: "tok")
+
+    out = m._on_template_exists("app", COMPILED, force=True)
+    bp = calls["payload"]["browser_policy"]
+    assert bp["downloads"] is False, "an explicit decision must not be overridden"
+    assert bp["block_navigate"] is True, "an absent flag is a gap and is filled"
+    # And the contradiction is reported, not swallowed -- a human decides.
+    assert "NOT changing" in out and "browser_policy.downloads" in out
+    assert "explicitly OFF" in out
+
+
+def test_nothing_is_written_when_every_needed_flag_is_contested(monkeypatch):
+    m = _mod()
+    calls = {}
+
+    class _Client:
+        @staticmethod
+        def get_app_template_by_profile_slug(slug, token):
+            return {"id": "t", "browser_policy": {"downloads": False, "block_navigate": False}}
+
+        @staticmethod
+        def update_app_template(tid, payload, token):
+            calls["payload"] = payload
+
+    import noui_core
+
+    monkeypatch.setattr(noui_core, "tabby_client", _Client, raising=False)
+    monkeypatch.setitem(sys.modules, "noui_core.tabby_client", _Client)
+    monkeypatch.setattr(m.register, "resolve_admin_token", lambda: "tok")
+
+    out = m._on_template_exists("app", COMPILED, force=True)
+    assert not calls, "no write when there is no gap to fill"
+    assert "NOT changing" in out

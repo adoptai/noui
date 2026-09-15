@@ -222,9 +222,16 @@ def _resolve_keepalive_style(args: argparse.Namespace, workflow_bundle: dict) ->
     return "goto"
 
 
-# The browser_policy flags a fresh browser-driven compile turns on. Merged
-# ADDITIVELY onto an existing template under --force: a flag is only ever
-# switched on, never off, so an operator's deliberate setting is never undone.
+# The browser_policy flags a fresh browser-driven compile turns on. Under
+# --force these fill only keys the existing template does not HAVE.
+#
+# "Only ever switch on, never off" sounds protective and is not: a template
+# carrying downloads=False because someone set it that way for a
+# compliance-sensitive app would be flipped on by any later recording that
+# collided on --name. Absent and explicitly-false are different states -- the
+# first is a gap, the second is a decision -- so only the gap is filled, and a
+# decision that contradicts the recording is reported for a human to settle
+# rather than overridden.
 _POLICY_FLAGS_TO_MERGE = ("downloads", "block_navigate")
 
 
@@ -286,21 +293,41 @@ def _on_template_exists(profile_slug: str, compiled: dict, *, force: bool) -> st
             )
             return "\n".join(lines)
         existing = dict(template.get("browser_policy") or {})
-        merged = {**existing, **{k: True for k in wanted if existing.get(k) is not True}}
-        if merged == existing:
+        # Absent -> fill (a gap). Explicitly false -> leave alone and REPORT (a
+        # decision). Already true -> nothing to do.
+        to_fill = [k for k in wanted if k not in existing]
+        contested = [k for k in wanted if existing.get(k) is False]
+
+        if contested:
             lines.append(
-                "--force: the existing template already has "
-                + ", ".join(f"browser_policy.{k}=true" for k in wanted)
-                + "; nothing to merge."
+                "--force: NOT changing "
+                + ", ".join(f"browser_policy.{k}" for k in contested)
+                + " -- the template has "
+                + ("it" if len(contested) == 1 else "them")
+                + " explicitly OFF, which is a decision someone made, and this "
+                "recording cannot tell whether it still holds. This recording "
+                "needs "
+                + ("it" if len(contested) == 1 else "them")
+                + " on; if that is right, set "
+                + ("it" if len(contested) == 1 else "them")
+                + " deliberately on the template."
+            )
+        if not to_fill:
+            lines.append(
+                "--force: nothing to fill -- every flag this recording needs is "
+                "already set on the existing template."
             )
             return "\n".join(lines)
+
+        merged = {**existing, **dict.fromkeys(to_fill, True)}
         tabby_client.update_app_template(template.get("id", ""), {"browser_policy": merged}, token)
-        turned_on = [k for k in wanted if existing.get(k) is not True]
         lines.append(
-            "--force: merged "
-            + ", ".join(f"browser_policy.{k}=true" for k in turned_on)
-            + f" onto the existing template ({template.get('id', '')}). Already-provisioned "
-            "sessions keep their old policy until re-provisioned."
+            "--force: filled "
+            + ", ".join(f"browser_policy.{k}=true" for k in to_fill)
+            + f" on the existing template ({template.get('id', '')}) -- "
+            + ("it was" if len(to_fill) == 1 else "they were")
+            + " unset, so no decision was overridden. Already-provisioned sessions "
+            "keep their old policy until re-provisioned."
         )
     except Exception as exc:  # noqa: BLE001 -- best-effort; the import itself must not fail here
         lines.append(f"--force: could not merge policy onto the existing template: {exc}")
@@ -669,10 +696,11 @@ def main() -> int:
     p.add_argument(
         "--force",
         action="store_true",
-        help="when the login App Template already exists, merge this recording's "
-        "browser_policy flags (downloads, block_navigate) onto it instead of keeping "
-        "it untouched. Pass this when the member asked for a fresh profile and the "
-        "--name collides with an existing template. The template is never replaced.",
+        help="when the login App Template already exists, fill in the browser_policy "
+        "flags (downloads, block_navigate) this recording needs and the template does "
+        "not SET. A flag the template has explicitly off is left alone and reported --"
+        " absent is a gap, false is a decision. Pass this when the member asked for a "
+        "fresh profile and the --name collides. The template is never replaced.",
     )
     p.add_argument(
         "--fold",
