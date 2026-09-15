@@ -12,6 +12,7 @@ did the rational thing and piped it away:
 per-operation results it then had to reason about were exactly what the pipe
 discarded.
 """
+
 import re
 from pathlib import Path
 
@@ -21,7 +22,9 @@ _SRC = Path(__file__).resolve().parents[1] / "skills/noui/scripts/verify_replay.
 def _summarize():
     """Load just the renderer, without the script's runtime imports."""
     src = _SRC.read_text()
-    m = re.search(r"def _summarize\(report: dict, report_path: Path\) -> str:.*?(?=\ndef )", src, re.S)
+    m = re.search(
+        r"def _summarize\(report: dict, report_path: Path\) -> str:.*?(?=\ndef )", src, re.S
+    )
     assert m, "_summarize not found"
     ns: dict = {"Path": Path}
     exec(m.group(0), ns)
@@ -34,12 +37,20 @@ _REPORT = {
     "all_goals_reached": False,
     "goals": [{"name": "download_last_statement", "reached": False}],
     "operations": [
-        {"name": "read_credit_card", "goal_reached": False, "blocked_count": 0,
-         "needs_approval_count": 0,
-         "steps": [{"status": "ok"}, {"status": "error"}, {"status": "ok"}]},
-        {"name": "download_last_statement", "goal_reached": True, "blocked_count": 0,
-         "needs_approval_count": 0,
-         "steps": [{"status": "ok"}, {"status": "ok"}]},
+        {
+            "name": "read_credit_card",
+            "goal_reached": False,
+            "blocked_count": 0,
+            "needs_approval_count": 0,
+            "steps": [{"status": "ok"}, {"status": "error"}, {"status": "ok"}],
+        },
+        {
+            "name": "download_last_statement",
+            "goal_reached": True,
+            "blocked_count": 0,
+            "needs_approval_count": 0,
+            "steps": [{"status": "ok"}, {"status": "ok"}],
+        },
     ],
 }
 
@@ -66,11 +77,19 @@ def test_summary_is_short_enough_not_to_invite_truncation():
 
 
 def test_a_clean_replay_says_so_plainly():
-    ok = {"all_goals_reached": True,
-          "goals": [{"name": "download_last_statement", "reached": True}],
-          "operations": [{"name": "download_last_statement", "goal_reached": True,
-                          "blocked_count": 0, "needs_approval_count": 0,
-                          "steps": [{"status": "ok"}]}]}
+    ok = {
+        "all_goals_reached": True,
+        "goals": [{"name": "download_last_statement", "reached": True}],
+        "operations": [
+            {
+                "name": "download_last_statement",
+                "goal_reached": True,
+                "blocked_count": 0,
+                "needs_approval_count": 0,
+                "steps": [{"status": "ok"}],
+            }
+        ],
+    }
     out = _summarize()(ok, Path("p.json"))
     assert out.startswith("Replay OK")
     assert "1/1 goal(s)" in out
@@ -140,11 +159,15 @@ def test_skipped_and_recovered_are_not_failures():
     clean = {
         "all_goals_reached": True,
         "goals": [{"name": "download_statement", "reached": True}],
-        "operations": [{
-            "name": "download_statement", "goal_reached": True,
-            "blocked_count": 0, "needs_approval_count": 0,
-            "steps": [{"status": "ok"}, {"status": "skipped"}, {"status": "recovered"}],
-        }],
+        "operations": [
+            {
+                "name": "download_statement",
+                "goal_reached": True,
+                "blocked_count": 0,
+                "needs_approval_count": 0,
+                "steps": [{"status": "ok"}, {"status": "skipped"}, {"status": "recovered"}],
+            }
+        ],
     }
     out = _summarize()(clean, Path("p.json"))
     assert out.startswith("Replay OK")
@@ -156,9 +179,12 @@ def test_a_report_level_status_is_the_whole_answer():
     "0/0 operation(s)" with exit code 0 -- the actionable line existed only in
     the file, so the caller was told nothing and had no reason to look."""
     out = _summarize()(
-        {"status": "not_replayable",
-         "detail": "Recompile the skill; do not replay this.",
-         "operations": [], "goals": []},
+        {
+            "status": "not_replayable",
+            "detail": "Recompile the skill; do not replay this.",
+            "operations": [],
+            "goals": [],
+        },
         Path("p.json"),
     )
     assert "NOT_REPLAYABLE" in out
@@ -174,10 +200,20 @@ def test_the_headline_matches_what_the_card_headlines():
         "all_goals_reached": False,  # an intermediate op blocked
         "goals": [{"name": "download_statement", "reached": True}],
         "operations": [
-            {"name": "submit_filter", "goal_reached": False, "blocked_count": 1,
-             "needs_approval_count": 0, "steps": [{"status": "blocked"}]},
-            {"name": "download_statement", "goal_reached": True, "blocked_count": 0,
-             "needs_approval_count": 0, "steps": [{"status": "ok"}]},
+            {
+                "name": "submit_filter",
+                "goal_reached": False,
+                "blocked_count": 1,
+                "needs_approval_count": 0,
+                "steps": [{"status": "blocked"}],
+            },
+            {
+                "name": "download_statement",
+                "goal_reached": True,
+                "blocked_count": 0,
+                "needs_approval_count": 0,
+                "steps": [{"status": "ok"}],
+            },
         ],
     }
     out = _summarize()(mixed, Path("p.json"))
@@ -192,11 +228,15 @@ def test_an_approval_hold_is_not_rendered_as_a_breakage():
         "all_goals_reached": False,
         "needs_approval": True,
         "goals": [{"name": "download_statement", "reached": False}],
-        "operations": [{
-            "name": "download_statement", "goal_reached": False,
-            "blocked_count": 0, "needs_approval_count": 1,
-            "steps": [{"status": "needs_approval"}],
-        }],
+        "operations": [
+            {
+                "name": "download_statement",
+                "goal_reached": False,
+                "blocked_count": 0,
+                "needs_approval_count": 1,
+                "steps": [{"status": "needs_approval"}],
+            }
+        ],
     }
     out = _summarize()(held, Path("p.json"))
     assert "awaiting approval" in out

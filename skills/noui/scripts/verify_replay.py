@@ -100,8 +100,7 @@ def _summarize(report: dict, report_path: Path) -> str:
         # skipped/recovered are not failures; blocked and needs_approval are
         # reported by name below rather than folded into a step index.
         broken = [
-            i for i, st in enumerate(steps)
-            if str(st.get("status") or "") in ("error", "failed")
+            i for i, st in enumerate(steps) if str(st.get("status") or "") in ("error", "failed")
         ]
         mark = "PASS" if o.get("goal_reached") else "FAIL"
         detail_bits = [f"{len(steps)} step(s)"]
