@@ -242,3 +242,49 @@ def test_an_approval_hold_is_not_rendered_as_a_breakage():
     assert "awaiting approval" in out
     assert "--approve-step" in out, "the remedy must be named"
     assert "error at step" not in out, "a hold is not an error"
+
+
+def test_a_status_less_short_circuit_still_reports_its_reason():
+    """run_replay's empty-ops branch (session.py `if not ops`) sets `detail` and
+    NO `status`. Triggering on status alone let that report fall through to the
+    generic "0/0 operation(s)" line, dropping the actual reason -- the same class
+    this summary exists to fix, and a regression against always-dumping the JSON.
+
+    Reachable for real: a skill mixing browser and non-browser operations,
+    replayed with --only <the non-browser op>, plans to an empty list.
+    """
+    out = _summarize()(
+        {
+            "operations": [],
+            "all_goals_reached": False,
+            "needs_approval": False,
+            "installable": False,
+            "detail": "no browser operations to replay",
+        },
+        Path("p.json"),
+    )
+    assert "no browser operations to replay" in out
+    assert "0/0" not in out, "the generic line must not replace the reason"
+
+
+def test_step_level_detail_does_not_short_circuit_a_normal_replay():
+    """`detail` on a STEP (_replay_step_inner sets it for skipped/needs_approval)
+    is not a report-level short circuit -- this must still summarise normally."""
+    out = _summarize()(
+        {
+            "all_goals_reached": True,
+            "goals": [{"name": "download_statement", "reached": True}],
+            "operations": [
+                {
+                    "name": "download_statement",
+                    "goal_reached": True,
+                    "blocked_count": 0,
+                    "needs_approval_count": 0,
+                    "steps": [{"status": "skipped", "detail": "already on the page"}],
+                }
+            ],
+        },
+        Path("p.json"),
+    )
+    assert out.startswith("Replay OK")
+    assert "[PASS] download_statement" in out

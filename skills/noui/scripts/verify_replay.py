@@ -76,10 +76,19 @@ def _summarize(report: dict, report_path: Path) -> str:
     """
     lines: list[str] = []
 
+    # A short-circuit report is the WHOLE answer. Trigger on `detail` too, not
+    # just `status`: run_replay's empty-ops branch (session.py, `if not ops`)
+    # sets detail and NO status, so a browser/non-browser skill replayed with
+    # --only <non-browser-op> fell through to the generic "0/0 operation(s)"
+    # line and silently dropped "no browser operations to replay". That is the
+    # same class this function exists to fix, and losing it was a regression
+    # against the old always-dump behaviour. Step-level detail lives on steps
+    # (_replay_step_inner), never here, so this cannot fire on a normal replay.
     status = str(report.get("status") or "")
     detail = str(report.get("detail") or "")
-    if status and status != "ok":
-        lines.append(f"Replay {status.upper()}." + (f" {detail}" if detail else ""))
+    if detail or (status and status != "ok"):
+        head = f"Replay {status.upper()}." if status and status != "ok" else "Replay did not run."
+        lines.append(f"{head}" + (f" {detail}" if detail else ""))
         lines.append(f"Full report: {report_path}")
         return "\n".join(lines)
 
