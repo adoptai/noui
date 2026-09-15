@@ -74,7 +74,7 @@ When you give the recording link, tell the member to **demonstrate reaching each
 actually download the file, actually submit the form — so the recording carries evidence
 the goal was met.
 
-## Part A — capture login + workflow in ONE session (the default)
+## Part A — RECORD: login + workflow in ONE session (the default, and the only recording)
 
 ```bash
 cd /workspace/noui
@@ -108,13 +108,25 @@ Then **end your turn**. Do not poll. Do not mention any other link yet.
 > compile with `--auth-type api-key --api-key-header <header>` (default `Authorization`);
 > the compile prints a `${SECRET:...}` name for an admin to register. **Otherwise leave
 > `--auth-type` at its default** (`session`).
->
-> **Record the halves separately** (`--mode login`, then `--mode workflow --from
-> <login_session_id>`) only when you have a specific reason — e.g. you must confirm the
-> App Template registered before spending the user's time on the workflow. It costs an
-> extra link and an extra sign-in, so it is not the default.
 
-## Part B — import: App Template + Skill from that one capture
+**Recording the halves separately is NOT the default and is NOT required for a fresh
+profile.** Part A above is the whole recording. Part B is an import, not a second
+recording: do not ask the user to record again after Part A.
+
+A **fresh profile** (the user says "don't reuse an existing profile", or no App Template
+exists yet) is already what the combined default does. `--name` checks for a matching
+App Template first; add `--force` to record a new one anyway:
+
+```bash
+python scripts/capture_record.py --url "<LOGIN_URL>" --name "<app-name>" --force
+```
+
+Split the halves (`--mode login`, then `--mode workflow --from <login_session_id>`) only
+when you have a specific reason, e.g. you must confirm the App Template registered before
+spending the user's time on the workflow. It costs an extra link and an extra sign-in, so
+it is not the default.
+
+## Part B — IMPORT (no recording): App Template + Skill from that one capture
 
 ```bash
 cd /workspace/noui
