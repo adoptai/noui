@@ -222,40 +222,54 @@ def _resolve_keepalive_style(args: argparse.Namespace, workflow_bundle: dict) ->
     return "goto"
 
 
-# The browser_policy flags a fresh browser-driven compile turns on. Under
-# --force these fill only keys the existing template does not HAVE.
-#
-# "Only ever switch on, never off" sounds protective and is not: a template
-# carrying downloads=False because someone set it that way for a
-# compliance-sensitive app would be flipped on by any later recording that
-# collided on --name. Absent and explicitly-false are different states -- the
-# first is a gap, the second is a decision -- so only the gap is filled, and a
-# decision that contradicts the recording is reported for a human to settle
-# rather than overridden.
-_POLICY_FLAGS_TO_MERGE = ("downloads", "block_navigate")
+# The browser_policy flags a fresh browser-driven compile turns on. Reported,
+# never written: see _on_template_exists.
+_POLICY_FLAGS_TO_CHECK = ("downloads", "block_navigate")
 
 
-def _on_template_exists(profile_slug: str, compiled: dict, *, force: bool) -> str:
-    """What to say, and do, when the login App Template already exists.
+def _existing_policy(profile_slug: str) -> dict | None:
+    """The existing template's browser_policy, or None if it cannot be read.
+
+    A READ, for diagnosis -- so the report can say which flags the template
+    actually lacks instead of guessing. Best-effort in every direction: an
+    import that produced a real workflow asset must never fail because a
+    diagnostic lookup did.
+    """
+    try:
+        from noui_core import tabby_client
+
+        template = tabby_client.get_app_template_by_profile_slug(
+            profile_slug, register.resolve_admin_token()
+        )
+        return dict((template or {}).get("browser_policy") or {}) if template else None
+    except Exception:  # noqa: BLE001 -- diagnosis only; absence is an answer
+        return None
+
+
+def _on_template_exists(profile_slug: str, compiled: dict) -> str:
+    """What to say when the login App Template already exists.
 
     Tabby answered 409 to register_login. The old behaviour kept the existing
-    template and said so once, in stderr, and moved on. That was written for
-    the SECOND import of the SAME recording. It cannot tell that apart from a
+    template and said so once, in stderr, and moved on. That was written for the
+    SECOND import of the SAME recording. It cannot tell that apart from a
     DIFFERENT recording that happens to collide on --name -- which is what a
     member asking for a "fresh" profile produces when the agent reuses a slug.
 
     In a real build that silence cost both halves of the task: the fresh
-    recording would have registered a template with browser_policy.downloads
-    and block_navigate on; the kept template had neither, so every `navigate`
+    recording would have registered a template with browser_policy.downloads and
+    block_navigate on; the kept template had neither, so every `navigate`
     reloaded the bank and signed the member out, and every download was
     discarded by the browser. The agent then told the member the profile was
     fresh.
 
-    So: always say plainly that THIS recording's login was not registered, and
-    under --force merge the fresh compile's policy flags onto the existing
-    template (additive) so the template at least carries what the recording
-    proved it needs. The template itself is still not replaced -- it may be
-    serving sessions -- and that is stated too.
+    So this REPORTS, in detail, and writes nothing.
+
+    An App Template is a tenant-wide blueprint and its edits propagate to apps
+    already provisioned from it, so changing one is a decision about other
+    people's live profiles -- not a side effect an import should take on a
+    member's behalf, and not something an agent should do unasked. The supported
+    path is the Auth Manager UI, which is auditable and needs no token passed
+    into a sandbox. This says exactly what to change there.
     """
     lines = [
         f"Login App Template '{profile_slug}' already exists — keeping it and "
@@ -265,72 +279,42 @@ def _on_template_exists(profile_slug: str, compiled: dict, *, force: bool) -> st
         "use is the pre-existing one, not a fresh one.",
     ]
     fresh_policy = (compiled.get("application_draft") or {}).get("browser_policy") or {}
-    wanted = {k: True for k in _POLICY_FLAGS_TO_MERGE if fresh_policy.get(k) is True}
-
-    if not force:
-        if wanted:
-            lines.append(
-                "This recording compiled with "
-                + ", ".join(f"browser_policy.{k}=true" for k in wanted)
-                + ". The existing template may not have them. Re-run with --force to "
-                "merge them onto it, or use a different --name to register a new profile."
-            )
-        return "\n".join(lines)
-
+    wanted = [k for k in _POLICY_FLAGS_TO_CHECK if fresh_policy.get(k) is True]
     if not wanted:
-        lines.append("--force: this recording turns on no policy flags; nothing to merge.")
         return "\n".join(lines)
 
-    try:
-        from noui_core import tabby_client
-
-        token = register.resolve_admin_token()
-        template = tabby_client.get_app_template_by_profile_slug(profile_slug, token)
-        if not template:
-            lines.append(
-                f"--force: no App Template found with profile_name_pattern {profile_slug!r}; "
-                "nothing merged."
-            )
-            return "\n".join(lines)
-        existing = dict(template.get("browser_policy") or {})
-        # Absent -> fill (a gap). Explicitly false -> leave alone and REPORT (a
-        # decision). Already true -> nothing to do.
-        to_fill = [k for k in wanted if k not in existing]
-        contested = [k for k in wanted if existing.get(k) is False]
-
-        if contested:
-            lines.append(
-                "--force: NOT changing "
-                + ", ".join(f"browser_policy.{k}" for k in contested)
-                + " -- the template has "
-                + ("it" if len(contested) == 1 else "them")
-                + " explicitly OFF, which is a decision someone made, and this "
-                "recording cannot tell whether it still holds. This recording "
-                "needs "
-                + ("it" if len(contested) == 1 else "them")
-                + " on; if that is right, set "
-                + ("it" if len(contested) == 1 else "them")
-                + " deliberately on the template."
-            )
-        if not to_fill:
-            lines.append(
-                "--force: nothing to fill -- every flag this recording needs is "
-                "already set on the existing template."
-            )
-            return "\n".join(lines)
-
-        merged = {**existing, **dict.fromkeys(to_fill, True)}
-        tabby_client.update_app_template(template.get("id", ""), {"browser_policy": merged}, token)
+    existing = _existing_policy(profile_slug)
+    if existing is None:
         lines.append(
-            "--force: filled "
-            + ", ".join(f"browser_policy.{k}=true" for k in to_fill)
-            + f" on the existing template ({template.get('id', '')}) -- "
-            + ("it was" if len(to_fill) == 1 else "they were")
-            + " unset, so no decision was overridden. Already-provisioned sessions "
-            "keep their old policy until re-provisioned."
+            "This recording compiled with "
+            + ", ".join(f"browser_policy.{k}=true" for k in wanted)
+            + ". Could not read the existing template to compare — check it carries "
+            "them."
         )
-    except Exception as exc:  # noqa: BLE001 -- best-effort; the import itself must not fail here
-        lines.append(f"--force: could not merge policy onto the existing template: {exc}")
+    else:
+        missing = [k for k in wanted if existing.get(k) is not True]
+        if not missing:
+            lines.append(
+                "Checked the existing template: it already has "
+                + ", ".join(f"browser_policy.{k}=true" for k in wanted)
+                + "."
+            )
+            return "\n".join(lines)
+        lines.append(
+            "The existing template is MISSING "
+            + ", ".join(f"browser_policy.{k}=true" for k in missing)
+            + ", which this recording proved the app needs. Until they are set: "
+            "`navigate` will reload the app and can sign the member out mid-task, "
+            "and downloads will be discarded by the browser without any error."
+        )
+
+    lines.append(
+        "This is NOT changed automatically. An App Template is tenant-wide and its "
+        "edits propagate to apps already provisioned from it, so it is the member's "
+        "call, not yours. Tell them what needs setting and let them do it in "
+        "Studio → Connectors → Auth Manager → the profile → Edit → Browser policy. "
+        "Do not attempt it with a script."
+    )
     return "\n".join(lines)
 
 
@@ -425,7 +409,7 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             args.profile_slug or ""
         )
         print(
-            _on_template_exists(profile_slug, compiled, force=bool(getattr(args, "force", False))),
+            _on_template_exists(profile_slug, compiled),
             file=sys.stderr,
         )
 
@@ -692,15 +676,6 @@ def main() -> int:
         help="(login/takeover) glob the LOGGED-IN url matches but the login page does NOT "
         "(e.g. '**/lightning/**'). Enables auto-resolve: reaching it completes login with no "
         "'Mark as Resolved' click. Needed for same-origin apps where it can't be auto-derived.",
-    )
-    p.add_argument(
-        "--force",
-        action="store_true",
-        help="when the login App Template already exists, fill in the browser_policy "
-        "flags (downloads, block_navigate) this recording needs and the template does "
-        "not SET. A flag the template has explicitly off is left alone and reported --"
-        " absent is a gap, false is a decision. Pass this when the member asked for a "
-        "fresh profile and the --name collides. The template is never replaced.",
     )
     p.add_argument(
         "--fold",

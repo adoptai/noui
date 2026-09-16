@@ -1,15 +1,21 @@
-"""An import that keeps an existing App Template must say so, loudly.
+"""An import that keeps an existing App Template must say so, in detail.
 
 From a real build (org 87451b06, 2026-09-15): the member asked for a FRESH
 profile. `capture_record --force` honoured that at record time, but the agent
 reused the slug, so `capture_import` hit Tabby's 409 and — by a policy written
 for "the SECOND import of the SAME recording" — kept a 29-day-old template and
-compiled only the workflow half.
+compiled only the workflow half, saying so in one line of stderr the agent read
+past.
 
 That template's browser_policy lacked `block_navigate` and `downloads`, which a
-fresh compile of this recording would have set. Both halves of the task then
-failed far from here: every `navigate` reloaded the bank and signed the member
-out (4 sign-in prompts), and every download was discarded by the browser.
+fresh compile of this recording sets. Both halves of the task then failed far
+from here: every `navigate` reloaded the bank and signed the member out, and
+every download was discarded by the browser.
+
+The import REPORTS all of this and changes nothing. An App Template is
+tenant-wide and its edits propagate to apps already provisioned from it, so
+changing one is a decision about other people's live profiles — the member's,
+made in the Auth Manager, not an import's side effect.
 """
 
 import importlib.util
@@ -30,135 +36,73 @@ def _mod():
 COMPILED = {"application_draft": {"browser_policy": {"downloads": True, "block_navigate": True}}}
 
 
-def test_without_force_it_names_the_reuse_and_the_flags_at_risk():
-    out = _mod()._on_template_exists("icici-credit-card-statement", COMPILED, force=False)
+def _with_existing(m, monkeypatch, policy):
+    monkeypatch.setattr(m, "_existing_policy", lambda _slug: policy)
+
+
+def test_it_names_the_reuse_and_that_this_login_was_not_registered(monkeypatch):
+    m = _mod()
+    _with_existing(m, monkeypatch, {})
+    out = m._on_template_exists("icici-credit-card-statement", COMPILED)
     assert "was NOT registered" in out
     assert "not a fresh one" in out
-    # The flags are the actionable part: they are why reuse is not cosmetic.
-    assert "browser_policy.downloads=true" in out
+
+
+def test_it_reports_exactly_which_flags_the_existing_template_lacks(monkeypatch):
+    m = _mod()
+    _with_existing(m, monkeypatch, {"downloads": True})  # block_navigate absent
+    out = m._on_template_exists("app", COMPILED)
+    assert "MISSING" in out
     assert "browser_policy.block_navigate=true" in out
-    assert "--force" in out
+    assert "browser_policy.downloads" not in out.split("MISSING")[1].split(".", 1)[0]
+    # And what it costs, so the member can judge urgency.
+    assert "sign the member out" in out and "discarded" in out
 
 
-def test_with_force_it_merges_the_flags_onto_the_existing_template(monkeypatch):
+def test_it_writes_nothing_and_points_at_the_supported_path(monkeypatch):
+    """An App Template is tenant-wide and propagates to provisioned apps, so this
+    is the member's decision and belongs in the UI, not in a script."""
     m = _mod()
-    calls = {}
-
-    class _Client:
-        @staticmethod
-        def get_app_template_by_profile_slug(slug, token):
-            # block_navigate ABSENT (a gap: this template predates the flag),
-            # clipboard explicitly False (unrelated, must survive).
-            return {"id": "tpl-1", "browser_policy": {"clipboard": False}}
-
-        @staticmethod
-        def update_app_template(tid, payload, token):
-            calls["id"], calls["payload"] = tid, payload
-            return {}
-
-    import noui_core
-
-    monkeypatch.setattr(noui_core, "tabby_client", _Client, raising=False)
-    monkeypatch.setitem(sys.modules, "noui_core.tabby_client", _Client)
-    monkeypatch.setattr(m.register, "resolve_admin_token", lambda: "tok")
-
-    out = m._on_template_exists("icici-credit-card-statement", COMPILED, force=True)
-    assert calls["id"] == "tpl-1"
-    bp = calls["payload"]["browser_policy"]
-    # Fills the gaps; never drops a field it did not set.
-    assert bp["downloads"] is True and bp["block_navigate"] is True
-    assert bp["clipboard"] is False, "an unrelated flag must survive the merge"
-    assert "filled" in out
+    _with_existing(m, monkeypatch, {})
+    out = m._on_template_exists("app", COMPILED)
+    assert "NOT changed automatically" in out
+    assert "Auth Manager" in out
+    assert "the member's" in out
+    assert "Do not attempt it with a script" in out
+    # No writer is even reachable from this module any more.
+    assert not hasattr(m, "update_app_template")
+    assert "update_app_template" not in Path(_SCRIPTS / "capture_import.py").read_text()
 
 
-def test_force_never_turns_a_flag_off(monkeypatch):
-    """A recording that needs nothing must not clear what an operator set."""
+def test_it_stays_quiet_when_the_template_already_has_the_flags(monkeypatch):
     m = _mod()
-    calls = {}
-
-    class _Client:
-        @staticmethod
-        def get_app_template_by_profile_slug(slug, token):
-            return {"id": "t", "browser_policy": {"downloads": True, "block_navigate": True}}
-
-        @staticmethod
-        def update_app_template(tid, payload, token):
-            calls["payload"] = payload
-
-    monkeypatch.setitem(sys.modules, "noui_core.tabby_client", _Client)
-    monkeypatch.setattr(m.register, "resolve_admin_token", lambda: "tok")
-
-    out = m._on_template_exists("x", {"application_draft": {"browser_policy": {}}}, force=True)
-    assert "nothing to merge" in out
-    assert not calls, "no write when the recording turns on nothing"
+    _with_existing(m, monkeypatch, {"downloads": True, "block_navigate": True})
+    out = m._on_template_exists("app", COMPILED)
+    assert "already has" in out
+    assert "MISSING" not in out
 
 
-def test_a_failure_to_merge_is_reported_not_raised(monkeypatch):
-    """The import must still complete: the workflow half is real work."""
+def test_an_unreadable_template_is_reported_not_guessed_at(monkeypatch):
+    m = _mod()
+    _with_existing(m, monkeypatch, None)
+    out = m._on_template_exists("app", COMPILED)
+    assert "Could not read the existing template" in out
+    assert "MISSING" not in out, "never assert a flag is missing on a failed read"
+
+
+def test_a_recording_that_needs_no_flags_adds_no_noise(monkeypatch):
+    m = _mod()
+    _with_existing(m, monkeypatch, {})
+    out = m._on_template_exists("app", {"application_draft": {"browser_policy": {}}})
+    assert "was NOT registered" in out
+    assert "Auth Manager" not in out
+
+
+def test_the_diagnosis_read_never_fails_the_import(monkeypatch):
+    """A real workflow asset was produced; a diagnostic lookup must not sink it."""
     m = _mod()
     monkeypatch.setattr(
         m.register, "resolve_admin_token", lambda: (_ for _ in ()).throw(RuntimeError("no token"))
     )
-    out = m._on_template_exists("x", COMPILED, force=True)
-    assert "could not merge" in out
-    assert "was NOT registered" in out, "the reuse notice survives a merge failure"
-
-
-def test_a_flag_the_template_has_explicitly_off_is_not_flipped(monkeypatch):
-    """Review (rahulbh1510): "only ever switch on, never off" is not protective.
-
-    A template carrying downloads=False because someone set it that way for a
-    compliance-sensitive app would be flipped on by ANY later recording that
-    collided on --name. Absent and explicitly-false are different states: the
-    first is a gap, the second is a decision. Only the gap is filled.
-    """
-    m = _mod()
-    calls = {}
-
-    class _Client:
-        @staticmethod
-        def get_app_template_by_profile_slug(slug, token):
-            # downloads deliberately OFF; block_navigate merely absent.
-            return {"id": "tpl-2", "browser_policy": {"downloads": False}}
-
-        @staticmethod
-        def update_app_template(tid, payload, token):
-            calls["payload"] = payload
-
-    import noui_core
-
-    monkeypatch.setattr(noui_core, "tabby_client", _Client, raising=False)
-    monkeypatch.setitem(sys.modules, "noui_core.tabby_client", _Client)
-    monkeypatch.setattr(m.register, "resolve_admin_token", lambda: "tok")
-
-    out = m._on_template_exists("app", COMPILED, force=True)
-    bp = calls["payload"]["browser_policy"]
-    assert bp["downloads"] is False, "an explicit decision must not be overridden"
-    assert bp["block_navigate"] is True, "an absent flag is a gap and is filled"
-    # And the contradiction is reported, not swallowed -- a human decides.
-    assert "NOT changing" in out and "browser_policy.downloads" in out
-    assert "explicitly OFF" in out
-
-
-def test_nothing_is_written_when_every_needed_flag_is_contested(monkeypatch):
-    m = _mod()
-    calls = {}
-
-    class _Client:
-        @staticmethod
-        def get_app_template_by_profile_slug(slug, token):
-            return {"id": "t", "browser_policy": {"downloads": False, "block_navigate": False}}
-
-        @staticmethod
-        def update_app_template(tid, payload, token):
-            calls["payload"] = payload
-
-    import noui_core
-
-    monkeypatch.setattr(noui_core, "tabby_client", _Client, raising=False)
-    monkeypatch.setitem(sys.modules, "noui_core.tabby_client", _Client)
-    monkeypatch.setattr(m.register, "resolve_admin_token", lambda: "tok")
-
-    out = m._on_template_exists("app", COMPILED, force=True)
-    assert not calls, "no write when there is no gap to fill"
-    assert "NOT changing" in out
+    assert m._existing_policy("app") is None
+    assert m._on_template_exists("app", COMPILED)
