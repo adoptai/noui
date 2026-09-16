@@ -197,9 +197,10 @@ def main() -> int:
     p.add_argument(
         "--json",
         action="store_true",
-        help="print the full report JSON before the summary (the report is "
-        "written to replay_report.json either way; the summary is always last so "
-        "it survives a `| tail`)",
+        help="print the full report JSON to stdout (still written to "
+        "replay_report.json either way). stdout stays a single valid JSON "
+        "document -- the summary goes to stderr, last, so it survives a "
+        "`2>&1 | tail` without breaking a `| json.load`.",
     )
     p.add_argument(
         "--only",
@@ -521,14 +522,28 @@ def main() -> int:
     # The full report goes to stdout when asked for, and ALWAYS when the file
     # could not be written -- otherwise a failed write would silently take the
     # report with it, which is the one case the fallback above exists for.
-    if args.json or not wrote_report:
+    dumped = args.json or not wrote_report
+    if dumped:
         print(json.dumps(report, indent=2, ensure_ascii=False))
-    # The summary is printed LAST, in every mode. An agent caller ran
-    # `--json 2>&1 | tail -N` on every replay and, in two of three runs, the
-    # tail cut off the blocked download step and its reason. Anything that must
-    # survive a tail has to be at the end; a summary printed first would be the
-    # first thing discarded.
-    print(_summarize(report, out if wrote_report else None))
+
+    # The summary is printed LAST in every mode, because an agent caller ran
+    # `--json 2>&1 | tail -N` on every replay and in two of three runs the tail
+    # cut off the blocked download step and its reason. Anything that must
+    # survive a tail has to be at the end.
+    #
+    # But when the report was dumped, the summary goes to STDERR, so stdout
+    # stays a single valid JSON document. A caller really did
+    # `verify_replay.py ... | python3 -c "json.load(sys.stdin)"`; appending prose
+    # to stdout would turn that into a JSONDecodeError. Under `2>&1 | tail` the
+    # two streams merge and the summary is still last -- provided stdout is
+    # flushed first, since it is block-buffered through a pipe while stderr is
+    # not, and without the flush the order would invert exactly where it matters.
+    summary = _summarize(report, out if wrote_report else None)
+    if dumped:
+        sys.stdout.flush()
+        print(summary, file=sys.stderr)
+    else:
+        print(summary)
 
     if report.get("status") == "login_required":
         print(

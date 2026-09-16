@@ -121,9 +121,7 @@ def test_full_json_is_still_reachable_and_still_the_fallback(tmp_path, monkeypat
     src = _SRC.read_text()
     assert '"--json"' in src, "the flag must exist"
 
-    tail = re.search(
-        r"    out = skill_dir / REPORT_FILE.*?print\(_summarize\(report, out[^)]*\)\)", src, re.S
-    )
+    tail = re.search(r"    out = skill_dir / REPORT_FILE.*?print\(summary\)", src, re.S)
     assert tail, "report-writing tail not found"
 
     ns = {
@@ -144,27 +142,35 @@ def test_full_json_is_still_reachable_and_still_the_fallback(tmp_path, monkeypat
                 "out.write_text(", "(_ for _ in ()).throw(OSError('boom')) or out.write_text("
             )
         exec("if True:\n" + "\n".join(" " + line for line in code.splitlines()), ns)
-        return capsys.readouterr().out
+        cap = capsys.readouterr()
+        # Under --json the summary goes to STDERR so stdout stays valid JSON;
+        # return both, plus stdout alone, so each contract can be asserted.
+        return cap.out + cap.err, cap.out
+
+    import json as _json
 
     # A failed write must still print the full report -- it is then the only copy.
-    failed = _run(writable=False, want_json=False)
-    assert '"goals"' in failed, "a failed write must still print the full report"
-    assert "Replay OK" in failed, "and still end with the summary"
-    assert "only copy" in failed, "and say the file could not be written"
+    both, out = _run(writable=False, want_json=False)
+    assert '"goals"' in out, "a failed write must still print the full report to stdout"
+    assert "Replay OK" in both, "and still end with the summary"
+    assert "only copy" in both, "and say the file could not be written"
 
-    # --json prints the report, then the summary. The summary is LAST so that a
-    # caller piping through `tail -N` keeps the verdict rather than the tail of
-    # a JSON blob -- the exact loss seen in production.
-    j = _run(writable=True, want_json=True)
-    assert '"goals"' in j, "--json must print the full report"
-    assert j.rstrip().endswith(
+    # --json: stdout stays a SINGLE VALID JSON DOCUMENT. A caller really did
+    # `verify_replay.py ... | python3 -c "json.load(sys.stdin)"`; appending the
+    # summary to stdout turned that into a JSONDecodeError.
+    both, out = _run(writable=True, want_json=True)
+    parsed = _json.loads(out)
+    assert "goals" in parsed, "--json stdout must be the report and nothing else"
+    assert "Replay OK" not in out, "the summary must not be on stdout under --json"
+    # ...and it is still LAST once the streams are merged (`2>&1 | tail -N`),
+    # which is the truncation this exists to survive.
+    assert both.rstrip().endswith(
         "do not summarise it back to them as approved, and do not approve it yourself."
-    ), "the summary must be the LAST thing on stdout in --json mode"
-    assert j.index("Replay OK") > j.index('"goals"'), "summary comes after the JSON"
+    ), "merged output must still end with the summary"
 
-    # Default is the summary alone.
-    d = _run(writable=True, want_json=False)
-    assert "Replay OK" in d and '"goals"' not in d, "default is the summary, no JSON"
+    # Default is the summary alone, on stdout.
+    both, out = _run(writable=True, want_json=False)
+    assert "Replay OK" in out and '"goals"' not in out, "default is the summary, no JSON"
 
 
 def test_skipped_and_recovered_are_not_failures():
