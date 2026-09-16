@@ -258,6 +258,11 @@ def _satisfied_already(step: dict, detail: str) -> bool:
 
 
 _RETRY_PAUSE_S = 2.5
+# How long a download expectation keeps polling list_downloads before it is
+# unmet. Bounded well under the recorder's 120s attribution window; the poll
+# returns the moment a fresh file (or a policy refusal) is seen.
+_DOWNLOAD_WAIT_S = 30.0
+_DOWNLOAD_POLL_S = 2.0
 """How long to let a transiently-missing control appear before trying again."""
 
 _INVISIBLE = "on the page but not visible"
@@ -586,17 +591,42 @@ def expectation_unmet(expect: Any, execute: Any, *, known_downloads: set[str] | 
                 return f"expected to be on {want_url} after this step, but the page is {here}"
 
     if expect.get("download"):
-        try:
-            listed = execute("list_downloads", {}) or {}
-            files = ((listed.get("data") or listed) or {}).get("downloads") or []
-        except Exception:  # noqa: BLE001
-            files = []
+        # The recorder attributes a download to a click for up to 120s
+        # (worker DOWNLOAD_WINDOW_MS); a single immediate list_downloads here
+        # gave the file ~2.5s. A bank that shows "generating statement..." for
+        # ten seconds passed recording and failed every replay. Poll, bounded.
         known = known_downloads if known_downloads is not None else set()
-        fresh = [f for f in files if _is_new_download(f, known)]
+        deadline = time.monotonic() + _DOWNLOAD_WAIT_S
+        files: list = []
+        fresh: list = []
+        disabled = False
+        while True:
+            try:
+                listed = execute("list_downloads", {}) or {}
+                data = (listed.get("data") or listed) or {}
+                files = data.get("downloads") or []
+                disabled = bool(data.get("disabled_by_policy"))
+            except Exception:  # noqa: BLE001
+                files = []
+            fresh = [f for f in files if _is_new_download(f, known)]
+            if fresh or disabled or time.monotonic() >= deadline:
+                break
+            time.sleep(_DOWNLOAD_POLL_S)
         # Everything on disk is accounted for from here on, whether or not it
         # satisfied THIS step.
         if known_downloads is not None:
             known_downloads.update(str(f.get("id")) for f in files if f.get("id") is not None)
+        if disabled and not fresh:
+            # Not a step failure: the click worked and the browser threw the
+            # file away, because the App Template never opted in. Naming the
+            # cause here is what stops a member being asked to waive the one
+            # operation they came for.
+            return (
+                "downloads are DISABLED for this app (browser_policy.downloads is "
+                "off on its App Template), so the file this step produced when it "
+                "was recorded was discarded by the browser. Enable downloads on the "
+                "template and replay; this is a template setting, not a broken step."
+            )
         if not fresh:
             if files:
                 return (

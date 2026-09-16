@@ -222,6 +222,102 @@ def _resolve_keepalive_style(args: argparse.Namespace, workflow_bundle: dict) ->
     return "goto"
 
 
+# The browser_policy flags a fresh browser-driven compile turns on. Reported,
+# never written: see _on_template_exists.
+_POLICY_FLAGS_TO_CHECK = ("downloads", "block_navigate")
+
+
+def _existing_policy(profile_slug: str) -> dict | None:
+    """The existing template's browser_policy, or None if it cannot be read.
+
+    A READ, for diagnosis -- so the report can say which flags the template
+    actually lacks instead of guessing. Best-effort in every direction: an
+    import that produced a real workflow asset must never fail because a
+    diagnostic lookup did.
+    """
+    try:
+        from noui_core import tabby_client
+
+        template = tabby_client.get_app_template_by_profile_slug(
+            profile_slug, register.resolve_admin_token()
+        )
+        return dict((template or {}).get("browser_policy") or {}) if template else None
+    except Exception:  # noqa: BLE001 -- diagnosis only; absence is an answer
+        return None
+
+
+def _on_template_exists(profile_slug: str, compiled: dict) -> str:
+    """What to say when the login App Template already exists.
+
+    Tabby answered 409 to register_login. The old behaviour kept the existing
+    template and said so once, in stderr, and moved on. That was written for the
+    SECOND import of the SAME recording. It cannot tell that apart from a
+    DIFFERENT recording that happens to collide on --name -- which is what a
+    member asking for a "fresh" profile produces when the agent reuses a slug.
+
+    In a real build that silence cost both halves of the task: the fresh
+    recording would have registered a template with browser_policy.downloads and
+    block_navigate on; the kept template had neither, so every `navigate`
+    reloaded the bank and signed the member out, and every download was
+    discarded by the browser. The agent then told the member the profile was
+    fresh.
+
+    So this REPORTS, in detail, and writes nothing.
+
+    An App Template is a tenant-wide blueprint and its edits propagate to apps
+    already provisioned from it, so changing one is a decision about other
+    people's live profiles -- not a side effect an import should take on a
+    member's behalf, and not something an agent should do unasked. The supported
+    path is the Auth Manager UI, which is auditable and needs no token passed
+    into a sandbox. This says exactly what to change there.
+    """
+    lines = [
+        f"Login App Template '{profile_slug}' already exists — keeping it and "
+        "compiling the workflow half. The login was recorded once; re-registering "
+        "it would only overwrite a profile that is already serving sessions.",
+        "NOTE: the login half of THIS recording was NOT registered. The profile in "
+        "use is the pre-existing one, not a fresh one.",
+    ]
+    fresh_policy = (compiled.get("application_draft") or {}).get("browser_policy") or {}
+    wanted = [k for k in _POLICY_FLAGS_TO_CHECK if fresh_policy.get(k) is True]
+    if not wanted:
+        return "\n".join(lines)
+
+    existing = _existing_policy(profile_slug)
+    if existing is None:
+        lines.append(
+            "This recording compiled with "
+            + ", ".join(f"browser_policy.{k}=true" for k in wanted)
+            + ". Could not read the existing template to compare — check it carries "
+            "them."
+        )
+    else:
+        missing = [k for k in wanted if existing.get(k) is not True]
+        if not missing:
+            lines.append(
+                "Checked the existing template: it already has "
+                + ", ".join(f"browser_policy.{k}=true" for k in wanted)
+                + "."
+            )
+            return "\n".join(lines)
+        lines.append(
+            "The existing template is MISSING "
+            + ", ".join(f"browser_policy.{k}=true" for k in missing)
+            + ", which this recording proved the app needs. Until they are set: "
+            "`navigate` will reload the app and can sign the member out mid-task, "
+            "and downloads will be discarded by the browser without any error."
+        )
+
+    lines.append(
+        "This is NOT changed automatically. An App Template is tenant-wide and its "
+        "edits propagate to apps already provisioned from it, so it is the member's "
+        "call, not yours. Tell them what needs setting and let them do it in "
+        "Studio → Connectors → Auth Manager → the profile → Edit → Browser policy. "
+        "Do not attempt it with a script."
+    )
+    return "\n".join(lines)
+
+
 def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
     """One capture → both a registered login App Template and a workflow asset.
 
@@ -313,9 +409,7 @@ def _run_combined(args: argparse.Namespace, bundle: dict) -> int:
             args.profile_slug or ""
         )
         print(
-            f"Login App Template '{profile_slug}' already exists — keeping it and "
-            "compiling the workflow half. The login was recorded once; re-registering "
-            "it would only overwrite a profile that is already serving sessions.",
+            _on_template_exists(profile_slug, compiled),
             file=sys.stderr,
         )
 

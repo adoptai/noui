@@ -1836,6 +1836,39 @@ use `command: "navigate"` on this app.
     return frontmatter + body
 
 
+def manifest_op_entries(pages: list[dict], terminal_ops: list[dict]) -> list[dict]:
+    """The manifest's `operations` list: one entry per page read, one per terminal.
+
+    Each entry carries `kind`. The import's goal check (`goal_coverage_warning`,
+    `infer_primary_goal`) reads THIS list, not operations.json, and keys on
+    `kind`. Without it every entry read as "read", so a recording whose
+    download WAS observed (expect.download on the terminal click) still printed
+    "captured no download" and "Goal: download [read]" -- a false alarm the
+    agent then repeated to the member as fact.
+    """
+    return [
+        {
+            "name": p["name"],
+            "kind": "read",
+            "description": f"Read the rendered contents of {p['url']}",
+            "recipe": "operations.json",
+            "tool": "call_web_browser",
+            "url": p["url"],
+        }
+        for p in pages
+    ] + [
+        {
+            "name": op["name"],
+            "kind": op["kind"],
+            "description": _terminal_description(op),
+            "recipe": "operations.json",
+            "tool": "call_web_browser",
+            "url": op["url"],
+        }
+        for op in terminal_ops
+    ]
+
+
 def generate_browser_skill(
     *,
     app_slug: str,
@@ -1908,25 +1941,7 @@ def generate_browser_skill(
     )
     (out_path / "operations.json").write_text(operations_json, encoding="utf-8")
 
-    op_entries = [
-        {
-            "name": p["name"],
-            "description": f"Read the rendered contents of {p['url']}",
-            "recipe": "operations.json",
-            "tool": "call_web_browser",
-            "url": p["url"],
-        }
-        for p in pages
-    ] + [
-        {
-            "name": op["name"],
-            "description": _terminal_description(op),
-            "recipe": "operations.json",
-            "tool": "call_web_browser",
-            "url": op["url"],
-        }
-        for op in terminal_ops
-    ]
+    op_entries = manifest_op_entries(pages, terminal_ops)
 
     manifest: dict = {
         "schema_version": "1",
