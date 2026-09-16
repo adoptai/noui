@@ -72,7 +72,7 @@ def test_summary_is_short_enough_not_to_invite_truncation():
     starts piping again and the fix is undone."""
     out = _summarize()(_REPORT, Path("workbench/skills/x/replay_report.json"))
     assert len(out.splitlines()) <= 10, out
-    assert len(out) < 700, f"{len(out)} chars is drifting back toward a dump"
+    assert len(out) < 900, f"{len(out)} chars is drifting back toward a dump"
     assert '"steps"' not in out, "step-level JSON belongs in the file, not stdout"
 
 
@@ -308,3 +308,68 @@ def test_step_level_detail_does_not_short_circuit_a_normal_replay():
     )
     assert out.startswith("Replay OK")
     assert "[PASS] download_statement" in out
+
+
+def test_a_blocked_step_says_why_not_just_how_many():
+    """In a real build the summary said "1 step(s), 1 blocked" and nothing else.
+    The caller ran without --json, so that WAS the whole report it saw; it then
+    told the member "this step did not pass" and asked them to waive it -- for a
+    blocker that was theirs to clear in one click."""
+    rep = {
+        "goals": [{"name": "download", "reached": True}],
+        "operations": [
+            {
+                "name": "read_credit_card",
+                "goal_reached": False,
+                "blocked_count": 1,
+                "needs_approval_count": 0,
+                "steps": [
+                    {
+                        "command": "await_member_at_start",
+                        "status": "blocked",
+                        "error": "the replay starts at https://x/overview, and the browser "
+                        "is on https://x/credit-card. ASK THE MEMBER to bring the open "
+                        "browser back, then replay again.",
+                    }
+                ],
+            }
+        ],
+    }
+    out = _summarize()(rep, Path("r.json"))
+    assert "why:" in out
+    assert "ASK THE MEMBER" in out
+    assert "https://x/overview" in out, "the destination must survive into the summary"
+
+
+def test_the_reason_is_trimmed_so_the_summary_stays_scannable():
+    rep = {
+        "goals": [],
+        "operations": [
+            {
+                "name": "op",
+                "goal_reached": False,
+                "blocked_count": 1,
+                "needs_approval_count": 0,
+                "steps": [{"status": "blocked", "error": "x" * 4000}],
+            }
+        ],
+    }
+    out = _summarize()(rep, Path("r.json"))
+    assert len(out) < 900, f"{len(out)} chars -- a summary nobody reads is the bug"
+    assert "…" in out
+
+
+def test_a_clean_operation_adds_no_why_line():
+    rep = {
+        "goals": [{"name": "d", "reached": True}],
+        "operations": [
+            {
+                "name": "d",
+                "goal_reached": True,
+                "blocked_count": 0,
+                "needs_approval_count": 0,
+                "steps": [{"status": "ok"}],
+            }
+        ],
+    }
+    assert "why:" not in _summarize()(rep, Path("r.json"))

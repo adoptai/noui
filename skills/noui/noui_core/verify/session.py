@@ -396,48 +396,6 @@ def _workflow_urls(ops: list[dict], entry_url: str) -> set[str]:
     return {u.split("?")[0].split(";")[0].rstrip("/") for u in urls if u}
 
 
-def _cannot_reset(entry_url: str, here: str, why: str) -> dict:
-    return {
-        "command": "return_to_entry",
-        "params": {"url": entry_url},
-        "status": "blocked",
-        "error": (
-            f"could not return to the start of the journey ({entry_url}): {why}. "
-            f"The browser is on {here or 'an unknown page'}, which is not where these "
-            "steps were recorded, so replaying them from here proves nothing. Sign in "
-            "again for a session that starts at the landing page."
-        ),
-    }
-
-
-def _recorded_way_back(operations: list[dict], entry_url: str) -> dict | None:
-    """A control the RECORDING watched land on this entry page.
-
-    The preferred way to reposition on a browser-driven app is a click, because
-    navigate is banned there -- a full load destroys the session. But WHICH
-    click matters: hunting the live page for something that looks like a way
-    home is a guess, while a step whose recorded outcome arrived at this exact
-    page is evidence.
-
-    Often there is none. A journey that went forward and never returned never
-    watched anyone go back, and then the caller falls through to the guess --
-    which is fine, as long as it is not mistaken for something observed.
-    """
-    want = entry_url.split("?")[0].split(";")[0].rstrip("/")
-    if not want:
-        return None
-    for op in operations or []:
-        for step in op.get("steps") or []:
-            if not isinstance(step, dict):
-                continue
-            got = str(((step.get("expect") or {}).get("url")) or "")
-            if not got:
-                continue
-            if got.split("?")[0].split(";")[0].rstrip("/") == want:
-                return {"command": step.get("command"), "params": dict(step.get("params") or {})}
-    return None
-
-
 def _entry_for_origin(here: str, entry_url: str, by_origin: dict | None) -> str:
     """The entry page on the host we are ALREADY on.
 
@@ -506,103 +464,60 @@ def _return_to_entry(
             "session to replay against"
         )
 
-    # A recorded control first: on a browser-driven app the way to reposition is
-    # a click, and a click the recording watched arrive HERE is evidence rather
-    # than a guess. Usually absent -- a journey that never went back never
-    # watched anyone go back -- in which case we fall through.
-    back = _recorded_way_back(operations or [], entry_url)
-    if back and back.get("command"):
-        try:
-            execute(back["command"], back.get("params") or {})
-            info = execute("get_page_info", {})
-            landed = str((info.get("data") or info).get("url") or "")
-            if _same_page(landed, entry_url):
-                time.sleep(_settle_after_reset(operations or []))
-                return None
-            here = landed or here
-        except SessionNotReadyError:
-            raise
-        except Exception:  # noqa: BLE001 — recorded once is not guaranteed now
-            pass
-
-    # NO history walk here, deliberately.
+    # Do NOT try to reposition. Ask.
     #
-    # go_back looked cheap and harmless and is neither. The SPA's back stack on
-    # ICICI is [about:blank, /login-page, /overview, ...], so a press from a
-    # shallow point lands the LIVE session on the sign-in page -- which is
-    # exactly "your session has expired" from the member's side. Watched
-    # happening: the session died the moment a replay started, every time, and
-    # never while it sat idle. The overshoot guard stops the walk continuing;
-    # it cannot undo the press that already landed.
+    # A replay is ONE WAY: it drives a live, signed-in session the member is
+    # watching, and every trick for getting back to the start is a way of
+    # spending their session to save them a sentence.
     #
-    # It also never once got home during a real replay. The only time it worked
-    # was an isolated trace where the previous history entry happened to be the
-    # entry page. A mechanism that cannot be relied on to help and can destroy
-    # the session being tested does not belong in front of the ones that can.
+    # `navigate` is a full page load, which refresh-sensitive portals answer by
+    # signing the member out mid-replay -- the whole reason block_navigate
+    # exists. A history walk is worse: ICICI's back stack is
+    # [about:blank, /login-page, /overview, ...], so a press from a shallow point
+    # lands the LIVE session on the sign-in page. And a recorded click "back" is
+    # evidence about the recording, not about wherever the browser is now.
     #
-    # (The worker still exposes go_back; it is a legitimate primitive for a
-    # caller that knows where it is. Nothing here guesses with it.)
+    # So when the session is not at the start, say so and stop. The member has
+    # the browser open; moving it is one click for them and a coin-flip for us,
+    # and a replay that silently repositions itself is also a replay that can
+    # silently prove the wrong thing.
+    return _needs_member_at_start(entry_url, here)
 
-    # navigate NEXT, because on an app that allows it this is one call and
-    # lands exactly where we mean. It is not always allowed: a portal that
-    # carries its session in the URL loses it on a full page load, and the
-    # worker refuses the command outright -- which is how the first live run of
-    # this reset failed, using the one command the app forbids.
-    try:
-        execute("navigate", {"url": entry_url})
-        time.sleep(_settle_after_reset(operations or []))
-        return None
-    except SessionNotReadyError:
-        raise
-    except Exception as exc:  # noqa: BLE001 — may be the refusal, may be real
-        if "navigate is disabled" not in str(exc):
-            return _cannot_reset(entry_url, here, str(exc))
 
-    # Move the way a person does: the app's own link back to the landing page.
-    # Matched on where the link POINTS, not what it says, so this works on a
-    # logo with no text and in any language.
-    try:
-        summary = execute("get_page_summary", {})
-        controls = (summary.get("data") or summary) or {}
-    except SessionNotReadyError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        return _cannot_reset(entry_url, here, f"could not read the page: {exc}")
+def _needs_member_at_start(entry_url: str, here: str) -> dict:
+    """A blocked step that asks the MEMBER to move the browser, not an error.
 
-    home = _home_control(controls, entry_url)
-    if home is None:
-        return _cannot_reset(
-            entry_url,
-            here,
-            "this app does not allow navigate, and no link back to the start was found on the page",
-        )
-
-    # Nobody watched a human click this. It is the live page's own link back,
-    # matched on where it points -- a reasonable guess and still a guess, so it
-    # is recorded as one rather than passing as observed behaviour.
-    if notes is not None:
-        notes.append(
-            {
-                "kind": "unobserved_reset",
-                "entry_url": entry_url,
-                "control": dict(home.get("params") or {}),
-                "why": "no recorded control was seen arriving at this page, so the "
-                "way back was taken from the live page",
-            }
-        )
-    try:
-        execute(home["command"], home["params"])
-        info = execute("get_page_info", {})
-        landed = str((info.get("data") or info).get("url") or "")
-    except SessionNotReadyError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        return _cannot_reset(entry_url, here, f"clicking the way back failed: {exc}")
-
-    if not _same_page(landed, entry_url):
-        return _cannot_reset(entry_url, landed, "clicking the way back did not land on the start")
-    time.sleep(_settle_after_reset(operations or []))
-    return None
+    Phrased as an instruction with the destination in it, because this is the
+    one blocker in a replay the member can clear themselves in a second -- and
+    because "blocked" with no reason is what gets waived as though the skill
+    were broken.
+    """
+    return {
+        "command": "await_member_at_start",
+        "params": {"url": entry_url},
+        "status": "blocked",
+        "error": (
+            f"the replay starts at {entry_url}, and the browser is on "
+            f"{here or 'an unknown page'}. A replay runs one way and does not "
+            "move the session itself: navigating would reload the app, which "
+            "signs the member out on portals like this one.\n"
+            "\n"
+            "A fresh sign-in lands ON the start, so the usual cause is something "
+            "that moved the browser SINCE -- most often the agent's own live "
+            "testing of the operations, or a previous replay that ended deeper "
+            "in the app.\n"
+            "\n"
+            "If YOU moved it, put it back the way a person would: click the "
+            "app's own home/dashboard control (an in-app click is a route "
+            "change and is safe; `navigate` is not). Only if no such control is "
+            "reachable, ask the member to bring the browser back to "
+            f"{entry_url} and say why.\n"
+            "\n"
+            "Either way this is NOT a fault in the skill and must not be "
+            "accepted as an unverified step, and it must not be described to "
+            "the member as a step that failed."
+        ),
+    }
 
 
 def run_replay(

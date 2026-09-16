@@ -124,6 +124,22 @@ def _summarize(report: dict, report_path: Path | None) -> str:
         if o.get("needs_approval_count"):
             detail_bits.append(f"{o['needs_approval_count']} awaiting approval")
         lines.append(f"  [{mark}] {name} -- {', '.join(detail_bits)}")
+        # WHY, not just how many. "1 blocked" with no reason is what a caller
+        # relayed to a member as "this step did not pass" before asking them to
+        # waive it -- for a blocker that was theirs to clear in one click. The
+        # first failing step's own words, trimmed; the file has the rest.
+        why = next(
+            (
+                str(st.get("error") or st.get("detail") or "")
+                for st in steps
+                if str(st.get("status") or "") in ("blocked", "error", "failed", "needs_approval")
+                and (st.get("error") or st.get("detail"))
+            ),
+            "",
+        )
+        if why:
+            why = " ".join(why.split())
+            lines.append(f"      why: {why[:240] + ('…' if len(why) > 240 else '')}")
 
     if report.get("needs_approval"):
         lines.append(
