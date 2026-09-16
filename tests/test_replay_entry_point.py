@@ -51,14 +51,6 @@ class _Browser:
         return [c for c, _ in self.calls]
 
 
-def test_drifted_browser_is_returned_to_the_entry_point():
-    b = _Browser(DRIFTED)
-    assert session_mod._return_to_entry(b, ENTRY) is None
-    # History is tried first — same tab, same cookies — then navigate.
-    assert b.commands == ["get_page_info", "navigate"]
-    assert b.at == ENTRY
-
-
 def test_already_at_the_entry_point_costs_no_page_load():
     # A fresh session lands here. Reloading would only spend time and risk
     # re-running whatever the landing page does on load.
@@ -73,30 +65,16 @@ def test_trailing_slash_is_not_a_different_page():
     assert b.commands == ["get_page_info"]
 
 
-def test_unreadable_url_navigates_rather_than_guessing():
-    class _Blind(_Browser):
-        def __call__(self, command, params):
-            if command == "get_page_info":
-                self.calls.append((command, params))
-                raise RuntimeError("page closed")
-            return super().__call__(command, params)
-
-    b = _Blind(DRIFTED)
-    assert session_mod._return_to_entry(b, ENTRY) is None
-    # History is tried first — same tab, same cookies — then navigate.
-    assert b.commands == ["get_page_info", "navigate"]
-
-
-def test_failed_reset_is_reported_as_the_reset_not_as_step_zero():
-    b = _Browser(DRIFTED, navigate_fails=True)
+def test_being_away_from_the_start_is_reported_as_the_reset_not_as_step_zero():
+    """The blocked record must be attributable to repositioning, not to the
+    operation's first real step -- otherwise the member reads a plan failure
+    where the answer is "move the browser"."""
+    b = _Browser(DRIFTED)
     failed = session_mod._return_to_entry(b, ENTRY)
     assert failed is not None
-    assert failed["command"] == "return_to_entry"
+    assert failed["command"] == "await_member_at_start"
+    assert failed["params"]["url"] == ENTRY
     assert failed["status"] == "blocked"
-    # The report must say where the browser actually was — that is the fact that
-    # explains every step failure underneath it.
-    assert DRIFTED in failed["error"]
-    assert ENTRY in failed["error"]
 
 
 def test_no_session_during_reset_stays_a_login_prompt():
@@ -206,57 +184,6 @@ class _NoNavigate(_Browser):
 HOME_LINK = {"links": [{"text": "", "href": "/overview", "selector": "a.logo"}]}
 
 
-def test_when_navigate_is_refused_the_reset_clicks_the_way_back():
-    b = _NoNavigate(DRIFTED, HOME_LINK)
-    assert session_mod._return_to_entry(b, ENTRY) is None
-    assert "click_element" in b.commands
-    assert b.at == ENTRY
-
-
-def test_the_home_control_is_found_by_where_it_points_not_what_it_says():
-    # It is usually a logo with no text at all. Matching words would need a list
-    # per language and per bank.
-    got = session_mod._home_control(HOME_LINK, ENTRY)
-    assert got == {"command": "click_element", "params": {"selector": "a.logo"}}
-
-
-def test_a_link_to_somewhere_else_is_not_the_way_back():
-    other = {"links": [{"text": "Cards", "href": "/credit-card", "selector": "a.cc"}]}
-    assert session_mod._home_control(other, ENTRY) is None
-
-
-def test_no_way_back_is_reported_with_the_reason():
-    b = _NoNavigate(DRIFTED, {"links": [], "buttons": []})
-    failed = session_mod._return_to_entry(b, ENTRY)
-    assert failed is not None
-    assert "does not allow navigate" in failed["error"]
-    assert DRIFTED in failed["error"]
-
-
-def test_a_click_that_does_not_land_at_the_start_is_not_treated_as_success():
-    class _Wanders(_NoNavigate):
-        def __call__(self, command, params):
-            if command == "click_element":
-                self.calls.append((command, params))
-                self.at = "https://retailnetbanking.icici.bank.in/somewhere-else"
-                return {"data": {}}
-            return super().__call__(command, params)
-
-    b = _Wanders(DRIFTED, HOME_LINK)
-    failed = session_mod._return_to_entry(b, ENTRY)
-    assert failed is not None
-    assert "did not land on the start" in failed["error"]
-
-
-def test_a_real_navigate_failure_is_not_mistaken_for_the_refusal():
-    # Only the "navigate is disabled" refusal earns the click fallback; anything
-    # else is a genuine failure and must be reported, not worked around.
-    b = _Browser(DRIFTED, navigate_fails=True)
-    failed = session_mod._return_to_entry(b, ENTRY)
-    assert failed is not None
-    assert "get_page_summary" not in b.commands
-
-
 # --- a sign-in page is a WAIT, not a plan failure -----------------------------
 #
 # Live run: the browser sat on ICICI's AuthenticationController with LOGIN_FLAG=1
@@ -296,12 +223,13 @@ def test_the_ordinary_login_page_shape_is_caught_too():
         raise AssertionError(f"not detected: {url}")
 
 
-def test_an_ordinary_app_page_is_still_a_reset_not_a_sign_in():
-    # The detector must not swallow a real drift: /credit-card/add-card is a
-    # deep app page, and the answer there is to go back to the start.
+def test_an_ordinary_app_page_is_an_ask_not_a_sign_in():
+    """Being deep in the app is not a dead session: the member is signed in and
+    simply somewhere else, so this is a request to move, never a sign-in card."""
     b = _Browser(DRIFTED)
-    assert session_mod._return_to_entry(b, ENTRY) is None
-    assert "navigate" in b.commands
+    failed = session_mod._return_to_entry(b, ENTRY)
+    assert failed["command"] == "await_member_at_start"
+    assert "sign" not in failed["error"].lower().split("signs you out")[0][:60]
 
 
 # --- walking history home ------------------------------------------------------
@@ -424,66 +352,6 @@ RECORDED_OPS = [
 ]
 
 
-def test_a_recorded_control_is_preferred_over_hunting_the_page():
-    class _B(_NoNavigate):
-        def __call__(self, command, params):
-            if command == "click_by_text" and params.get("text") == "Home":
-                self.calls.append((command, params))
-                self.at = ENTRY
-                return {"data": {}}
-            return super().__call__(command, params)
-
-    b = _B(DRIFTED, HOME_LINK)
-    notes: list = []
-    assert session_mod._return_to_entry(b, ENTRY, {ENTRY}, None, RECORDED_OPS, notes) is None
-    assert ("click_by_text", {"text": "Home"}) in b.calls
-    assert "get_page_summary" not in b.commands, "should not hunt when evidence exists"
-    assert notes == [], "a recorded control is not an unobserved reset"
-
-
-def test_the_live_page_fallback_is_recorded_as_unobserved():
-    b = _NoNavigate(DRIFTED, HOME_LINK)
-    notes: list = []
-    assert session_mod._return_to_entry(b, ENTRY, {ENTRY}, None, [], notes) is None
-    assert len(notes) == 1
-    assert notes[0]["kind"] == "unobserved_reset"
-    assert notes[0]["entry_url"] == ENTRY
-    assert "a.logo" in str(notes[0]["control"])
-
-
-def test_a_recorded_control_for_another_page_is_not_used():
-    ops = [
-        {
-            "name": "x",
-            "steps": [
-                {
-                    "command": "click_by_text",
-                    "params": {"text": "Cards"},
-                    "expect": {"url": DRIFTED},
-                }
-            ],
-        }
-    ]
-    assert session_mod._recorded_way_back(ops, ENTRY) is None
-
-
-def test_the_query_string_does_not_hide_a_match():
-    ops = [
-        {
-            "name": "x",
-            "steps": [
-                {
-                    "command": "click_element",
-                    "params": {"selector": "#home"},
-                    "expect": {"url": ENTRY + "?ref=nav"},
-                }
-            ],
-        }
-    ]
-    got = session_mod._recorded_way_back(ops, ENTRY)
-    assert got == {"command": "click_element", "params": {"selector": "#home"}}
-
-
 def test_the_origin_map_uses_the_page_before_the_first_hop():
     # The compiler gets the WORKFLOW slice, whose first transition is already
     # /overview -> /credit-card. Reading destinations alone made the
@@ -563,22 +431,119 @@ def test_already_at_the_entry_does_not_wait():
         session_mod._RESET_SETTLE_MS = 0
 
 
-def test_the_reset_never_presses_back():
-    """go_back is not a way home; it is a way onto the sign-in page.
-
-    The SPA's back stack on ICICI is [about:blank, /login-page, /overview, ...],
-    so a press from a shallow point lands the LIVE session on the sign-in page —
-    "your session has expired" from the member's side. Watched happening: the
-    session died the moment a replay started, every time, and never while it sat
-    idle.
-    """
-    b = _NoNavigate(DRIFTED, HOME_LINK)
-    session_mod._return_to_entry(b, ENTRY, {ENTRY}, None, [], [])
-    assert "go_back" not in b.commands
+# --- a replay runs ONE WAY: it asks rather than repositioning -------------------
+#
+# Every trick for getting back to the start spends the member's live session to
+# save them a sentence. `navigate` is a full page load, which refresh-sensitive
+# portals answer by signing them out mid-replay -- the whole reason
+# block_navigate exists. Walking history is worse: ICICI's back stack is
+# [about:blank, /login-page, /overview, ...], so a press from a shallow point
+# lands the LIVE session on the sign-in page. A recorded click "back" is
+# evidence about the recording, not about wherever the browser is now.
 
 
-def test_a_drifted_page_still_gets_reset_without_history():
+def test_the_replay_never_moves_the_session_itself():
     b = _Browser(DRIFTED)
+    session_mod._return_to_entry(b, ENTRY)
+    assert b.commands == ["get_page_info"], f"read only, moved nothing: {b.commands}"
+    assert b.at == DRIFTED, "the browser must be exactly where the member left it"
+
+
+def test_the_ask_names_the_destination_and_who_acts():
+    """A member can clear this in one click -- but only if they are told where to
+    go. "blocked" with no destination is what gets waived as a broken skill."""
+    failed = session_mod._return_to_entry(_Browser(DRIFTED), ENTRY)
+    err = failed["error"]
+    assert ENTRY in err, "the destination must be in the message"
+    assert "ask the member" in err
+    assert "does not move the session itself" in err
+
+
+def test_the_ask_says_it_is_not_a_fault_in_the_skill():
+    """It was being accepted as an unverified step, so the skill shipped carrying
+    a waiver for something that was never broken -- and was described to the
+    member as a step that failed."""
+    failed = session_mod._return_to_entry(_Browser(DRIFTED), ENTRY)
+    err = failed["error"]
+    assert "NOT a fault in the skill" in err
+    assert "must not be accepted as an unverified step" in err
+    assert "must not be described to the member as a step that failed" in err
+
+
+def test_the_ask_names_the_usual_cause_and_the_safe_way_back():
+    """A fresh sign-in lands ON the start, so if the browser is elsewhere
+    something moved it since -- in the observed build, the agent's own live
+    testing between sign-in and replay. The agent can undo that itself with an
+    in-app click; only `navigate` is unsafe. Asking the member to repair what the
+    agent moved is the wrong default."""
+    err = session_mod._return_to_entry(_Browser(DRIFTED), ENTRY)["error"]
+    assert "live testing" in err, "name the usual cause"
+    assert "If YOU moved it" in err and "in-app click" in err
+    assert "Only if" in err, "the member is the fallback, not the first resort"
+
+
+def test_already_at_the_start_still_asks_for_nothing():
+    b = _Browser(ENTRY)
     assert session_mod._return_to_entry(b, ENTRY) is None
-    assert b.commands == ["get_page_info", "navigate"]
-    assert b.at == ENTRY
+    assert b.commands == ["get_page_info"]
+
+
+def test_a_transient_url_read_is_retried_before_interrupting_the_member():
+    """The removed reset used to self-heal this by navigating; nothing does now.
+
+    With the reposition gone, an unreadable url falls straight through to the
+    ask -- so one flaky `get_page_info` would stop a replay whose browser was
+    sitting on the start page the whole time. The read is retried once, and a
+    browser that IS at the start proceeds.
+    """
+    calls: list[str] = []
+
+    def execute(command, params):
+        calls.append(command)
+        if command == "get_page_info" and len(calls) == 1:
+            raise RuntimeError("worker busy")
+        return {"data": {"url": ENTRY}}
+
+    assert session_mod._return_to_entry(execute, ENTRY) is None
+    assert calls == ["get_page_info", "get_page_info"]
+
+
+def test_an_unreadable_url_asks_rather_than_guessing_where_the_browser_is():
+    """It still asks -- there is no safe way to find out -- but it must not
+    claim the member moved the browser, which is what the normal wording says."""
+
+    def execute(command, params):
+        raise RuntimeError("worker busy")
+
+    blocked = session_mod._return_to_entry(execute, ENTRY)
+    assert blocked is not None
+    assert blocked["command"] == "await_member_at_start"
+    assert "could not be read" in blocked["error"]
+    # The drift story is wrong here and must not be told.
+    assert "moved the browser SINCE" not in blocked["error"]
+    assert "not evidence that anything moved" in blocked["error"]
+
+
+def test_a_readable_url_still_tells_the_drift_story():
+    b = _Browser(DRIFTED)
+    blocked = session_mod._return_to_entry(b, ENTRY)
+    assert blocked is not None
+    assert "moved the browser SINCE" in blocked["error"]
+    assert "could not be read" not in blocked["error"]
+
+
+def test_no_session_is_not_retried_as_a_read_failure():
+    """SessionNotReadyError must propagate on the FIRST raise -- retrying it
+    would spend a second call to learn the member is still not signed in."""
+    calls: list[str] = []
+
+    def execute(command, params):
+        calls.append(command)
+        raise SessionNotReadyError("HTTP 409 from POST /execute/browser")
+
+    try:
+        session_mod._return_to_entry(execute, ENTRY)
+    except SessionNotReadyError:
+        assert calls == ["get_page_info"]
+        return
+    raise AssertionError("expected SessionNotReadyError to propagate")

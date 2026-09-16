@@ -124,6 +124,22 @@ def _summarize(report: dict, report_path: Path | None) -> str:
         if o.get("needs_approval_count"):
             detail_bits.append(f"{o['needs_approval_count']} awaiting approval")
         lines.append(f"  [{mark}] {name} -- {', '.join(detail_bits)}")
+        # WHY, not just how many. "1 blocked" with no reason is what a caller
+        # relayed to a member as "this step did not pass" before asking them to
+        # waive it -- for a blocker that was theirs to clear in one click. The
+        # first failing step's own words, trimmed; the file has the rest.
+        why = next(
+            (
+                str(st.get("error") or st.get("detail") or "")
+                for st in steps
+                if str(st.get("status") or "") in ("blocked", "error", "failed", "needs_approval")
+                and (st.get("error") or st.get("detail"))
+            ),
+            "",
+        )
+        if why:
+            why = " ".join(why.split())
+            lines.append(f"      why: {why[:240] + ('…' if len(why) > 240 else '')}")
 
     if report.get("needs_approval"):
         lines.append(
@@ -159,6 +175,49 @@ def _step_ran_ok(report: dict, operation: str, step_index: int) -> bool:
         if 0 <= step_index < len(steps):
             return str(steps[step_index].get("status") or "") == "ok"
     return False
+
+
+# A step the replay ASKED about rather than ran. It is not a failure and not an
+# outcome: nothing was tried (see noui_core/verify/session.py). Kept in step with
+# the card, which also declines to count it as unverified.
+PRECONDITION_COMMANDS = {"await_member_at_start"}
+_OPEN_STATUSES = {"blocked", "error", "failed", "needs_approval"}
+
+
+def _previous_run_already_proved_it(skill_dir: Path, digest: str) -> dict | None:
+    """The report of a prior replay of THESE steps that reached every goal.
+
+    Returns it when a fresh run would learn nothing, else None. The digest is
+    what makes this safe: amend or recompile anything and it no longer matches,
+    so the guard never blocks the re-run that follows a change.
+    """
+    try:
+        prev = json.loads((skill_dir / REPORT_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(prev, dict):
+        return None
+    # A partial run (--only) is not end-to-end evidence and says so itself.
+    if prev.get("partial") or prev.get("installable") is False:
+        return None
+    if str(prev.get("steps_digest") or "") != digest:
+        return None
+    goals = prev.get("goals")
+    if (
+        not isinstance(goals, list)
+        or not goals
+        or not all(isinstance(g, dict) and g.get("reached") for g in goals)
+    ):
+        return None
+    for op in prev.get("operations") or []:
+        for st in (op or {}).get("steps") or []:
+            if not isinstance(st, dict):
+                continue
+            if str(st.get("command") or "") in PRECONDITION_COMMANDS:
+                continue
+            if str(st.get("status") or "") in _OPEN_STATUSES:
+                return None
+    return prev
 
 
 def main() -> int:
@@ -211,6 +270,15 @@ def main() -> int:
         "For iterating on one operation without re-walking the journey to reach "
         "it -- the run is NOT evidence the skill works end to end, and its report "
         "says so.",
+    )
+    p.add_argument(
+        "--again",
+        action="store_true",
+        help="replay these same steps again after a run that already reached "
+        "every goal. Refused without this flag: a repeat with nothing changed "
+        "in between is the same run, and it costs the member another pass over "
+        "their live app. Pass it when they asked for one, or when they have put "
+        "the browser back at a starting page the last run had to skip.",
     )
     args = p.parse_args()
 
@@ -266,6 +334,62 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    steps_digest = provenance.steps_digest(operations)
+
+    # One replay. A second one over unchanged steps that already reached every
+    # goal proves nothing the first did not, and it is not free: it re-drives the
+    # member's live bank or portal, can trip a one-per-day export cap, and on an
+    # app that expires its session on reload it costs them another sign-in. An
+    # agent proposed exactly this ("repeat the run once more to confirm
+    # reliability") after a clean run, which is what this refuses.
+    #
+    # Only the pointless case is refused. A changed plan has a different digest,
+    # a run that did not reach a goal is not caught at all, and `--again` covers
+    # the two real reasons to repeat one.
+    if not args.again and not args.only:
+        prior = _previous_run_already_proved_it(skill_dir, steps_digest)
+        if prior is not None:
+            skipped = sorted(
+                {
+                    str(op.get("name") or "")
+                    for op in prior.get("operations") or []
+                    if not (op or {}).get("goal_reached")
+                    and any(
+                        str((st or {}).get("command") or "") in PRECONDITION_COMMANDS
+                        for st in (op or {}).get("steps") or []
+                    )
+                }
+                - {""}
+            )
+            lines = [
+                "This skill was already replayed and it reached every goal "
+                f"({REPORT_FILE} holds the run). The steps have not changed since, "
+                "so replaying them again would re-drive the live app to reach the "
+                "same result.",
+                "",
+                "Do not run it again to confirm reliability -- a repeat with "
+                "nothing changed in between is the same run, and it costs the "
+                "member another pass over their bank or portal (and, on an app "
+                "that expires its session on reload, another sign-in).",
+                "",
+                "Show them the report and ask for their decision.",
+            ]
+            if skipped:
+                lines += [
+                    "",
+                    "One caveat worth telling them: "
+                    + ", ".join(skipped)
+                    + " was not checked, because the browser had moved on from "
+                    "where it starts. If they put it back and want that checked, "
+                    "replay with --again.",
+                ]
+            lines += [
+                "",
+                "If they asked for another replay, pass --again.",
+            ]
+            print("\n".join(lines), file=sys.stderr)
+            return 1
 
     bundle_path = skill_dir / provenance.BUNDLE_FILE
     if bundle_path.is_file():
@@ -403,7 +527,14 @@ def main() -> int:
                 return 1
             # Applied to the in-memory plan only. operations.json stays exactly as
             # compiled, so its digest keeps proving what the recording showed.
-            steps[idx] = a["replacement"]
+            #
+            # Marked NOT recorded, and this is the only place that can know it: by
+            # the time the step reaches the replay it looks exactly like one the
+            # recording produced. The report carries the flag through so the card
+            # can mark it "improvised" -- the one distinction a reviewer most needs,
+            # since a substituted step is precisely the one nobody was watched
+            # performing.
+            steps[idx] = {**a["replacement"], "recorded": False}
 
     values = {}
     for raw in args.param:
@@ -499,6 +630,10 @@ def main() -> int:
                 "nothing has exercised.",
                 file=sys.stderr,
             )
+
+    # Stamps WHICH steps this run covered, so a later invocation can tell a
+    # repeat of the same plan from a replay of an amended one.
+    report["steps_digest"] = steps_digest
 
     if args.only:
         # Stamped BEFORE the file is written, not after. Marking only the copy

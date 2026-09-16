@@ -408,6 +408,15 @@ def _replay_step_inner(
         "expect": step.get("expect"),
         "locator": step.get("locator"),
     }
+    # Carried through so the report can say which steps came from the recording
+    # and which were substituted at replay (`--amend`). The card marks the
+    # substituted ones "improvised", because those are the steps nobody has ever
+    # been watched performing -- and nothing wrote this key, so every step
+    # arrived claiming the recording backed it. Only False is carried: a plan
+    # step says nothing, and the reader's default is that a step in the plan came
+    # from the recording.
+    if step.get("recorded") is False:
+        result["recorded"] = False
 
     # A control already proven unactionable on this page is not worth waiting for
     # again.
