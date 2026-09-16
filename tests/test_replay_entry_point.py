@@ -486,3 +486,64 @@ def test_already_at_the_start_still_asks_for_nothing():
     b = _Browser(ENTRY)
     assert session_mod._return_to_entry(b, ENTRY) is None
     assert b.commands == ["get_page_info"]
+
+
+def test_a_transient_url_read_is_retried_before_interrupting_the_member():
+    """The removed reset used to self-heal this by navigating; nothing does now.
+
+    With the reposition gone, an unreadable url falls straight through to the
+    ask -- so one flaky `get_page_info` would stop a replay whose browser was
+    sitting on the start page the whole time. The read is retried once, and a
+    browser that IS at the start proceeds.
+    """
+    calls: list[str] = []
+
+    def execute(command, params):
+        calls.append(command)
+        if command == "get_page_info" and len(calls) == 1:
+            raise RuntimeError("worker busy")
+        return {"data": {"url": ENTRY}}
+
+    assert session_mod._return_to_entry(execute, ENTRY) is None
+    assert calls == ["get_page_info", "get_page_info"]
+
+
+def test_an_unreadable_url_asks_rather_than_guessing_where_the_browser_is():
+    """It still asks -- there is no safe way to find out -- but it must not
+    claim the member moved the browser, which is what the normal wording says."""
+
+    def execute(command, params):
+        raise RuntimeError("worker busy")
+
+    blocked = session_mod._return_to_entry(execute, ENTRY)
+    assert blocked is not None
+    assert blocked["command"] == "await_member_at_start"
+    assert "could not be read" in blocked["error"]
+    # The drift story is wrong here and must not be told.
+    assert "moved the browser SINCE" not in blocked["error"]
+    assert "not evidence that anything moved" in blocked["error"]
+
+
+def test_a_readable_url_still_tells_the_drift_story():
+    b = _Browser(DRIFTED)
+    blocked = session_mod._return_to_entry(b, ENTRY)
+    assert blocked is not None
+    assert "moved the browser SINCE" in blocked["error"]
+    assert "could not be read" not in blocked["error"]
+
+
+def test_no_session_is_not_retried_as_a_read_failure():
+    """SessionNotReadyError must propagate on the FIRST raise -- retrying it
+    would spend a second call to learn the member is still not signed in."""
+    calls: list[str] = []
+
+    def execute(command, params):
+        calls.append(command)
+        raise SessionNotReadyError("HTTP 409 from POST /execute/browser")
+
+    try:
+        session_mod._return_to_entry(execute, ENTRY)
+    except SessionNotReadyError:
+        assert calls == ["get_page_info"]
+        return
+    raise AssertionError("expected SessionNotReadyError to propagate")

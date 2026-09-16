@@ -527,7 +527,14 @@ def main() -> int:
                 return 1
             # Applied to the in-memory plan only. operations.json stays exactly as
             # compiled, so its digest keeps proving what the recording showed.
-            steps[idx] = a["replacement"]
+            #
+            # Marked NOT recorded, and this is the only place that can know it: by
+            # the time the step reaches the replay it looks exactly like one the
+            # recording produced. The report carries the flag through so the card
+            # can mark it "improvised" -- the one distinction a reviewer most needs,
+            # since a substituted step is precisely the one nobody was watched
+            # performing.
+            steps[idx] = {**a["replacement"], "recorded": False}
 
     values = {}
     for raw in args.param:

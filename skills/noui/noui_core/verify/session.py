@@ -437,13 +437,31 @@ def _return_to_entry(
     Returns a step-shaped dict when the reset itself failed, so the caller can
     report it as what stopped the replay rather than blaming the first step.
     """
-    try:
-        info = execute("get_page_info", {})
-        here = str((info.get("data") or info).get("url") or "")
-    except SessionNotReadyError:
-        raise
-    except Exception:  # noqa: BLE001 — an unreadable url just means "reset anyway"
-        here = ""
+    # Read WHERE the browser is. Retried once, because the only thing this
+    # decides now is whether to stop and ask the member to move it.
+    #
+    # There is no reset any more, so an unreadable url no longer falls through to
+    # a navigate that would have silently put things right: it goes straight to
+    # the ask. A transient read failure would therefore interrupt a replay whose
+    # browser was sitting on the start page all along. One retry costs a round
+    # trip and removes that, and a second failure is reported as what it is --
+    # the url could not be read -- rather than as the member having moved.
+    here = ""
+    unreadable = False
+    for attempt in (1, 2):
+        try:
+            info = execute("get_page_info", {})
+            here = str((info.get("data") or info).get("url") or "")
+            unreadable = False
+            break
+        except SessionNotReadyError:
+            # Not a read failure: no signed-in session. run_replay turns this into
+            # login_required, which is what puts a sign-in card in front of them.
+            raise
+        except Exception:  # noqa: BLE001 -- retried once, then reported honestly
+            unreadable = True
+            if attempt == 2:
+                here = ""
 
     entry_url = _entry_for_origin(here, entry_url, entry_by_origin)
 
@@ -481,10 +499,10 @@ def _return_to_entry(
     # the browser open; moving it is one click for them and a coin-flip for us,
     # and a replay that silently repositions itself is also a replay that can
     # silently prove the wrong thing.
-    return _needs_member_at_start(entry_url, here)
+    return _needs_member_at_start(entry_url, here, unreadable=unreadable)
 
 
-def _needs_member_at_start(entry_url: str, here: str) -> dict:
+def _needs_member_at_start(entry_url: str, here: str, *, unreadable: bool = False) -> dict:
     """A blocked step that asks the MEMBER to move the browser, not an error.
 
     Phrased as an instruction with the destination in it, because this is the
@@ -492,22 +510,33 @@ def _needs_member_at_start(entry_url: str, here: str) -> dict:
     because "blocked" with no reason is what gets waived as though the skill
     were broken.
     """
+    where = (
+        "the browser's url could not be read (twice), so there is no way to tell "
+        "whether it is there"
+        if unreadable
+        else f"the browser is on {here or 'an unknown page'}"
+    )
+    cause = (
+        "An unreadable url is not evidence that anything moved -- it usually "
+        "means the page was mid-navigation or the worker was busy. Check the "
+        "browser yourself before concluding anything about the skill.\n"
+        "\n"
+        if unreadable
+        else "A fresh sign-in lands ON the start, so the usual cause is something "
+        "that moved the browser SINCE -- most often the agent's own live "
+        "testing of the operations, or a previous replay that ended deeper "
+        "in the app.\n"
+        "\n"
+    )
     return {
         "command": "await_member_at_start",
         "params": {"url": entry_url},
         "status": "blocked",
         "error": (
-            f"the replay starts at {entry_url}, and the browser is on "
-            f"{here or 'an unknown page'}. A replay runs one way and does not "
-            "move the session itself: navigating would reload the app, which "
-            "signs the member out on portals like this one.\n"
-            "\n"
-            "A fresh sign-in lands ON the start, so the usual cause is something "
-            "that moved the browser SINCE -- most often the agent's own live "
-            "testing of the operations, or a previous replay that ended deeper "
-            "in the app.\n"
-            "\n"
-            "If YOU moved it, put it back the way a person would: click the "
+            f"the replay starts at {entry_url}, and {where}. A replay runs one "
+            "way and does not move the session itself: navigating would reload "
+            "the app, which signs the member out on portals like this one.\n"
+            "\n" + cause + "If YOU moved it, put it back the way a person would: click the "
             "app's own home/dashboard control (an in-app click is a route "
             "change and is safe; `navigate` is not). Only if no such control is "
             "reachable, ask the member to bring the browser back to "
