@@ -97,15 +97,40 @@ def test_a_predecessor_that_did_not_arrive_is_reported_not_replayed(monkeypatch)
     assert page.calls.count("click_element") == 0, "must not act on the wrong page"
 
 
-def test_a_skill_without_segments_runs_as_it_always_did(monkeypatch):
+def test_a_legacy_skill_asks_rather_than_sending_itself_back(monkeypatch):
+    """A pre-segments skill replays the whole chain in every operation, so the
+    second one needs the entry page again after the first left the browser deeper
+    in the app.
+
+    The replay used to travel back on its own -- `navigate`, a history press, or
+    hunting the page for a link home. It no longer does anything of the sort: a
+    replay runs ONE WAY. It stops and asks for the browser to be put at the start,
+    which a human can do in a click and the replay cannot do safely at all
+    (`navigate` is a full load, and refresh-sensitive portals answer it by signing
+    the member out mid-replay).
+
+    So the first operation runs and the second asks. Recompiling a legacy skill
+    emits segments, after which only the first operation ever needs the start.
+    """
     page = _Page(OVERVIEW, after_first=CC)
     monkeypatch.setattr("noui_core.verify.session._executor", lambda *a, **k: page)
     legacy = [
         {k: v for k, v in o.items() if k not in ("segment_steps", "starts_from")} for o in OPS
     ]
-    run_replay(legacy, profile_slug="p", token="t", entry_url=OVERVIEW)
-    # The full chain runs, so "Cards" is clicked by both operations.
-    assert page.calls.count("click_by_text") == 2
+    report = run_replay(legacy, profile_slug="p", token="t", entry_url=OVERVIEW)
+
+    # The first operation ran from the start; the second stopped and asked.
+    assert page.calls.count("click_by_text") == 1
+    assert "navigate" not in page.calls, "the replay must never move the session itself"
+
+    blocked = [
+        st
+        for op in report["operations"]
+        for st in (op.get("steps") or [])
+        if st.get("command") == "await_member_at_start"
+    ]
+    assert blocked, "the second operation must ask, not fail silently"
+    assert OVERVIEW in blocked[0]["error"]
 
 
 def test_an_arrival_waits_for_the_page_to_be_ready(monkeypatch):
