@@ -32,6 +32,34 @@ from noui_core.verify.replay import approve
 
 REPORT_FILE = "replay_report.json"
 
+# A step the replay ASKED about rather than ran. A replay goes one way: when the
+# browser is not where the recording started it stops and asks to be put back,
+# because navigating there would reload the app and sign the member out. Nothing
+# in that operation was tried, so nothing in it failed.
+#
+# It still leaves goal_reached false, and this file used to read that as a
+# failure -- so approving a replay that reached every goal the member asked for
+# demanded `--accept-failing <op>`, recording that they waived a failure that
+# never happened. noui's own message tells the agent the opposite in as many
+# words ("must not be accepted as an unverified step"). Not checked is its own
+# outcome: no waiver, and named in the approval so the record still says it.
+PRECONDITION_COMMANDS = {"await_member_at_start"}
+_OPEN_STATUSES = {"blocked", "error", "failed", "needs_approval"}
+
+
+def _not_checked(op: dict) -> bool:
+    steps = [st for st in (op.get("steps") or []) if isinstance(st, dict)]
+    asked = any(str(st.get("command") or "") in PRECONDITION_COMMANDS for st in steps)
+    if not asked:
+        return False
+    # A real failure ANYWHERE in the operation keeps it a failure. Only the ask
+    # is excused, and only when it is the sole thing standing in the way.
+    return not any(
+        str(st.get("status") or "") in _OPEN_STATUSES
+        and str(st.get("command") or "") not in PRECONDITION_COMMANDS
+        for st in steps
+    )
+
 
 def _read(path: Path) -> str:
     """File contents, or "" when absent — an unreadable file is not amendments."""
@@ -112,9 +140,18 @@ def main() -> int:
         )
         return 1
 
-    failing = [
-        str(o.get("name")) for o in report.get("operations") or [] if not o.get("goal_reached")
-    ]
+    unreached = [o for o in report.get("operations") or [] if not o.get("goal_reached")]
+    not_checked = [str(o.get("name")) for o in unreached if _not_checked(o)]
+    failing = [str(o.get("name")) for o in unreached if not _not_checked(o)]
+    if not_checked:
+        print(
+            f"Not checked this time: {', '.join(not_checked)} -- the browser had "
+            "moved on from where it starts, so the replay asked to be put back "
+            "rather than driving there itself. Nothing in it failed, and it needs "
+            "no waiver. Tell the member it was not covered; it is recorded in the "
+            "approval either way.",
+            file=sys.stderr,
+        )
     accepted = [str(n) for n in (args.accept_failing or [])]
     if failing and not accepted:
         print(
@@ -136,6 +173,17 @@ def main() -> int:
         print(
             f"No operation named {', '.join(sorted(unknown))} in this replay. A waiver "
             "that names nothing real records a decision about nothing.",
+            file=sys.stderr,
+        )
+        return 1
+
+    waived_but_not_checked = [n for n in accepted if n in not_checked]
+    if waived_but_not_checked:
+        print(
+            f"{', '.join(sorted(waived_but_not_checked))} did not fail -- it was not "
+            "checked, because the browser had moved on from where it starts. Do not "
+            "ask the member to accept it as a failing step: nothing ran, so there is "
+            "nothing to waive. Approve without naming it, and say it was not covered.",
             file=sys.stderr,
         )
         return 1
@@ -249,8 +297,13 @@ def main() -> int:
                     ],
                 }
                 for op in report.get("operations") or []
-                if not op.get("goal_reached")
+                if not op.get("goal_reached") and not _not_checked(op)
             ]
+        if not_checked:
+            # Recorded, but NOT as something the member waived. The installed
+            # skill carries an honest note that this operation was never
+            # exercised, rather than a waiver for a failure that never happened.
+            record["not_checked"] = not_checked
         path = write_approval(skill_dir, record)
     except (OSError, ValueError) as exc:
         print(f"Could not record the approval: {exc}", file=sys.stderr)

@@ -203,8 +203,10 @@ def _previous_run_already_proved_it(skill_dir: Path, digest: str) -> dict | None
     if str(prev.get("steps_digest") or "") != digest:
         return None
     goals = prev.get("goals")
-    if not isinstance(goals, list) or not goals or not all(
-        isinstance(g, dict) and g.get("reached") for g in goals
+    if (
+        not isinstance(goals, list)
+        or not goals
+        or not all(isinstance(g, dict) and g.get("reached") for g in goals)
     ):
         return None
     for op in prev.get("operations") or []:
