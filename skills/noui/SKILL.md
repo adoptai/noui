@@ -284,6 +284,26 @@ Do not approve on the member's behalf. The file is the record of a human
 decision; writing it because the replay looked fine to you defeats the whole
 gate, and the failures this exists to catch are the ones that look fine.
 
+**One replay. Do not run it again to "confirm".** A replay that reached its goal
+has already proved what a second one would prove, and a second one is not free:
+it re-drives the member's live bank or portal, it can trip rate limits or
+one-per-day export caps, and on apps that expire a session on reload it is
+another chance to sign them out and another sign-in to ask for. Never propose
+"let's run it once more to confirm reliability" -- reliability is not what a
+repeat measures, and the member reads the second run as a sign you did not trust
+the first.
+
+Replay again for exactly two reasons:
+
+- the member asked for one, or asked for a change (an amended plan has a new
+  fingerprint and MUST be replayed again), or
+- it did not go well -- a goal was not reached, or a step was blocked -- and you
+  have changed something since, so the re-run can come out differently.
+
+A re-run with nothing changed in between is the same run. If the replay stopped
+to ask to be put back at its starting page, that is the member's move to make
+first; running it again before they have made it just asks the same question.
+
 ### Check these before installing
 
 0. **Is the goal in there at all?** Before anything else: does an operation
