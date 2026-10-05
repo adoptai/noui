@@ -7,6 +7,15 @@
 
 ------------------------------------------------------------------------
 
+> **📦 The NoUI builder is moving to [abcd](https://github.com/adoptai/abcd)**
+> ([adoptai/abcd#25](https://github.com/adoptai/abcd/pull/25)). There it is workspace-aware,
+> wired into the Agent Harness push/run/trace loop, and shipped as the `abcd-builder`
+> Claude Code plugin. **Engine freeze:** until that lands, please don't change
+> `skills/noui/` or `skills/noui-harness/` here (port fixes to abcd instead). This
+> repo then becomes the **marketplace** of built skills; its plugins are already
+> installable: `claude plugin marketplace add adoptai/noui && claude plugin install travel@noui`.
+
+
 ## 🚀 What is NoUI?
 
 **NoUI turns any website into an API your agents can call.**

@@ -19,9 +19,10 @@ python3 -m venv .venv
 .venv/bin/python -m pip install poetry
 .venv/bin/python -m poetry install --no-root --with lint,test
 
-# Configure environment
-cp .env.example .env
-# Edit .env and set ANTHROPIC_API_KEY (required)
+# Configure environment (the toolkit reads skills/noui/.env or the process env)
+cp skills/noui/.env.example skills/noui/.env
+# Edit it: TABBY_API_URL, TABBY_CLIENT_ID / TABBY_CLIENT_SECRET (+ TABBY_ADMIN_TOKEN to
+# register App Templates). No LLM key is needed: compile is deterministic.
 ```
 
 ### Running against a local Tabby checkout
