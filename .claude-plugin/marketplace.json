@@ -1,0 +1,21 @@
+{
+  "name": "noui",
+  "owner": {
+    "name": "Adopt AI"
+  },
+  "metadata": {
+    "description": "Skills and plugins built with NoUI: turn real websites into agent-callable tools through an authenticated Tabby browser session."
+  },
+  "plugins": [
+    {
+      "name": "travel",
+      "source": "./skills/travel",
+      "description": "Demo travel skills (Airbnb, Expedia, Flydubai, Google Flights) via Tabby browser execute."
+    },
+    {
+      "name": "quickbooks",
+      "source": "./skills/quickbooks",
+      "description": "QuickBooks Online demo skills via Tabby browser execute (bank reconciliation)."
+    }
+  ]
+}
