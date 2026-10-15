@@ -1,0 +1,17 @@
+{
+  "skill_id": "turkish-airlines-search",
+  "app": {"name": "Turkish Airlines", "slug": "turkish-airlines-search"},
+  "workflow": {"session_id": "84ab41e7-0f8b-477c-a7c4-63ebd13a9256", "start_url": "https://www.turkishairlines.com"},
+  "tabby": {"profile_slug": "turkish-airlines-search", "profile_db_id": "22892797-c0d1-4337-ad42-af23b40125b8"},
+  "operations": [{
+    "name": "search_flights",
+    "description": "Search Turkish Airlines for available one-way flights on a given route and date.",
+    "args": [
+      {"name": "origin", "type": "string", "required": true, "description": "Departure IATA code (e.g. IST, LHR, JFK)"},
+      {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA code (e.g. LHR, IST, JFK)"},
+      {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+      {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY", "description": "ECONOMY, BUSINESS, or FIRST"},
+      {"name": "adults", "type": "integer", "required": false, "default": 1, "description": "Number of adult travelers"}
+    ]
+  }]
+}

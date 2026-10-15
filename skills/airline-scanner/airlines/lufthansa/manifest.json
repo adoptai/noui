@@ -1,0 +1,17 @@
+{
+  "skill_id": "lufthansa-search",
+  "app": {"name": "Lufthansa", "slug": "lufthansa-search"},
+  "workflow": {"session_id": "8255033e-cb38-4124-b459-d28c926f2a70", "start_url": "https://www.lufthansa.com"},
+  "tabby": {"profile_slug": "lufthansa-search", "profile_db_id": "97f23ff0-c108-4d5a-bc4b-b4d5a436c0c3"},
+  "operations": [{
+    "name": "search_flights",
+    "description": "Search Lufthansa for available one-way flights on a given route and date.",
+    "args": [
+      {"name": "origin", "type": "string", "required": true, "description": "Departure IATA code (e.g. FRA, MUC, LHR)"},
+      {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA code (e.g. NYC, JFK, LHR)"},
+      {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+      {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY", "description": "ECONOMY, BUSINESS, or FIRST"},
+      {"name": "adults", "type": "integer", "required": false, "default": 1}
+    ]
+  }]
+}

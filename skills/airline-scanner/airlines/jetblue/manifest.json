@@ -1,0 +1,76 @@
+{
+  "schema_version": "1",
+  "skill_id": "jetblue-search",
+  "app": {
+    "name": "JetBlue Search",
+    "slug": "jetblue-search"
+  },
+  "workflow": {
+    "id": "jetblue-search",
+    "name": "JetBlue Search",
+    "workflow_session_id": null,
+    "start_url": "https://www.jetblue.com"
+  },
+  "auth": {
+    "requires_auth": false,
+    "profile_slug": null,
+    "profile_db_id": null,
+    "strategy": "none",
+    "execution_strategy": "stdlib",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "create_v1_search_ngb",
+      "description": "Search JetBlue flights for a given route and date. Returns available flights with pricing, flight numbers, departure/arrival times, and stop information.",
+      "module": "operations/create_v1_search_ngb.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/cb-flight-search/v1/search/NGB",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Origin metro or airport code, e.g. \"JFK\", \"NYC\", \"BOS\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Destination metro or airport code, e.g. \"BOS\", \"LAX\", \"LON\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Departure date in YYYY-MM-DD format."
+        },
+        {
+          "name": "adults",
+          "type": "integer",
+          "required": false,
+          "description": "Number of adult travelers (default: 1)."
+        },
+        {
+          "name": "children",
+          "type": "integer",
+          "required": false,
+          "description": "Number of child travelers (default: 0)."
+        },
+        {
+          "name": "infants",
+          "type": "integer",
+          "required": false,
+          "description": "Number of infant travelers (default: 0)."
+        }
+      ]
+    }
+  ]
+}

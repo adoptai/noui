@@ -1,0 +1,17 @@
+{
+  "skill_id": "delta-search",
+  "app": {"name": "Delta Air Lines", "slug": "delta-search"},
+  "workflow": {"session_id": "bcca4f50-c57f-471e-927c-ab1c2312f3f4", "start_url": "https://www.delta.com"},
+  "tabby": {"profile_slug": "delta-search", "profile_db_id": "d49d3f4b-0866-4861-90a9-1fa663469ab7"},
+  "operations": [{
+    "name": "search_flights",
+    "description": "Search Delta Air Lines for available one-way flights via GraphQL (Authorization: GUEST). Requires Tabby for Akamai cookies.",
+    "args": [
+      {"name": "origin", "type": "string", "required": true, "description": "Departure IATA code (e.g. ATL, JFK, LAX)"},
+      {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA code (e.g. JFK, NYC, LAX)"},
+      {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+      {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY"},
+      {"name": "adults", "type": "integer", "required": false, "default": 1}
+    ]
+  }]
+}

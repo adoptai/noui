@@ -1,0 +1,82 @@
+{
+  "schema_version": "1",
+  "skill_id": "volaris-search",
+  "app": {
+    "name": "Volaris Search",
+    "slug": "volaris-search"
+  },
+  "workflow": {
+    "id": "volaris-search",
+    "name": "Volaris Search",
+    "workflow_session_id": "838ef259-f042-47aa-8ce8-d56ae3583fda",
+    "start_url": "https://www.volaris.com"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "volaris-search",
+    "profile_db_id": "409195c8-40ab-404c-8f11-b0df69b2aeee",
+    "strategy": "tabby_credentials",
+    "execution_strategy": "cdp_browser_session",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "create_flight_search",
+      "description": "Search Volaris for available flights on a given route and date. Returns flights with departure/arrival times, stops, fares, and flight numbers.",
+      "module": "operations/create_flight_search.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/prod/api/v3/availability/search",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Departure IATA airport code, e.g. \"MEX\", \"GDL\", \"CUN\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Arrival IATA airport code, e.g. \"GDL\", \"MEX\", \"CUN\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Departure date in YYYY-MM-DD format."
+        },
+        {
+          "name": "adults",
+          "type": "integer",
+          "required": false,
+          "description": "Number of adult travelers (default: 1)."
+        },
+        {
+          "name": "children",
+          "type": "integer",
+          "required": false,
+          "description": "Number of child travelers ages 2-11 (default: 0)."
+        },
+        {
+          "name": "infants",
+          "type": "integer",
+          "required": false,
+          "description": "Number of infant travelers under 2 (default: 0)."
+        },
+        {
+          "name": "currency",
+          "type": "string",
+          "required": false,
+          "description": "Currency code for displayed prices (default: MXN)."
+        }
+      ]
+    }
+  ]
+}

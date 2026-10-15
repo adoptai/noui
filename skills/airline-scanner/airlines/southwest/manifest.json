@@ -1,0 +1,76 @@
+{
+  "schema_version": "1",
+  "skill_id": "southwest-search",
+  "app": {
+    "name": "Southwest Search",
+    "slug": "southwest-search"
+  },
+  "workflow": {
+    "id": "southwest-search",
+    "name": "Southwest Search",
+    "workflow_session_id": "a5cafce4-d045-47a5-b92b-a494f0c6aabd",
+    "start_url": "https://www.southwest.com"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "southwest-search",
+    "profile_db_id": null,
+    "strategy": "tabby_credentials",
+    "execution_strategy": "cdp_browser_session",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "create_air_booking_shopping",
+      "description": "Search Southwest flights for a given route and date. Returns available flights with fares by fare class (Wanna Get Away, Plus, Anytime, Business Select).",
+      "module": "operations/create_air_booking_shopping.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/api/air-booking/v1/air-booking/page/air/booking/shopping",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Departure IATA airport code, e.g. \"LAX\", \"DAL\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Arrival IATA airport code, e.g. \"LGA\", \"MDW\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Departure date in YYYY-MM-DD format."
+        },
+        {
+          "name": "adults",
+          "type": "integer",
+          "required": false,
+          "description": "Number of adult travelers (default: 1)."
+        },
+        {
+          "name": "round-trip",
+          "type": "boolean",
+          "required": false,
+          "description": "Search for a return flight (flag, default: false)."
+        },
+        {
+          "name": "date-in",
+          "type": "string",
+          "required": false,
+          "description": "Return date in YYYY-MM-DD format (used with --round-trip)."
+        }
+      ]
+    }
+  ]
+}

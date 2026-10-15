@@ -1,0 +1,81 @@
+{
+  "schema_version": "1",
+  "skill_id": "air-canada-search",
+  "app": {
+    "name": "Air Canada Search",
+    "slug": "air-canada-search"
+  },
+  "workflow": {
+    "id": "air-canada-search",
+    "name": "Air Canada Search",
+    "workflow_session_id": "01ca3642-7d88-4e82-ac2a-59a1f035c0c7",
+    "start_url": "https://www.aircanada.com"
+  },
+  "auth": {
+    "requires_auth": false,
+    "profile_slug": null,
+    "profile_db_id": null,
+    "strategy": "none",
+    "execution_strategy": "stdlib"
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "create_flight_search",
+      "description": "Search Air Canada for available flights on a given route and date. Returns flight options with departure/arrival times, durations, stops, and fares across economy, premium economy, and business cabins.",
+      "module": "operations/create_flight_search.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/graphql",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Departure IATA airport code, e.g. \"YYZ\", \"YVR\", \"YYC\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Arrival IATA airport code, e.g. \"YVR\", \"YYZ\", \"YYC\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Departure date in YYYY-MM-DD format."
+        },
+        {
+          "name": "adults",
+          "type": "integer",
+          "required": false,
+          "description": "Number of adult travelers (default: 1)."
+        },
+        {
+          "name": "children",
+          "type": "integer",
+          "required": false,
+          "description": "Number of child travelers aged 2–11 (default: 0)."
+        },
+        {
+          "name": "youth",
+          "type": "integer",
+          "required": false,
+          "description": "Number of youth travelers aged 12–17 (default: 0)."
+        },
+        {
+          "name": "infants_on_lap",
+          "type": "integer",
+          "required": false,
+          "description": "Number of infants on lap (default: 0)."
+        }
+      ]
+    }
+  ]
+}

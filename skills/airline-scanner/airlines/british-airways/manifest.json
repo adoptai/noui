@@ -1,0 +1,17 @@
+{
+  "skill_id": "british-airways-search",
+  "app": {"name": "British Airways", "slug": "british-airways-search"},
+  "workflow": {"session_id": "1b505250-a3a2-4865-8fa2-f4ec1d35e8ca", "start_url": "https://www.britishairways.com"},
+  "tabby": null,
+  "operations": [{
+    "name": "search_flights",
+    "description": "Search British Airways for available one-way flights. No Tabby required — public GET BFF endpoint.",
+    "args": [
+      {"name": "origin", "type": "string", "required": true, "description": "Departure IATA code (e.g. LHR, JFK)"},
+      {"name": "destination", "type": "string", "required": true, "description": "Arrival IATA code (e.g. JFK, LHR, SYD)"},
+      {"name": "date", "type": "string", "required": true, "description": "Departure date in YYYY-MM-DD format"},
+      {"name": "cabin_class", "type": "string", "required": false, "default": "ECONOMY", "description": "ECONOMY, PREMIUM_ECONOMY, BUSINESS, or FIRST"},
+      {"name": "adults", "type": "integer", "required": false, "default": 1}
+    ]
+  }]
+}

@@ -1,0 +1,70 @@
+{
+  "schema_version": "1",
+  "skill_id": "wizz-air-search",
+  "app": {
+    "name": "Wizz Air Search",
+    "slug": "wizz-air-search"
+  },
+  "workflow": {
+    "id": "wizz-air-search",
+    "name": "Wizz Air Search",
+    "workflow_session_id": "49c65afc-5da4-4c75-991f-ba398e711b79",
+    "start_url": "https://www.wizzair.com"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "wizz-air-search",
+    "profile_db_id": null,
+    "strategy": "tabby_credentials",
+    "execution_strategy": "cdp_browser_session",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "create_api_search_flightdatesmultiarrival",
+      "description": "Search Wizz Air for available flight dates on a route over a date range. Returns all dates with flights in the window.",
+      "module": "operations/create_api_search_flightdatesmultiarrival.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/28.10.1/Api/search/FlightDatesMultiArrival",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Departure IATA airport or city code, e.g. \"BUD\" or \"WMI\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Arrival IATA airport or city code, e.g. \"LON\", \"LTN\", or \"STN\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Start of search window in YYYY-MM-DD format."
+        },
+        {
+          "name": "days",
+          "type": "integer",
+          "required": false,
+          "description": "Number of days to search ahead from date (default: 60)."
+        },
+        {
+          "name": "return",
+          "type": "boolean",
+          "required": false,
+          "description": "Search for return flights (flag, default: false)."
+        }
+      ]
+    }
+  ]
+}

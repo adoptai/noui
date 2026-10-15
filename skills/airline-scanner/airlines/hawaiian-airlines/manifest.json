@@ -1,0 +1,64 @@
+{
+  "schema_version": "1",
+  "skill_id": "hawaiian-airlines-search",
+  "app": {
+    "name": "Hawaiian Airlines Search",
+    "slug": "hawaiian-airlines-search"
+  },
+  "workflow": {
+    "id": "hawaiian-airlines-search",
+    "name": "Hawaiian Airlines Search",
+    "workflow_session_id": "c296b6a1-388f-4ea7-a7a7-d1c5b6809c92",
+    "start_url": "https://www.hawaiianairlines.com"
+  },
+  "auth": {
+    "requires_auth": true,
+    "profile_slug": "hawaiian-airlines-search",
+    "profile_db_id": "436d7798-ca0a-46c1-ad4a-de868dfd06e2",
+    "strategy": "tabby_credentials",
+    "execution_strategy": "cdp_browser_session",
+    "auth_plan_file": null
+  },
+  "runtime": {
+    "type": "claude-code-skill",
+    "entrypoint": "SKILL.md",
+    "operation_style": "subprocess-cli",
+    "python": ">=3.11"
+  },
+  "operations": [
+    {
+      "name": "create_flight_search",
+      "description": "Search Hawaiian Airlines for lowest available fares on and around a given date. Returns a price calendar (shoulder dates) with one fare per day.",
+      "module": "operations/create_flight_search.py",
+      "entry": "execute",
+      "method": "POST",
+      "path": "/search/api/shoulderDates",
+      "args": [
+        {
+          "name": "origin",
+          "type": "string",
+          "required": true,
+          "description": "Departure IATA airport code, e.g. \"HNL\", \"OGG\", \"KOA\"."
+        },
+        {
+          "name": "destination",
+          "type": "string",
+          "required": true,
+          "description": "Arrival IATA airport code, e.g. \"OGG\", \"HNL\", \"LAX\"."
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": true,
+          "description": "Target departure date in YYYY-MM-DD format."
+        },
+        {
+          "name": "adults",
+          "type": "integer",
+          "required": false,
+          "description": "Number of adult travelers (default: 1)."
+        }
+      ]
+    }
+  ]
+}
