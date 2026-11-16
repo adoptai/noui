@@ -1,13 +1,15 @@
 name: Deploy NoUI Skill
 
+# RETIRED for automatic deploys. NoUI now ships inside the `abcd` harness skill,
+# published by adoptai/abcd (.github/workflows/deploy-abcd-skill.yml). Pushes to
+# dev/prod no longer republish the separate `noui` Built-in skill, so the two repos
+# can't race. Manual `workflow_dispatch` remains only for an emergency rollback
+# until the platform's `noui` skill is retired.
+
 # Publishes the NoUI harness skill to the platform default ("Built-in") tier.
 #
-#   push to `dev`  -> deploys to the `dev`  GitHub Environment  (dev webui)
-#   push to `prod` -> deploys to the `prod` GitHub Environment  (api.adopt.ai)
-#
 # Each environment supplies its own base URL + service-account PAT, so the
-# workflow itself is environment-agnostic. `workflow_dispatch` allows a manual
-# deploy to either environment.
+# workflow itself is environment-agnostic.
 #
 # Required per-environment config (Settings > Environments > dev|prod):
 #   var    ADOPT_BASE_URL       e.g. https://api.adopt.ai
@@ -17,12 +19,6 @@ name: Deploy NoUI Skill
 
 on:
   pull_request:
-    paths:
-      - "skills/noui-harness/**"
-      - "skills/noui/**"
-      - ".github/workflows/deploy-skill.yml"
-  push:
-    branches: [dev, prod]
     paths:
       - "skills/noui-harness/**"
       - "skills/noui/**"
